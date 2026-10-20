@@ -342,7 +342,11 @@ fn store(held: &mut sources::Sources, target: &Target, outcome: &Outcome) {
         held.set(SourceRecord {
             key: target.entity.key.clone(),
             source: source.to_string(),
-            source_id: Some(target.mbid.clone()),
+            source_id: if source == wikipedia::PORTRAIT_SOURCE {
+                target.wikidata_id.clone()
+            } else {
+                Some(target.mbid.clone())
+            },
             fetched_at: clock::now_seconds(),
             // Both sources are reached by identifier — the Wikidata entity
             // MusicBrainz links to, the artist's own MusicBrainz id — never
@@ -414,17 +418,20 @@ fn targets(
         let entity = record.entity();
         let linked = artist.wikidata.as_deref().and_then(wikipedia::entity_id);
 
-        if !again && has_portrait(held, &entity) {
+        if !again && has_portrait(held, &entity, mbid, linked.as_deref()) {
             continue;
         }
         // `again` reruns a source that has already answered; without it, a
         // source is worth trying only when it has not been asked yet — and
         // not at all when there is nothing to ask it with, a missing
         // Fanart.tv key above all, which is never a reason to keep retrying.
-        let wikidata_id =
-            linked.filter(|_| again || held.get(&entity, wikipedia::PORTRAIT_SOURCE).is_none());
+        let wikidata_id = linked.filter(|id| {
+            again || !super::fetch::has_source_answer(held, &entity, wikipedia::PORTRAIT_SOURCE, id)
+        });
         let fanarttv_mbid = fanarttv_key
-            .filter(|_| again || held.get(&entity, fanarttv::SOURCE).is_none())
+            .filter(|_| {
+                again || !super::fetch::has_source_answer(held, &entity, fanarttv::SOURCE, mbid)
+            })
             .map(|_| mbid.to_string());
         if wikidata_id.is_none() && fanarttv_mbid.is_none() {
             continue;
@@ -458,16 +465,25 @@ fn targets(
 }
 
 /// `true` when a picture — not just an answer — is already on record.
-fn has_portrait(held: &sources::Sources, entity: &EntityRef) -> bool {
-    [wikipedia::PORTRAIT_SOURCE, fanarttv::SOURCE]
-        .iter()
-        .any(|source| match held.get(entity, source) {
-            Some(SourceRecord {
-                facts: Facts::Artist(artist),
-                ..
-            }) => artist.portrait.is_some(),
-            _ => false,
-        })
+fn has_portrait(
+    held: &sources::Sources,
+    entity: &EntityRef,
+    mbid: &str,
+    wikidata_id: Option<&str>,
+) -> bool {
+    [
+        (wikipedia::PORTRAIT_SOURCE, wikidata_id),
+        (fanarttv::SOURCE, Some(mbid)),
+    ]
+    .iter()
+    .any(|(source, identity)| match held.get(entity, source) {
+        Some(SourceRecord {
+            facts: Facts::Artist(artist),
+            source_id,
+            ..
+        }) => identity.is_some() && source_id.as_deref() == *identity && artist.portrait.is_some(),
+        _ => false,
+    })
 }
 
 #[cfg(test)]

@@ -447,6 +447,17 @@ pub(super) fn reaches(wanted: &[String], candidates: &[&str]) -> bool {
         })
 }
 
+/// A completed lookup answers only for its captured provider identity.
+pub(super) fn has_source_answer(
+    held: &sources::Sources,
+    entity: &EntityRef,
+    source: &str,
+    source_id: &str,
+) -> bool {
+    held.get(entity, source)
+        .is_some_and(|record| record.source_id.as_deref() == Some(source_id))
+}
+
 /// MusicBrainz artist identities that can have local artwork beside an album.
 pub(super) fn artist_image_candidates<'a>(
     catalog: &'a Catalog,

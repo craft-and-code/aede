@@ -378,7 +378,9 @@ fn store(held: &mut sources::Sources, target: &Target, cover: Option<String>) {
     held.set(SourceRecord {
         key: target.entity.key.clone(),
         source: coverart::SOURCE.to_string(),
-        source_id: None,
+        // The namespaced index identifies the question, even for an empty
+        // answer. An edition and a release group can use the same UUID.
+        source_id: Some(target.url.clone()),
         fetched_at: clock::now_seconds(),
         // Asked by identifier, through a link the catalog or MusicBrainz
         // supplied: nothing here was matched by name.
@@ -394,7 +396,7 @@ fn store_artwork(held: &mut sources::Sources, target: &Target) {
     held.set(SourceRecord {
         key: target.entity.key.clone(),
         source: ARTWORK_SOURCE.to_string(),
-        source_id: None,
+        source_id: Some(target.url.clone()),
         fetched_at: clock::now_seconds(),
         confidence: sources::Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
@@ -479,7 +481,37 @@ fn survey(
             out.unidentified += 1;
             continue;
         };
-        let extras = images && (again || held.get(&entity, ARTWORK_SOURCE).is_none());
+        // Prefer the local edition over a group or trusted source fallback.
+        // Resolve this before reusing a receipt: the entity's folder key does
+        // not change when its MusicBrainz identity is corrected.
+        let lookup = match release.mbid.as_deref() {
+            Some(edition) => Some(coverart::release_index_url(edition)),
+            None => release
+                .release_group_mbid
+                .as_deref()
+                .map(MusicBrainzReleaseIdentity::ReleaseGroup)
+                .or_else(|| {
+                    held.get(&entity, sources::MUSICBRAINZ)
+                        .filter(|record| held.is_trusted(catalog, record))
+                        .and_then(SourceRecord::musicbrainz_release_identity)
+                })
+                .map(|identity| match identity {
+                    MusicBrainzReleaseIdentity::Edition(edition) => {
+                        coverart::release_index_url(edition)
+                    }
+                    MusicBrainzReleaseIdentity::ReleaseGroup(group) => coverart::index_url(group),
+                }),
+        };
+        let same_lookup = |record: &SourceRecord| {
+            // A legacy answer without its lookup identity must be confirmed
+            // once when a current selector exists. With no selector, a trusted
+            // stored front remains recoverable as before.
+            lookup
+                .as_deref()
+                .is_none_or(|url| record.source_id.as_deref() == Some(url))
+        };
+        let extras =
+            images && (again || !held.get(&entity, ARTWORK_SOURCE).is_some_and(same_lookup));
         if !cover && !extras {
             match embedded {
                 true => out.embedded += 1,
@@ -503,7 +535,7 @@ fn survey(
         if !again
             && let Some(record) = held
                 .get(&entity, coverart::SOURCE)
-                .filter(|record| held.is_trusted(catalog, record))
+                .filter(|record| held.is_trusted(catalog, record) && same_lookup(record))
         {
             let stored = match &record.facts {
                 Facts::Release(ReleaseFacts { cover_art, .. }) => cover_art.clone(),
@@ -528,29 +560,9 @@ fn survey(
                 (_, true) => {}
             }
         }
-        // The edition the shelf actually holds is a better question than the
-        // one somebody else thought representative: a reissue often has other
-        // artwork. Falling back to the album when the tags name no edition.
-        let url = match release.mbid.as_deref() {
-            Some(edition) => coverart::release_index_url(edition),
-            None => match release
-                .release_group_mbid
-                .as_deref()
-                .map(MusicBrainzReleaseIdentity::ReleaseGroup)
-                .or_else(|| {
-                    held.get(&entity, sources::MUSICBRAINZ)
-                        .filter(|record| held.is_trusted(catalog, record))
-                        .and_then(SourceRecord::musicbrainz_release_identity)
-                }) {
-                Some(MusicBrainzReleaseIdentity::Edition(edition)) => {
-                    coverart::release_index_url(edition)
-                }
-                Some(MusicBrainzReleaseIdentity::ReleaseGroup(group)) => coverart::index_url(group),
-                None => {
-                    out.unidentified += 1;
-                    continue;
-                }
-            },
+        let Some(url) = lookup else {
+            out.unidentified += 1;
+            continue;
         };
         out.targets.push(Target {
             entity,

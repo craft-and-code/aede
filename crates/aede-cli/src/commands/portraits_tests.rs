@@ -402,7 +402,7 @@ fn an_artist_with_a_stored_picture_is_not_a_target_again() {
     layer.set(SourceRecord {
         key: "miles davis".to_string(),
         source: wikipedia::PORTRAIT_SOURCE.to_string(),
-        source_id: Some("mbid-1".to_string()),
+        source_id: Some("Q11649".to_string()),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Artist(ArtistFacts {
@@ -448,7 +448,7 @@ fn a_source_already_asked_and_empty_is_not_asked_again_but_the_other_still_is() 
     layer.set(SourceRecord {
         key: "miles davis".to_string(),
         source: wikipedia::PORTRAIT_SOURCE.to_string(),
-        source_id: Some("mbid-1".to_string()),
+        source_id: Some("Q11649".to_string()),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Artist(ArtistFacts::default()),
@@ -544,7 +544,7 @@ fn store_records_nothing_found_only_for_the_sources_actually_asked() {
 #[test]
 fn has_portrait_reads_either_source() {
     let mut layer = Sources::default();
-    assert!(!has_portrait(&layer, &entity()));
+    assert!(!has_portrait(&layer, &entity(), "mbid-1", None));
 
     layer.set(SourceRecord {
         key: "miles davis".to_string(),
@@ -560,7 +560,7 @@ fn has_portrait_reads_either_source() {
         }),
     });
     assert!(
-        has_portrait(&layer, &entity()),
+        has_portrait(&layer, &entity(), "mbid-1", None),
         "a picture from either source counts"
     );
 }
@@ -600,6 +600,246 @@ fn portrait_asked(again: bool) -> crate::commands::fetch::Asked<'static> {
 struct PortraitMetadata {
     doc: aede_core::json::Json,
     requested: Vec<String>,
+}
+
+#[test]
+fn correcting_the_wikidata_link_reopens_a_portrait_lookup_for_the_same_artist() {
+    for picture in [false, true] {
+        let dir = sandbox(&format!("changed_wikidata_link_{picture}"));
+        let catalog = one_album(&dir);
+        let mut layer = held(Some("https://www.wikidata.org/wiki/Q1001"));
+        let path = sources::sources_path(&dir);
+        let mut transport = PortraitMetadata {
+            doc: aede_core::json::parse(r#"{"entities":{"Q1001":{"claims":{}}}}"#).unwrap(),
+            requested: Vec::new(),
+        };
+        run(
+            &catalog,
+            &mut transport,
+            &[],
+            &mut layer,
+            &path,
+            &dir,
+            None,
+            &portrait_asked(false),
+        )
+        .unwrap();
+        assert_eq!(transport.requested.len(), 1);
+        layer = sources::load_all(&path).unwrap().unwrap();
+        if picture {
+            let record = layer
+                .records
+                .iter_mut()
+                .find(|record| record.source == wikipedia::PORTRAIT_SOURCE)
+                .unwrap();
+            let Facts::Artist(facts) = &mut record.facts else {
+                panic!("portrait facts")
+            };
+            facts.portrait = Some(Picture {
+                url: "https://retained.example/portrait.png".into(),
+            });
+        }
+        let record = layer
+            .records
+            .iter_mut()
+            .find(|record| record.source == sources::MUSICBRAINZ)
+            .unwrap();
+        let Facts::Artist(facts) = &mut record.facts else {
+            panic!("artist facts")
+        };
+        facts.wikidata = Some("https://www.wikidata.org/wiki/Q1002".into());
+        sources::save(&layer, &path).unwrap();
+        layer = sources::load_all(&path).unwrap().unwrap();
+        transport.doc = aede_core::json::parse(r#"{"entities":{"Q1002":{"claims":{}}}}"#).unwrap();
+        for _ in 0..2 {
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                None,
+                &portrait_asked(false),
+            )
+            .unwrap();
+            assert_eq!(
+                transport.requested.len(),
+                2,
+                "a cached portrait or absence for Q1001 must not complete Q1002"
+            );
+            assert_eq!(transport.requested[1], wikipedia::entity_data_url("Q1002"));
+            layer = sources::load_all(&path).unwrap().unwrap();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn legacy_portrait_receipts_are_confirmed_once_without_overwriting_existing_images() {
+    for picture in [false, true] {
+        for on_disk in [false, true] {
+            let dir = sandbox(&format!("legacy_wikidata_{picture}_{on_disk}"));
+            let catalog = one_album(&dir);
+            let mut layer = held(Some("https://www.wikidata.org/wiki/Q1001"));
+            let destination = targets(
+                &catalog,
+                &layer,
+                &[],
+                &super::super::fetch::EVERYTHING,
+                &dir,
+                None,
+                false,
+            )
+            .remove(0)
+            .destination;
+            let png = include_bytes!("../../../aede-core/tests/fixtures/images/rgba.png");
+            if on_disk {
+                coverart::write_image(&destination, Kind::Artist, (0, 1), png).unwrap();
+            }
+            layer.set(SourceRecord {
+                key: entity().key,
+                source: wikipedia::PORTRAIT_SOURCE.into(),
+                source_id: Some("mbid-1".into()),
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Artist(ArtistFacts {
+                    portrait: picture.then(|| Picture {
+                        url: "https://retained.example/portrait.png".into(),
+                    }),
+                    ..Default::default()
+                }),
+            });
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let mut transport = PortraitMetadata {
+                doc: aede_core::json::parse("{}").unwrap(),
+                requested: Vec::new(),
+            };
+            run(
+                &catalog,
+                &mut transport,
+                &[],
+                &mut layer,
+                &path,
+                &dir,
+                None,
+                &portrait_asked(false),
+            )
+            .unwrap();
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "a failed confirmation retains legacy evidence"
+            );
+            assert_eq!(transport.requested.len(), usize::from(!on_disk));
+            transport.doc =
+                aede_core::json::parse(r#"{"entities":{"Q1001":{"claims":{}}}}"#).unwrap();
+            for _ in 0..2 {
+                layer = sources::load_all(&path).unwrap().unwrap();
+                run(
+                    &catalog,
+                    &mut transport,
+                    &[],
+                    &mut layer,
+                    &path,
+                    &dir,
+                    None,
+                    &portrait_asked(false),
+                )
+                .unwrap();
+                assert_eq!(transport.requested.len(), if on_disk { 0 } else { 2 });
+            }
+            if on_disk {
+                assert_eq!(std::fs::read(destination.join("artist.png")).unwrap(), png);
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+            } else {
+                let saved = sources::load_all(&path).unwrap().unwrap();
+                assert_eq!(
+                    saved
+                        .get(&entity(), wikipedia::PORTRAIT_SOURCE)
+                        .unwrap()
+                        .source_id
+                        .as_deref(),
+                    Some("Q1001")
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn changed_artwork_identity_reopens_portrait_answers_without_repeating_current_ones() {
+    for wikidata in [false, true] {
+        for picture in [false, true] {
+            for changed in [false, true] {
+                let dir = sandbox(&format!("changed_identity_{wikidata}_{picture}_{changed}"));
+                let catalog = one_album(&dir);
+                let mut layer = held(wikidata.then_some("https://www.wikidata.org/wiki/Q11649"));
+                layer.records[0].source_id = Some("11111111-1111-4111-8111-111111111111".into());
+                layer.set(SourceRecord {
+                    key: entity().key,
+                    source: if wikidata {
+                        wikipedia::PORTRAIT_SOURCE
+                    } else {
+                        fanarttv::SOURCE
+                    }
+                    .into(),
+                    source_id: Some(
+                        if wikidata {
+                            if changed { "Q1001" } else { "Q11649" }
+                        } else if changed {
+                            "44444444-4444-4444-8444-444444444444"
+                        } else {
+                            "11111111-1111-4111-8111-111111111111"
+                        }
+                        .into(),
+                    ),
+                    fetched_at: 1,
+                    confidence: Confidence::Identified,
+                    facts: Facts::Artist(ArtistFacts {
+                        portrait: picture.then(|| Picture {
+                            url: "https://retained.example/portrait.png".into(),
+                        }),
+                        ..Default::default()
+                    }),
+                });
+                let path = sources::sources_path(&dir);
+                sources::save(&layer, &path).unwrap();
+                let mut transport = PortraitMetadata {
+                    doc: aede_core::json::parse(if wikidata {
+                        r#"{"entities":{"Q11649":{"claims":{}}}}"#
+                    } else {
+                        r#"{"mbid_id":"11111111-1111-4111-8111-111111111111","artistthumb":[]}"#
+                    })
+                    .unwrap(),
+                    requested: Vec::new(),
+                };
+                for _ in 0..2 {
+                    run(
+                        &catalog,
+                        &mut transport,
+                        &[],
+                        &mut layer,
+                        &path,
+                        &dir,
+                        (!wikidata).then_some("fixture-key"),
+                        &portrait_asked(false),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        transport.requested.len(),
+                        usize::from(changed),
+                        "wikidata {wikidata}, picture {picture}, changed {changed}"
+                    );
+                    layer = sources::load_all(&path).unwrap().unwrap();
+                }
+                std::fs::remove_dir_all(dir).unwrap();
+            }
+        }
+    }
 }
 
 impl Ask for PortraitMetadata {

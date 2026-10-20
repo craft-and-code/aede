@@ -607,7 +607,12 @@ fn store_writing_a_logo_never_erases_a_portrait_already_on_record() {
 #[test]
 fn has_logo_reads_the_dedicated_source() {
     let mut layer = Sources::default();
-    assert!(!has_logo(&layer, &entity()));
+    assert!(!crate::commands::fetch::has_source_answer(
+        &layer,
+        &entity(),
+        fanarttv::LOGO_SOURCE,
+        "mbid-1"
+    ));
 
     layer.set(SourceRecord {
         key: "miles davis".to_string(),
@@ -622,7 +627,12 @@ fn has_logo_reads_the_dedicated_source() {
             ..Default::default()
         }),
     });
-    assert!(has_logo(&layer, &entity()));
+    assert!(crate::commands::fetch::has_source_answer(
+        &layer,
+        &entity(),
+        fanarttv::LOGO_SOURCE,
+        "mbid-1"
+    ));
 }
 
 #[test]
@@ -949,6 +959,129 @@ fn no_key_means_nothing_is_ever_waiting() {
 }
 
 #[test]
+fn changed_artwork_identity_reopens_fanart_families_without_repeating_current_answers() {
+    struct EmptyAnswer {
+        label: bool,
+        requested: usize,
+    }
+    impl Ask for EmptyAnswer {
+        fn get_json(&mut self, _url: &str) -> Result<aede_core::json::Json, Refusal> {
+            self.requested += 1;
+            Ok(aede_core::json::parse(if self.label {
+                r#"{"id":"33333333-3333-4333-8333-333333333333","musiclabel":[]}"#
+            } else {
+                r#"{"mbid_id":"11111111-1111-4111-8111-111111111111","albums":[{"release_group_id":"22222222-2222-4222-8222-222222222222","albumcover":[],"cdart":[]}]}"#
+            }).unwrap())
+        }
+        fn get_bytes(&mut self, _url: &str) -> Result<Vec<u8>, Refusal> {
+            panic!("an empty image answer has nothing to download")
+        }
+    }
+    for (case, source, kind) in [
+        (0, fanarttv::LOGO_SOURCE, EntityKind::Artist),
+        (1, fanarttv::PORTRAIT_ARTWORK_SOURCE, EntityKind::Artist),
+        (2, fanarttv::BACKGROUND_SOURCE, EntityKind::Artist),
+        (3, fanarttv::BANNER_SOURCE, EntityKind::Artist),
+        (4, fanarttv::ARTWORK_SOURCE, EntityKind::Artist),
+        (5, fanarttv::ALBUM_COVER_SOURCE, EntityKind::Release),
+        (6, fanarttv::CDART_SOURCE, EntityKind::Release),
+        (7, fanarttv::ARTWORK_SOURCE, EntityKind::Release),
+        (8, fanarttv::LABEL_LOGO_SOURCE, EntityKind::Label),
+    ] {
+        for changed in [false, true] {
+            let dir = sandbox(&format!("changed_identity_{case}_{changed}"));
+            let mut catalog = one_album(&dir);
+            catalog.releases[0].release_group_mbid =
+                Some("22222222-2222-4222-8222-222222222222".into());
+            catalog.labels.push(aede_core::model::Label {
+                id: 0,
+                name: "Fixture Records".into(),
+                key: "fixture records".into(),
+                mbid: Some("33333333-3333-4333-8333-333333333333".into()),
+            });
+            let entity = EntityRef::of(&catalog, kind, 0).unwrap();
+            let identity = match kind {
+                EntityKind::Artist => "11111111-1111-4111-8111-111111111111",
+                EntityKind::Release => "22222222-2222-4222-8222-222222222222",
+                EntityKind::Label => "33333333-3333-4333-8333-333333333333",
+                _ => unreachable!(),
+            };
+            let mut layer = held();
+            layer.records[0].source_id = Some("11111111-1111-4111-8111-111111111111".into());
+            layer.set(SourceRecord {
+                key: entity.key,
+                source: source.into(),
+                source_id: Some(
+                    if changed {
+                        "44444444-4444-4444-8444-444444444444"
+                    } else {
+                        identity
+                    }
+                    .into(),
+                ),
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: match kind {
+                    EntityKind::Artist => Facts::Artist(Default::default()),
+                    EntityKind::Release => Facts::Release(Default::default()),
+                    EntityKind::Label => Facts::Label(Default::default()),
+                    _ => unreachable!(),
+                },
+            });
+            let selected = FanartOptions {
+                logo: case == 0,
+                portrait: case == 1,
+                background: matches!(case, 2 | 4),
+                banner: case == 3,
+                album_cover: case == 5,
+                cdart: matches!(case, 6 | 7),
+                label_logo: case == 8,
+                ..Default::default()
+            };
+            let asked = crate::commands::fetch::Asked {
+                names: &[],
+                scope: &crate::commands::fetch::EVERYTHING,
+                again: false,
+                dry_run: false,
+                size: crate::commands::covers::DEFAULT_SIZE,
+                size_requested: false,
+                images: false,
+                fanart: selected,
+                langs: vec!["en".into()],
+                key: None,
+                portrait_key: None,
+            };
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let mut transport = EmptyAnswer {
+                label: case == 8,
+                requested: 0,
+            };
+            for _ in 0..2 {
+                run(
+                    &catalog,
+                    &mut transport,
+                    &[],
+                    &mut layer,
+                    &path,
+                    &dir,
+                    Some("fixture-key"),
+                    &asked,
+                )
+                .unwrap();
+                assert_eq!(
+                    transport.requested,
+                    usize::from(changed),
+                    "case {case}, changed {changed}"
+                );
+                layer = sources::load_all(&path).unwrap().unwrap();
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
 fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
     let dir = sandbox("waiting");
     let catalog = one_album(&dir);
@@ -987,6 +1120,43 @@ fn malformed_fanart_families_preserve_answers_and_completion_eligibility() {
         cases.push((false, format!(r#"{{"mbid_id":"mbid-1","albums":[{{"release_group_id":"release-group-1","{field}":{{}}}}]}}"#)));
     }
     cases.push((true, r#"{"id":"label-mbid","musiclabel":{}}"#.into()));
+    for row in [
+        "null",
+        r#""not-an-image""#,
+        "{}",
+        r#"{"url":null}"#,
+        r#"{"url":""}"#,
+        r#"{"url":7}"#,
+    ] {
+        for field in [
+            "hdmusiclogo",
+            "musiclogo",
+            "artistthumb",
+            "musicbanner",
+            "artist4kbackground",
+            "artistbackground",
+        ] {
+            cases.push((
+                false,
+                format!(r#"{{"mbid_id":"mbid-1","{field}":[{row}]}}"#),
+            ));
+        }
+        for field in ["albumcover", "cdart"] {
+            cases.push((false, format!(r#"{{"mbid_id":"mbid-1","albums":[{{"release_group_id":"release-group-1","{field}":[{row}]}}]}}"#)));
+        }
+        cases.push((
+            true,
+            format!(r#"{{"id":"label-mbid","musiclabel":[{row}]}}"#),
+        ));
+    }
+    for row in [
+        "null",
+        "{}",
+        r#"{"release_group_id":null}"#,
+        r#"{"release_group_id":""}"#,
+    ] {
+        cases.push((false, format!(r#"{{"mbid_id":"mbid-1","albums":[{row}]}}"#)));
+    }
 
     for (case, (label, invalid)) in cases.into_iter().enumerate() {
         for refresh in [false, true] {

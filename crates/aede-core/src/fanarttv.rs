@@ -168,14 +168,28 @@ pub fn label_response(response: &Json, mbid: &str) -> Result<(), String> {
     validate_arrays(response, &["musiclabel"])
 }
 
-/// Missing and empty image pools are valid absences; unreadable pools are not.
+/// Missing and empty pools are valid absences; unreadable entries are not.
 fn validate_arrays(response: &Json, fields: &[&str]) -> Result<(), String> {
     for field in fields {
-        if response
-            .get(field)
-            .is_some_and(|value| !matches!(value, Json::Arr(_)))
-        {
+        let Some(value) = response.get(field) else {
+            continue;
+        };
+        let Json::Arr(rows) = value else {
             return Err(format!("Fanart.tv returned no valid {field} array"));
+        };
+        // Album entries carry their release-group selector; image entries
+        // carry an address. Discarding either would cache a false absence.
+        let required = if *field == "albums" {
+            "release_group_id"
+        } else {
+            "url"
+        };
+        if rows.iter().any(|row| {
+            row.get(required)
+                .and_then(Json::as_str)
+                .is_none_or(|text| text.trim().is_empty())
+        }) {
+            return Err(format!("Fanart.tv returned an unreadable {field} entry"));
         }
     }
     Ok(())

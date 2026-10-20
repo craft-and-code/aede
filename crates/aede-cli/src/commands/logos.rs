@@ -659,8 +659,11 @@ fn targets(
             })
             .collect::<Vec<_>>();
 
-        let legacy_complete = held.get(&entity, fanarttv::ARTWORK_SOURCE).is_some();
-        let needs_logo = selected.logo && (again || !has_logo(held, &entity));
+        let legacy_complete =
+            super::fetch::has_source_answer(held, &entity, fanarttv::ARTWORK_SOURCE, mbid);
+        let needs_logo = selected.logo
+            && (again
+                || !super::fetch::has_source_answer(held, &entity, fanarttv::LOGO_SOURCE, mbid));
         let needs_artist_art = [
             (selected.portrait, fanarttv::PORTRAIT_ARTWORK_SOURCE),
             (selected.background, fanarttv::BACKGROUND_SOURCE),
@@ -674,17 +677,30 @@ fn targets(
                 && (again
                     || (!legacy_complete
                         && !already_on_disk
-                        && held.get(&entity, source).is_none()))
+                        && !super::fetch::has_source_answer(held, &entity, source, mbid)))
         });
         let needs_album_art = albums.iter().any(|album| {
-            let legacy = held.get(&album.entity, fanarttv::ARTWORK_SOURCE).is_some();
+            let legacy = super::fetch::has_source_answer(
+                held,
+                &album.entity,
+                fanarttv::ARTWORK_SOURCE,
+                &album.release_group,
+            );
             [
                 (selected.album_cover, fanarttv::ALBUM_COVER_SOURCE),
                 (selected.cdart, fanarttv::CDART_SOURCE),
             ]
             .into_iter()
             .any(|(wanted, source)| {
-                wanted && (again || (!legacy && held.get(&album.entity, source).is_none()))
+                wanted
+                    && (again
+                        || (!legacy
+                            && !super::fetch::has_source_answer(
+                                held,
+                                &album.entity,
+                                source,
+                                &album.release_group,
+                            )))
             })
         });
         if !needs_logo && !needs_artist_art && !needs_album_art {
@@ -700,13 +716,6 @@ fn targets(
         });
     }
     targets
-}
-
-/// `true` when a logo — not just an answer — is already on record.
-fn has_logo(held: &sources::Sources, entity: &EntityRef) -> bool {
-    // A record with `logo: None` means Fanart.tv was already asked and had
-    // none. It is still an answer, not an invitation to ask again forever.
-    held.get(entity, fanarttv::LOGO_SOURCE).is_some()
 }
 
 /// Downloads logos for labels that `fetch --labels` has already identified.
@@ -848,9 +857,6 @@ fn label_targets(
                 return None;
             }
             let entity = EntityRef::of(catalog, EntityKind::Label, label.id)?;
-            if !again && held.get(&entity, fanarttv::LABEL_LOGO_SOURCE).is_some() {
-                return None;
-            }
             let mbid =
                 label
                     .mbid
@@ -864,6 +870,16 @@ fn label_targets(
                         | sources::LabelIdentityResolution::Conflict { .. }
                         | sources::LabelIdentityResolution::Rejected { .. } => None,
                     })?;
+            if !again
+                && super::fetch::has_source_answer(
+                    held,
+                    &entity,
+                    fanarttv::LABEL_LOGO_SOURCE,
+                    &mbid,
+                )
+            {
+                return None;
+            }
             Some(LabelTarget {
                 entity,
                 name: label.name.clone(),

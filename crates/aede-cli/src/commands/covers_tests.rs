@@ -230,7 +230,7 @@ fn what_was_left_alone_is_counted_by_reason_and_not_by_one_word() {
     layer.set(SourceRecord {
         key: entity.key,
         source: coverart::SOURCE.to_string(),
-        source_id: None,
+        source_id: Some(coverart::release_index_url("59211ea4")),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
@@ -303,7 +303,7 @@ fn a_cover_deleted_since_it_was_fetched_comes_back_from_the_stored_address() {
     layer.set(SourceRecord {
         key: entity.key,
         source: coverart::SOURCE.to_string(),
-        source_id: None,
+        source_id: Some(coverart::release_index_url("59211ea4")),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts {
@@ -358,7 +358,7 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
     layer.set(SourceRecord {
         key: entity.key,
         source: coverart::SOURCE.to_string(),
-        source_id: None,
+        source_id: Some(coverart::release_index_url("59211ea4")),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts::default()),
@@ -372,6 +372,152 @@ fn an_album_the_archive_had_nothing_for_stays_a_finished_question() {
         false,
     );
     assert_eq!((survey.asked, survey.targets.len()), (1, 0));
+}
+
+#[test]
+fn a_changed_cover_identity_reopens_front_and_extras_in_the_exact_namespace() {
+    let old = "11111111-1111-4111-8111-111111111111";
+    let new = "22222222-2222-4222-8222-222222222222";
+    for (case, was_edition, is_edition, next) in [
+        ("edition", true, true, new),
+        ("group", false, false, new),
+        ("namespace", false, true, old),
+    ] {
+        for answer in ["missing", "front", "extras"] {
+            let dir = sandbox(&format!("changed_identity_{case}_{answer}"));
+            let mut catalog = library(&dir, false, None);
+            catalog.releases[0].mbid = was_edition.then(|| old.into());
+            catalog.releases[0].release_group_mbid = (!was_edition).then(|| old.into());
+            let mut layer = Sources::default();
+            let path = sources::sources_path(&dir);
+            let options = asked(Size::Thumbnail(1200), answer == "extras", false);
+            let mut first = Canned::new(
+                vec![if answer == "front" {
+                    Ok(INDEX.into())
+                } else {
+                    Err(Refusal::Missing)
+                }],
+                if answer == "front" {
+                    vec![Ok(JPEG.to_vec())]
+                } else {
+                    Vec::new()
+                },
+            );
+            run(&catalog, &mut first, &[], &mut layer, &path, &options).unwrap();
+            if answer == "front" {
+                std::fs::remove_file(cover_in(&dir)).unwrap();
+            }
+            layer = sources::load_all(&path).unwrap().unwrap();
+            catalog.releases[0].mbid = is_edition.then(|| next.into());
+            catalog.releases[0].release_group_mbid = (!is_edition).then(|| next.into());
+            let expected = if is_edition {
+                coverart::release_index_url(next)
+            } else {
+                coverart::index_url(next)
+            };
+            let mut second = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+            run(&catalog, &mut second, &[], &mut layer, &path, &options).unwrap();
+            assert_eq!(second.asked.first(), Some(&expected), "{case}, {answer}");
+            assert_eq!(std::fs::read(cover_in(&dir)).unwrap(), JPEG);
+            let mut repeated = Canned::new(Vec::new(), Vec::new());
+            layer = sources::load_all(&path).unwrap().unwrap();
+            run(&catalog, &mut repeated, &[], &mut layer, &path, &options).unwrap();
+            assert!(
+                repeated.asked.is_empty(),
+                "the corrected identity is cached: {case}, {answer}"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn legacy_cover_receipts_are_confirmed_once_without_losing_them_on_failure() {
+    for image in [false, true] {
+        for extras in [false, true] {
+            let dir = sandbox(&format!("legacy_receipt_{image}_{extras}"));
+            let catalog = library(&dir, false, None);
+            let entity = EntityRef::of(&catalog, EntityKind::Release, 0).unwrap();
+            let mut layer = Sources::default();
+            layer.set(SourceRecord {
+                key: entity.key.clone(),
+                source: coverart::SOURCE.into(),
+                source_id: None,
+                fetched_at: 1,
+                confidence: Confidence::Identified,
+                facts: Facts::Release(ReleaseFacts {
+                    cover_art: image.then(|| "https://retained.example/legacy.jpg".into()),
+                    ..Default::default()
+                }),
+            });
+            if extras {
+                layer.set(SourceRecord {
+                    key: entity.key.clone(),
+                    source: ARTWORK_SOURCE.into(),
+                    source_id: None,
+                    fetched_at: 1,
+                    confidence: Confidence::Identified,
+                    facts: Facts::Release(Default::default()),
+                });
+            }
+            let path = sources::sources_path(&dir);
+            sources::save(&layer, &path).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let options = asked(Size::Thumbnail(1200), extras, false);
+            let index = coverart::release_index_url("59211ea4");
+            let mut unavailable = Canned::new(
+                vec![Err(Refusal::Failed("fixture unavailable".into()))],
+                Vec::new(),
+            );
+            run(&catalog, &mut unavailable, &[], &mut layer, &path, &options).unwrap();
+            assert_eq!(unavailable.asked.as_slice(), std::slice::from_ref(&index));
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "a failed confirmation preserves legacy evidence"
+            );
+            layer = sources::load_all(&path).unwrap().unwrap();
+            let mut retry = Canned::new(vec![Ok(INDEX.into())], vec![Ok(JPEG.to_vec())]);
+            run(&catalog, &mut retry, &[], &mut layer, &path, &options).unwrap();
+            assert_eq!(
+                retry.asked,
+                [
+                    index.clone(),
+                    "https://coverartarchive.org/x/1-1200.jpg".into()
+                ]
+            );
+            layer = sources::load_all(&path).unwrap().unwrap();
+            assert_eq!(
+                layer
+                    .get(&entity, coverart::SOURCE)
+                    .unwrap()
+                    .source_id
+                    .as_deref(),
+                Some(index.as_str())
+            );
+            if extras {
+                assert_eq!(
+                    layer
+                        .get(&entity, ARTWORK_SOURCE)
+                        .unwrap()
+                        .source_id
+                        .as_deref(),
+                    Some(index.as_str())
+                );
+            }
+            let mut completed = Canned::new(Vec::new(), Vec::new());
+            run(&catalog, &mut completed, &[], &mut layer, &path, &options).unwrap();
+            assert!(
+                completed.asked.is_empty(),
+                "a confirmed receipt does not repeat metadata requests"
+            );
+            std::fs::remove_file(cover_in(&dir)).unwrap();
+            let mut recovery = Canned::new(Vec::new(), vec![Ok(JPEG.to_vec())]);
+            run(&catalog, &mut recovery, &[], &mut layer, &path, &options).unwrap();
+            assert_eq!(recovery.asked, ["https://coverartarchive.org/x/1-1200.jpg"]);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 }
 
 #[test]
@@ -960,7 +1106,7 @@ fn with_images_a_stored_address_is_not_enough_and_the_index_is_asked() {
     layer.set(SourceRecord {
         key: entity.key,
         source: coverart::SOURCE.to_string(),
-        source_id: None,
+        source_id: Some(coverart::release_index_url("59211ea4")),
         fetched_at: 1,
         confidence: Confidence::Identified,
         facts: Facts::Release(ReleaseFacts {
@@ -1207,7 +1353,7 @@ fn existing_front_covers_are_reused_before_image_transfer_without_a_rescan() {
                     layer.set(SourceRecord {
                         key: entity.key.clone(),
                         source: coverart::SOURCE.into(),
-                        source_id: None,
+                        source_id: Some(coverart::release_index_url("59211ea4")),
                         fetched_at: 1,
                         confidence: Confidence::Identified,
                         facts: Facts::Release(ReleaseFacts {
@@ -1384,7 +1530,7 @@ fn a_removed_catalogued_front_is_recovered_before_a_rescan() {
                         held.set(SourceRecord {
                             key: entity.key.clone(),
                             source: coverart::SOURCE.into(),
-                            source_id: None,
+                            source_id: Some(coverart::release_index_url("59211ea4")),
                             fetched_at: 1,
                             confidence: Confidence::Identified,
                             facts: Facts::Release(ReleaseFacts {
