@@ -319,7 +319,7 @@ from a title is a guess, and this project records where a fact came from
 (read from a tag, inferred by a rule, fetched from MusicBrainz) rather than
 flattening the three into one field that looks equally certain.
 
-Fetched edition credits require the source's explicit edition ID to match the local release ID. Their scope remains the edition even when its recordings occur on other releases. Neither a title match, a release-group identifier, nor two missing edition identifiers establish that relationship. A manual credit added to a precise local release key can instead use that explicit local scope without an MBID; it remains an edition correction and never becomes a recording credit.
+Fetched edition credits require the local release ID to match the retained canonical edition or its verified queried alias. A lookup following a valid MusicBrainz merged-ID redirect retains the canonical `edition_mbid` and a separate optional `edition_lookup_mbid`, including when no release group is returned. Reloading the cache, retagging to the canonical edition and refreshing it preserve this evidence and the current acceptance/rejection. Manual credits keep their literal edition scope; group aliases never identify editions. Their scope remains the edition even when its recordings occur on other releases. Neither a title match, a release-group identifier, nor two missing edition identifiers establish that relationship. A manual credit added to a precise local release key can instead use that explicit local scope without an MBID; it remains an edition correction and never becomes a recording credit.
 
 ## What is missing from the shelf
 

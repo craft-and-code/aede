@@ -191,6 +191,18 @@ Supported artist, release, track and label snapshots require a `facts` object in
 
 Imports also refuse unreadable present credit/work collections in a recording or edition snapshot explicitly marked `relationships_complete:true`, including nested work credits. They do not replace the previous snapshot. Absent optional collections, valid empty arrays and legacy snapshots without that completion marker retain their existing meaning.
 
+Completed recording-credit lookups may also carry `relationships_for`, the MusicBrainz recording selector whose completed lookup confirmed the retained canonical identity. This optional provenance distinguishes an unchanged alias redirected to a canonical ID from a later correction of the local recording ID. Reuse recognizes both that captured alias and the canonical ID returned by its lookup; retagging a file with the already confirmed canonical ID does not repeat the request. Explicitly refreshing that same canonical recording retains the earlier verified alias, while a different queried alias or unrelated corrected identity does not inherit it. A completed MusicBrainz snapshot whose canonical recording matches its source ID can also establish that captured alias during identity checks. The same proof governs whether its alias suppresses another lookup: missing or contradictory canonical recording facts remain retryable instead of establishing a completed alias. Two contradictory present selectors cannot complete the principal-ID lookup either. A legacy snapshot carrying only one selector remains reusable under that principal identity, without gaining an alias. Credit-coverage reports apply the same coherence rule, so a contradictory richer snapshot cannot conceal a valid answer from another placement. When only the recording fact retains an ID, it still participates in local identity conflicts and in preserving acceptance/rejection through a verified refresh or redirect. It does not upgrade a name match or override rejection; either explicit review follows only a verified continuation of that identity. Older snapshots remain readable and use their source ID as the lookup receipt until refreshed, without inventing missing alias evidence.
+
+An exact MusicBrainz artist lookup redirected from a merged MBID may retain `lookup_mbid` in its artist facts. The source ID stays canonical; the optional captured alias allows the local tag to keep referring to the verified original identifier. This does not accept approximate name matches or unrelated IDs. Explicit acceptance or rejection remains authoritative and follows only a verified continuation of that artist identity. Older snapshots without alias evidence keep the existing conflict check until explicitly refreshed.
+
+Label facts may also retain a verified optional `lookup_mbid` alongside the canonical source ID. Both the queried alias and the canonical identity remain usable after cache reload or retagging. Completing a name-search result keeps its original score; an exact lookup of that candidate does not accept the original name match. Acceptance/rejection follows only a verified continuation, including older snapshots stored under either confirmed ID. Unrelated decisions are not transferred.
+
+Secondary artist-biography and label-Discogs lookups keep the same canonical/alias proof and original confidence, while preserving the reviewed decision and separately cached discography. They query a current tag only when it is already a confirmed equivalent of the source identity; a contradictory local tag cannot silently redirect an accepted source lookup. These optional fields do not require a storage-format migration; legacy caches are confirmed on an explicit refresh rather than having missing proof inferred.
+
+Direct release-group lookups keep the canonical source ID and an optional verified `lookup_mbid` in release facts. Both the queried alias and a later retag to that canonical group remain usable, and a verified continuation retains acceptance/rejection. An edition lookup never establishes a group alias; completing the same group's edition credits preserves earlier proof. Legacy snapshots without this optional field remain readable and conservative until refreshed. Unreadable group identifiers in lookups, searches or nested edition responses are refused before replacing retained facts or decisions. Valid search candidates are ranked after unusable identifiers have been discarded; a failed refresh remains eligible for an explicit retry.
+
+Exact edition lookups retain the returned canonical `edition_mbid` and, when redirected, an optional `edition_lookup_mbid` for the verified queried alias. Both identifiers reuse the saved credits after cache reload or retagging, and an explicit canonical refresh retains earlier alias evidence and acceptance/rejection. Without a group, the source ID is the canonical edition as well. Another edition, a release-group alias or a missing identifier cannot inherit these credits; manual corrections keep their literal scope. Legacy snapshots without this optional provenance remain readable and conservative until explicitly refreshed.
+
 The ID is included in the URL and can be copied separately. An album address points to its **release group**, which defines the album as a whole rather than a specific pressing.
 
 Three distinct states are differentiated: a value confirmed by your tags, a value in contradiction, and a value missing from your tags.
@@ -245,6 +257,7 @@ a completed trusted answer for its exact local release ID. Manual edition
 credits are reported separately without claiming a MusicBrainz lookup. The
 album detail suggests a folder-scoped fetch command for either waiting scope;
 records without the required local MusicBrainz identity must be identified first.
+`aede doctor` also recognizes a trusted completed recording answer on another local placement, including a completed answer with no credits. An older identification-only snapshot cannot keep that recording marked incomplete; rejected, pending or internally contradictory snapshots cannot clear the diagnostic.
 Existing recording JSON fields remain available alongside the added edition coverage.
 `aede fetch --credits --dry-run` shows pending requests for both scopes.
 
@@ -393,6 +406,8 @@ aede fetch --covers --dry-run       # say which albums, ask nothing
 
 Downloaded images are saved as `cover.jpg` or `cover.png` alongside audio tracks. Audio files are never altered. JPEG and static PNG pixels are decoded before publication, with complete container endings required. Incomplete containers, undecodable pixel streams and animated PNG are refused. Images are limited to 32 MiB, 8192 pixels per axis and 16 million pixels; no external image tool is required. PNG checks include chunk CRCs and the compressed stream checksum. JPEG has no integrity checksum: a modified stream that remains decodable cannot be certified as its original. `--full` re-queries the archive without replacing local images. Extra-image completion is recorded only when the whole answer succeeds: an existing `artwork/` directory alone is insufficient, and retries skip images already saved.
 
+Archive receipts retain their exact release or release-group index URL in `source_id`, including negative answers and completed extras. Changing that identity reopens the lookup; edition and release-group namespaces are kept distinct. Older receipts without that selector are confirmed once when a current identity is available. A failed confirmation preserves the previous evidence and remains retryable. Without a current identifier, a trusted stored front address remains recoverable; existing image files are never overwritten.
+
 ## Fanart.tv Artwork
 
 Fanart.tv complements the Cover Art Archive with artist artwork, label marks, and additional album visuals. It requires a free application key in `AEDE_FANARTTV_KEY`:
@@ -442,7 +457,7 @@ aede missing                # what is credited to them and not here
 aede missing davis          # narrowed, by artist or by title
 ```
 
-`missing` performs **no network request**. It calculates the result from stored discography data.
+`missing` performs **no network request**. It calculates the result from stored discography data. A trusted cached group lookup can establish an old/new MusicBrainz alias pair for a local album carrying either group ID. Both sides then count as owned, before and after retagging. Edition fallbacks, pending/rejected claims, detached records and contradictory local identities cannot supply this equivalence. The literal group IDs in tags and the existing title fallback remain independent.
 
 ```
 Missing
