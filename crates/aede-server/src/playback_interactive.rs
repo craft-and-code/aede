@@ -303,7 +303,7 @@ async fn reset_ack(
     socket: &mut WebSocket,
     state: &ApiState,
     captured: &auth::Principal,
-    shutdown: &mut broadcast::Receiver<()>,
+    shutdown: &mut crate::shutdown::Receiver,
     epoch: u64,
 ) -> Result<(), StreamFailure> {
     #[derive(Deserialize)]
@@ -481,7 +481,7 @@ pub(super) async fn run(
     state: ApiState,
     captured: auth::Principal,
     permit: tokio::sync::OwnedSemaphorePermit,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
     mut start: Start,
 ) {
     start.queue = true;

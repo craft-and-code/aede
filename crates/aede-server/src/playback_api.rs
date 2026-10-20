@@ -658,7 +658,7 @@ async fn receive_start(
     socket: &mut WebSocket,
     state: &ApiState,
     captured: &auth::Principal,
-    shutdown: &mut broadcast::Receiver<()>,
+    shutdown: &mut crate::shutdown::Receiver,
 ) -> Result<Start, Option<StreamFailure>> {
     let mut authorization = tokio::time::interval(AUTH_RECHECK_INTERVAL);
     authorization.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -837,7 +837,7 @@ async fn drive(
     state: &ApiState,
     captured: &auth::Principal,
     receiver: &mut mpsc::Receiver<ProducerEvent>,
-    shutdown: &mut broadcast::Receiver<()>,
+    shutdown: &mut crate::shutdown::Receiver,
     sources: &[TrackSource],
     mode: DriveMode<'_>,
     timeline: &mut ListeningTimeline,
@@ -878,7 +878,7 @@ async fn drive_inner(
     state: &ApiState,
     captured: &auth::Principal,
     receiver: &mut mpsc::Receiver<ProducerEvent>,
-    shutdown: &mut broadcast::Receiver<()>,
+    shutdown: &mut crate::shutdown::Receiver,
     sources: &[TrackSource],
     mode: DriveMode<'_>,
     timeline: &mut ListeningTimeline,
@@ -1603,7 +1603,7 @@ async fn playback_stream(
     state: ApiState,
     captured: auth::Principal,
     permit: tokio::sync::OwnedSemaphorePermit,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     let start = match receive_start(&mut socket, &state, &captured, &mut shutdown).await {
         Ok(start) => start,

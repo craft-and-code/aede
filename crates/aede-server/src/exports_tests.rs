@@ -3,6 +3,61 @@ use crate::accounts_test_support::{Fixture, http, login};
 use axum::http::{Method, Request as HttpRequest};
 use tower::ServiceExt;
 
+#[test]
+fn shutdown_during_export_admission_cannot_publish_original_audio() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fixture = Fixture::new();
+        let installed = crate::playback_test_support::install_wav(&fixture, 400).await;
+        let reference = EntityRef::parse_token(&installed.reference).unwrap();
+        let source = {
+            let catalog = fixture.0.catalog.read().await;
+            playback_api::source_from_catalog(catalog.as_ref().unwrap(), &reference).unwrap()
+        };
+        let accounts = fixture.accounts();
+        let (principal, _) =
+            auth::start_session(&fixture.0, &accounts, accounts.find("alice").unwrap()).unwrap();
+        let mut request = Request::builder()
+            .uri(format!(
+                "/api/me/v1/exports/original?ref={}&stamp={}",
+                crate::test_support::encoded(&installed.reference),
+                crate::test_support::encoded(&crate::subsonic::media::source_stamp(&source))
+            ))
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(principal);
+        let _observer = fixture.0.shutdown.subscribe();
+        let (release, worker) = crate::test_support::hold_blocking_worker().await;
+        let mut transfer = Box::pin(original(State(fixture.0.clone()), request));
+        std::future::poll_fn(|context| {
+            assert!(transfer.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        fixture.0.shutdown.send(()).unwrap();
+        drop(release);
+        worker.await.unwrap();
+        let published = match transfer.await {
+            Ok(response) => Some(
+                axum::body::to_bytes(response.into_body(), 1_000_000)
+                    .await
+                    .unwrap()
+                    .len(),
+            ),
+            Err(_) => None,
+        };
+        assert!(
+            published.is_none(),
+            "export admitted audio after shutdown: {published:?}"
+        );
+        assert!(!aede_core::user::user_path(&fixture.0.data_dir).exists());
+    });
+}
+
 #[tokio::test]
 async fn original_export_is_byte_exact_private_revocable_and_does_not_record_listening() {
     let fixture = Fixture::new();

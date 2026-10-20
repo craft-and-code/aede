@@ -20,7 +20,7 @@ pub(super) fn lock(
 pub(super) struct Control<'a> {
     state: &'a ApiState,
     cancel: &'a AtomicBool,
-    shutdown: &'a mut broadcast::Receiver<()>,
+    shutdown: &'a mut crate::shutdown::Receiver,
     id: Option<u64>,
     pub(super) progress: NativeProgress,
     quantum: Instant,
@@ -30,7 +30,7 @@ impl<'a> Control<'a> {
     pub(super) fn new(
         state: &'a ApiState,
         cancel: &'a AtomicBool,
-        shutdown: &'a mut broadcast::Receiver<()>,
+        shutdown: &'a mut crate::shutdown::Receiver,
         id: Option<u64>,
         progress: NativeProgress,
     ) -> Self {

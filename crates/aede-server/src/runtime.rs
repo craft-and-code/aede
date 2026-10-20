@@ -248,7 +248,7 @@ pub(super) fn watch_catalog(path: PathBuf, state: ApiState) -> impl Future<Outpu
 async fn watch_catalog_until(
     path: PathBuf,
     state: ApiState,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     let mut known = *state.loaded_stamp.read().await;
     let mut reported_failure: Option<Option<(SystemTime, u64)>> = None;
@@ -418,7 +418,7 @@ async fn serve_connections(
     acceptor: Option<tokio_rustls::TlsAcceptor>,
     application: Router,
     state: &ApiState,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) -> Result<(), std::io::Error> {
     // Capture this before accepting. A WebSocket upgrade leaves the HTTP task,
     // but retains its permit in `ConnectionStream`; shutdown below waits until
@@ -479,7 +479,7 @@ async fn serve_connection(
     permit: tokio::sync::OwnedSemaphorePermit,
     acceptor: Option<tokio_rustls::TlsAcceptor>,
     application: Router,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     if let Some(acceptor) = acceptor {
         let stream = tokio::select! {
@@ -510,7 +510,7 @@ async fn serve_connection(
 async fn serve_http_connection<S>(
     stream: ConnectionStream<S>,
     application: Router,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
     remote: bool,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -755,7 +755,7 @@ fn serve_with_owner_transport(
         .build()?;
     let result = runtime.block_on(async move {
         let (events, _) = broadcast::channel(32);
-        let (shutdown, _) = broadcast::channel(1);
+        let shutdown = crate::shutdown::Sender::default();
         let admin = Some(Admin {
             token: if remote {
                 String::new()

@@ -3,6 +3,68 @@ use super::*;
 use crate::accounts_test_support::Fixture;
 
 #[test]
+fn shutdown_during_subsonic_authentication_cannot_publish_original_audio() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let mut published = Vec::new();
+        for method in ["stream", "download"] {
+            let fixture = Fixture::new();
+            crate::playback_test_support::install_wav(&fixture, 400).await;
+            let token = key(&fixture, "alice");
+            let id = opaque_id(
+                fixture.0.catalog.read().await.as_ref().unwrap(),
+                EntityKind::Track,
+                0,
+            )
+            .unwrap();
+            let parameters = Parameters::from_pairs(&[
+                ("apiKey", &token),
+                ("v", "1.16.1"),
+                ("c", "fixture"),
+                ("id", &id),
+            ]);
+            let _observer = fixture.0.shutdown.subscribe();
+            let (release, worker) = crate::test_support::hold_blocking_worker().await;
+            let mut transfer = Box::pin(execute(
+                fixture.0.clone(),
+                method,
+                parameters,
+                HeaderMap::new(),
+            ));
+            std::future::poll_fn(|context| {
+                assert!(transfer.as_mut().poll(context).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            fixture.0.shutdown.send(()).unwrap();
+            drop(release);
+            worker.await.unwrap();
+            match transfer.await {
+                Ok(Answer::Binary(response)) => {
+                    let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+                        .await
+                        .unwrap();
+                    published.push((method, bytes.len()));
+                }
+                Ok(Answer::Protocol(_)) => {
+                    panic!("a stream must not return a successful metadata payload")
+                }
+                Err(_) => {}
+            }
+            assert!(!aede_core::user::user_path(&fixture.0.data_dir).exists());
+        }
+        assert!(
+            published.is_empty(),
+            "Subsonic admitted audio after shutdown: {published:?}"
+        );
+    });
+}
+
+#[test]
 fn discovery_is_public_even_with_bad_credentials_and_authentication_is_protocol_scoped() {
     let runtime = crate::test_support::test_runtime();
     let fixture = Fixture::new();

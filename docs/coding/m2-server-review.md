@@ -8,6 +8,8 @@ Ordinary HTTP defaults to loopback. Remote non-loopback service uses direct HTTP
 
 Browser origin validation, connection/body/frame/time limits, TLS handshake slots and request/decode admission are separate safeguards. Partial Unix command connections cannot indefinitely prevent shutdown. The private Unix socket is a same-OS-user capability with protected permissions; delegated commands reuse typed CLI validation and strip installation secrets from children.
 
+Server shutdown is terminal state retained by a Tokio watch channel, not a transient notification. Existing and late subscribers observe the same stopped state, including when authentication or policy preparation finishes after shutdown and only then constructs a media worker or upgrades a socket. Consuming or cancelling a wait cannot clear that state. Restart creates a fresh server state; blocking filesystem work still retains its existing admission and cleanup limits.
+
 Notification upgrades retain shutdown from handshake admission. Waiting for the initial catalogue snapshot remains cancellable by shutdown and peer disconnection, handles control/forbidden frames and periodically rechecks the captured login; publication rechecks that login after the catalogue wait. A disconnected peer releases its notification slot without waiting for a catalogue writer. The initial snapshot has the same revocation boundary as subsequent events.
 
 Established notification streams also monitor shutdown and peer input while a periodic or per-event credential check is pending. Retiring that connection does not release the separate credential-read admission before its queued blocking worker actually exits.

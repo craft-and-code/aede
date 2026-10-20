@@ -232,7 +232,7 @@ async fn accept_commands_until(
     listener: tokio::net::UnixListener,
     state: ApiState,
     validator: Arc<CommandValidator>,
-    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     let command_slots = Arc::new(tokio::sync::Semaphore::new(MAX_COMMANDS));
     let mut handlers = tokio::task::JoinSet::new();
@@ -286,7 +286,7 @@ fn handle_command(
     stream: tokio::net::UnixStream,
     state: ApiState,
     validator: Arc<CommandValidator>,
-    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
     command_slots: Arc<tokio::sync::Semaphore>,
 ) -> Result<(), Box<dyn Error>> {
     let stream = stream.into_std()?;
@@ -572,7 +572,7 @@ fn write_until(stream: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> 
 
 struct RequestReader<'a> {
     stream: &'a mut UnixStream,
-    shutdown: &'a mut tokio::sync::broadcast::Receiver<()>,
+    shutdown: &'a mut crate::shutdown::Receiver,
     deadline: Instant,
 }
 

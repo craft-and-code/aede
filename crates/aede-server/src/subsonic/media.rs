@@ -17,7 +17,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use hyper::body::{Body as HttpBody, Bytes, Frame, SizeHint};
-use tokio::sync::{OwnedSemaphorePermit, broadcast, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, mpsc};
 
 use super::ProtocolError;
 use super::authentication::{self, Identity};
@@ -267,7 +267,7 @@ fn original_body(
     range: ByteRange,
     state: ApiState,
     identity: impl Into<MediaIdentity> + Send + 'static,
-    shutdown: broadcast::Receiver<()>,
+    shutdown: crate::shutdown::Receiver,
 ) -> OriginalBody {
     let identity = identity.into();
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -299,7 +299,7 @@ pub(super) fn buffered_body(
     permit: Arc<OwnedSemaphorePermit>,
     state: ApiState,
     identity: Identity,
-    shutdown: broadcast::Receiver<()>,
+    shutdown: crate::shutdown::Receiver,
 ) -> Body {
     let length = bytes.len() as u64;
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -327,7 +327,7 @@ fn guarded_body(
     cancelled: Arc<AtomicBool>,
     state: ApiState,
     identity: impl Into<MediaIdentity> + Send + 'static,
-    shutdown: broadcast::Receiver<()>,
+    shutdown: crate::shutdown::Receiver,
 ) -> OriginalBody {
     let identity = identity.into();
     let (output, receiver) = mpsc::channel(QUEUED_CHUNKS);
@@ -354,7 +354,7 @@ async fn forward_original(
     cancelled: Arc<AtomicBool>,
     state: ApiState,
     identity: impl Into<MediaIdentity> + Send + 'static,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     let identity = identity.into();
     let mut authorization =

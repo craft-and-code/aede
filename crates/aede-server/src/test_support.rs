@@ -99,7 +99,7 @@ pub(crate) fn sample_state() -> ApiState {
         ..Default::default()
     };
     let (events, _) = broadcast::channel(8);
-    let (shutdown, _) = broadcast::channel(1);
+    let shutdown = crate::shutdown::Sender::default();
     ApiState {
         // Optional credential/source reads must never inspect the shared temp
         // folder. Persistence fixtures replace this deliberately absent path.

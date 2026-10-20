@@ -106,6 +106,7 @@ mod query;
 mod routing;
 mod runtime;
 mod security;
+mod shutdown;
 mod source_review;
 mod state;
 mod subsonic;

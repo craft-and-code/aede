@@ -99,7 +99,7 @@ fn a_running_child_stops_after_cancellation() {
 
 fn command_test_state() -> ApiState {
     let (events, _) = tokio::sync::broadcast::channel(8);
-    let (shutdown, _) = tokio::sync::broadcast::channel(1);
+    let shutdown = crate::shutdown::Sender::default();
     ApiState {
         data_dir: std::env::temp_dir(),
         catalog: Arc::new(tokio::sync::RwLock::new(None)),

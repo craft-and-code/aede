@@ -107,7 +107,7 @@ pub(super) async fn event_stream(
     state: ApiState,
     include_tasks: bool,
     identity: auth::SocketIdentity,
-    mut shutdown: broadcast::Receiver<()>,
+    mut shutdown: crate::shutdown::Receiver,
 ) {
     let mut receiver = state.events.subscribe();
     let mut authorization = tokio::time::interval(Duration::from_secs(1));
@@ -173,7 +173,7 @@ pub(super) async fn event_stream(
 // blocking credential reads retain their own admission permits until they finish.
 async fn await_notification(
     socket: &mut WebSocket,
-    shutdown: &mut broadcast::Receiver<()>,
+    shutdown: &mut crate::shutdown::Receiver,
     prepared: impl Future<Output = Option<CatalogEvent>>,
 ) -> Option<CatalogEvent> {
     tokio::pin!(prepared);

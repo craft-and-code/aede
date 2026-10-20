@@ -37,7 +37,7 @@ pub(super) struct ApiState {
     pub(super) loaded_stamp: Arc<RwLock<Option<(SystemTime, u64)>>>,
     pub(super) reload_gate: Arc<Mutex<()>>,
     pub(super) events: broadcast::Sender<CatalogEvent>,
-    pub(super) shutdown: broadcast::Sender<()>,
+    pub(super) shutdown: crate::shutdown::Sender,
     pub(super) admin: Option<Admin>,
     pub(super) auth: Arc<auth::AuthState>,
     pub(super) subsonic: Arc<subsonic::authentication::Authentication>,
