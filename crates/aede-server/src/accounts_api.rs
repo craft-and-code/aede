@@ -144,12 +144,14 @@ async fn login(
         let account = current
             .session_account(&account.id, data.epoch(), account.revision())
             .ok_or_else(auth::unauthorized)?;
+        // A failed policy projection must not allocate a bearer or evict a live login.
+        let view = scoped_account_view(&state, account)?;
         let (principal, expires_at) = auth::start_session(&state, &current, account)?;
         Ok(Json(SessionView {
             token: auth::session_token(&principal).into(),
             token_type: "Bearer",
             expires_at,
-            account: scoped_account_view(&state, account)?,
+            account: view,
         }))
     })
     .await
@@ -163,23 +165,12 @@ async fn session_info(
     personal::no_query(&request)?;
     let captured = auth::request_principal(&request)?;
     personal::empty_body(&personal::body(request).await?)?;
-    let data = auth::current_accounts(&state)
-        .await?
-        .ok_or_else(auth::unauthorized)?;
-    auth::principal(
-        &state,
-        &data,
-        auth::session_token(&captured),
-        false,
-        Instant::now(),
-    )?;
-    let account = data
-        .find(&captured.username)
-        .ok_or_else(auth::unauthorized)?
-        .clone();
     let for_work = state.clone();
-    crate::parental::blocking(&state, move || {
-        scoped_account_view(&for_work, &account).map(Json)
+    read_accounts(state, Some(captured.clone()), move |data| {
+        let account = data
+            .find(&captured.username)
+            .ok_or_else(auth::unauthorized)?;
+        scoped_account_view(&for_work, account).map(Json)
     })
     .await
 }
@@ -283,6 +274,7 @@ async fn password_update<T: Send + 'static>(
         check_capture(&state, captured.as_ref())?;
         let mut data = enabled_accounts(&state)?;
         let result = operation(&state, captured.as_ref(), &mut data)?;
+        check_capture(&state, captured.as_ref())?;
         accounts::save(&data, &accounts::accounts_path(&state.data_dir)).map_err(|_| {
             error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -496,3 +488,7 @@ mod tests;
 #[cfg(test)]
 #[path = "accounts_personal_isolation_tests.rs"]
 mod personal_isolation_tests;
+
+#[cfg(test)]
+#[path = "account_session_publication_tests.rs"]
+mod session_publication_tests;

@@ -268,3 +268,17 @@ pub(crate) fn encoded(value: &str) -> String {
         .map(|byte| format!("%{byte:02X}"))
         .collect()
 }
+
+/// Hold the dedicated test runtime's blocking worker until the sender is dropped.
+/// Dropping the sender during assertion unwinding also releases the worker.
+pub(crate) async fn hold_blocking_worker()
+-> (std::sync::mpsc::Sender<()>, tokio::task::JoinHandle<()>) {
+    let (release, held) = std::sync::mpsc::channel();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let worker = tokio::task::spawn_blocking(move || {
+        started.send(()).unwrap();
+        let _ = held.recv();
+    });
+    ready.await.unwrap();
+    (release, worker)
+}

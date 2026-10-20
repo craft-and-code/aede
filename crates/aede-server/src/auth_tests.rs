@@ -159,3 +159,57 @@ fn the_global_session_limit_refuses_a_new_owner_without_evicting_other_accounts(
         "revoked sessions must release global capacity"
     );
 }
+
+#[test]
+fn a_delayed_credential_snapshot_cannot_retire_a_newer_login() {
+    let mut removed = Vec::new();
+    for change in ["revision", "new-account", "epoch"] {
+        for present_new_token in [false, true] {
+            let fixture = Fixture::new();
+            let before = fixture.accounts();
+            let (bob, _) = start_session(&fixture.0, &before, before.find("bob").unwrap()).unwrap();
+            // A request or notification worker has read credentials, but has not
+            // yet resumed its in-memory session check when another login succeeds.
+            let mut current = fixture.accounts();
+            let name = match change {
+                "revision" => {
+                    current.revoke("alice", 20).unwrap();
+                    "alice"
+                }
+                "new-account" => {
+                    current.create("charlie", PASSWORD, Role::User, 20).unwrap();
+                    "charlie"
+                }
+                _ => {
+                    current.revoke_all().unwrap();
+                    "alice"
+                }
+            };
+            accounts::save(&current, &accounts::accounts_path(&fixture.0.data_dir)).unwrap();
+            let (fresh, _) =
+                start_session(&fixture.0, &current, current.find(name).unwrap()).unwrap();
+            let token = if present_new_token {
+                &fresh.token
+            } else {
+                &bob.token
+            };
+            let outcome = principal(&fixture.0, &before, token, false, Instant::now());
+            if present_new_token {
+                assert!(
+                    outcome.is_err(),
+                    "an old snapshot cannot authenticate a new generation"
+                );
+            }
+            if recheck(&fixture.0, &fresh).is_err() {
+                removed.push((change, present_new_token));
+            }
+            if change == "epoch" {
+                assert!(recheck(&fixture.0, &bob).is_err());
+            }
+        }
+    }
+    assert!(
+        removed.is_empty(),
+        "delayed checks removed newer logins: {removed:?}"
+    );
+}

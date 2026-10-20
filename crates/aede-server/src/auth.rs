@@ -64,6 +64,15 @@ impl Session {
         now.saturating_duration_since(self.created) < ABSOLUTE_LIFETIME
             && now.saturating_duration_since(self.last_seen) < IDLE_LIFETIME
     }
+
+    fn superseded_by(&self, accounts: &Accounts) -> bool {
+        // An asynchronously loaded snapshot may precede this login. Only a
+        // strictly newer revision in the same epoch proves it is obsolete.
+        self.principal.epoch == accounts.epoch()
+            && accounts.all().iter().any(|account| {
+                account.id == self.principal.owner && account.revision() > self.principal.revision
+            })
+    }
 }
 
 #[derive(Default)]
@@ -182,29 +191,19 @@ pub(super) fn principal(
         .sessions
         .lock()
         .map_err(|_| unavailable_accounts())?;
-    sessions.retain(|session| {
-        session.live(now)
-            && accounts
-                .session_account(
-                    &session.principal.owner,
-                    &session.principal.epoch,
-                    session.principal.revision,
-                )
-                .is_some()
-    });
+    sessions.retain(|session| session.live(now) && !session.superseded_by(accounts));
     let index = sessions
         .iter()
         .position(|session| token_matches(&session.principal.token, token))
         .ok_or_else(unauthorized)?;
     let session = &mut sessions[index];
-    let Some(account) = accounts.session_account(
-        &session.principal.owner,
-        &session.principal.epoch,
-        session.principal.revision,
-    ) else {
-        sessions.remove(index);
-        return Err(unauthorized());
-    };
+    let account = accounts
+        .session_account(
+            &session.principal.owner,
+            &session.principal.epoch,
+            session.principal.revision,
+        )
+        .ok_or_else(unauthorized)?;
     if touch {
         session.last_seen = now;
     }
@@ -431,3 +430,7 @@ pub(super) async fn socket_live(state: &ApiState, identity: &SocketIdentity) -> 
 #[cfg(test)]
 #[path = "auth_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "auth_login_tests.rs"]
+mod login_tests;
