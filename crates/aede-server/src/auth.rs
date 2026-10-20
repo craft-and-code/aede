@@ -432,5 +432,9 @@ pub(super) async fn socket_live(state: &ApiState, identity: &SocketIdentity) -> 
 mod tests;
 
 #[cfg(test)]
+#[path = "auth_notification_tests.rs"]
+mod notification_tests;
+
+#[cfg(test)]
 #[path = "auth_login_tests.rs"]
 mod login_tests;

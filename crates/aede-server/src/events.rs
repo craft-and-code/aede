@@ -91,12 +91,14 @@ pub(super) fn upgrade_notifications(
                 "too many notification connections",
             )
         })?;
+    // An accepted upgrade must retain a shutdown sent before its callback runs.
+    let shutdown = state.shutdown.subscribe();
     Ok(ws
         .max_message_size(MAX_WEBSOCKET_MESSAGE)
         .max_frame_size(MAX_WEBSOCKET_MESSAGE)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            event_stream(socket, state, include_tasks, identity).await;
+            event_stream(socket, state, include_tasks, identity, shutdown).await;
         }))
 }
 
@@ -105,56 +107,118 @@ pub(super) async fn event_stream(
     state: ApiState,
     include_tasks: bool,
     identity: auth::SocketIdentity,
+    mut shutdown: broadcast::Receiver<()>,
 ) {
-    if !auth::socket_live(&state, &identity).await {
-        return;
-    }
     let mut receiver = state.events.subscribe();
-    let mut shutdown = state.shutdown.subscribe();
-    let scanned_at = state.catalog.read().await.as_ref().map(|c| c.scanned_at);
-    let initial = CatalogEvent::Snapshot { scanned_at };
     let mut authorization = tokio::time::interval(Duration::from_secs(1));
+    // The first snapshot can wait behind a catalog writer. Keep the same
+    // revocation/shutdown boundary here as for every subsequent notification.
+    let initial = async {
+        if !auth::socket_live(&state, &identity).await {
+            return None;
+        }
+        let catalog = state.catalog.read();
+        tokio::pin!(catalog);
+        let scanned_at = loop {
+            tokio::select! {
+                _ = authorization.tick() => {
+                    if !auth::socket_live(&state, &identity).await { return None; }
+                }
+                catalog = &mut catalog => break catalog.as_ref().map(|c| c.scanned_at),
+            }
+        };
+        if !auth::socket_live(&state, &identity).await {
+            return None;
+        }
+        Some(CatalogEvent::Snapshot { scanned_at })
+    };
+    let Some(initial) = await_notification(&mut socket, &mut shutdown, initial).await else {
+        return;
+    };
     if send_event(&mut socket, &initial).await.is_err() {
         return;
     }
     loop {
-        tokio::select! {
-            _ = authorization.tick() => {
-                if !auth::socket_live(&state, &identity).await {
-                    let _ = send_message(&mut socket, Message::Close(Some(CloseFrame {
-                        code: close_code::POLICY, reason: "authentication expired or was revoked".into(),
-                    }))).await;
-                    break;
-                }
-            }
-            _ = shutdown.recv() => {
-                let _ = send_message(&mut socket, Message::Close(None)).await;
-                break;
-            }
-            event = receiver.recv() => match event {
-                Ok(event) => {
-                    if !auth::socket_live(&state, &identity).await { break; }
-                    if (include_tasks || matches!(event, CatalogEvent::CatalogChanged { .. }))
-                        && send_event(&mut socket, &event).await.is_err()
-                    {
-                        break;
+        let next = async {
+            loop {
+                tokio::select! {
+                    _ = authorization.tick() => {
+                        if !auth::socket_live(&state, &identity).await {
+                            return None;
+                        }
                     }
+                    event = receiver.recv() => match event {
+                        Ok(event) => {
+                            if !auth::socket_live(&state, &identity).await { return None; }
+                            if include_tasks || matches!(event, CatalogEvent::CatalogChanged { .. }) {
+                                return Some(event);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => return None,
+                    },
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        };
+        let Some(event) = await_notification(&mut socket, &mut shutdown, next).await else {
+            return;
+        };
+        if send_event(&mut socket, &event).await.is_err() {
+            return;
+        }
+    }
+}
+
+// Catalog and credential waits cannot prevent connection retirement. Detached
+// blocking credential reads retain their own admission permits until they finish.
+async fn await_notification(
+    socket: &mut WebSocket,
+    shutdown: &mut broadcast::Receiver<()>,
+    prepared: impl Future<Output = Option<CatalogEvent>>,
+) -> Option<CatalogEvent> {
+    tokio::pin!(prepared);
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown.recv() => {
+                let _ = send_message(socket, Message::Close(None)).await;
+                return None;
             },
-            incoming = socket.recv() => match incoming {
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
-                Some(Ok(Message::Text(_) | Message::Binary(_))) => {
-                    let _ = send_message(&mut socket, Message::Close(Some(CloseFrame {
+            event = &mut prepared => {
+                if event.is_none() {
+                    let _ = send_message(socket, Message::Close(Some(CloseFrame {
                         code: close_code::POLICY,
-                        reason: "notification sockets accept no application messages".into(),
+                        reason: "authentication expired or was revoked".into(),
                     }))).await;
-                    break;
                 }
-                Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},
+                return event;
+            },
+            incoming = socket.recv() => {
+                if !notification_input(socket, incoming).await { return None; }
             },
         }
+    }
+}
+
+// The initial catalog wait and the established stream share one input policy.
+async fn notification_input(
+    socket: &mut WebSocket,
+    incoming: Option<Result<Message, axum::Error>>,
+) -> bool {
+    match incoming {
+        Some(Ok(Message::Ping(_) | Message::Pong(_))) => true,
+        Some(Ok(Message::Text(_) | Message::Binary(_))) => {
+            let _ = send_message(
+                socket,
+                Message::Close(Some(CloseFrame {
+                    code: close_code::POLICY,
+                    reason: "notification sockets accept no application messages".into(),
+                })),
+            )
+            .await;
+            false
+        }
+        Some(Ok(Message::Close(_))) | None | Some(Err(_)) => false,
     }
 }
 
@@ -169,3 +233,7 @@ pub(super) async fn send_message(socket: &mut WebSocket, message: Message) -> Re
         .map_err(|_| ())?
         .map_err(|_| ())
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;
