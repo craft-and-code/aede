@@ -320,6 +320,9 @@ $RECYCLE.BIN/
 /target
 *.tmp
 catalog.json
+# Source modules, not generated Nanoc output (covered by the generic rule above).
+!/crates/aede-audio/src/output/
+!/crates/aede-audio/src/output/*.rs
 
 # Generated bilingual website
 /dist-site/

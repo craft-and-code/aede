@@ -11,9 +11,9 @@ use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::thread::JoinHandle;
 
+use aede_audio::decode::PcmStreamDecoder;
 use aede_dsp::ChannelLayout;
 use flaccompagnon_core::AnalysisError;
-use flaccompagnon_core::decode::PcmStreamDecoder;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -168,6 +168,7 @@ impl FileDecoder {
                     (Source::Native(native), sample_rate, channels)
                 }
                 Err(native_error) => {
+                    let native_error = AnalysisError::Decode(native_error.to_string());
                     if !fallback {
                         return Err(Error::Decode(native_error));
                     }
@@ -309,7 +310,9 @@ impl FileDecoder {
         while self.pending_offset == self.pending.len() {
             let chunk = match &mut self.inner {
                 Source::Flac(native) => native.next_chunk()?,
-                Source::Native(native) => native.next_chunk().map_err(Error::Decode)?,
+                Source::Native(native) => native
+                    .next_chunk()
+                    .map_err(|e| Error::Decode(AnalysisError::Decode(e.to_string())))?,
                 Source::Vorbis(native) => native.next_chunk()?,
                 Source::Ffmpeg(external) => external.next_chunk()?,
             };

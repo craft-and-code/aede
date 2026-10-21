@@ -11,20 +11,26 @@
 use std::fmt;
 
 mod channels;
+pub mod mix;
 pub use channels::{ChannelLayout, StereoDownmixer};
 mod dither;
 pub use dither::TpdfQuantizer;
 mod spectrum;
 pub use spectrum::{SPECTRUM_BANDS, Spectrum};
+#[cfg(feature = "loudness")]
 pub mod loudness;
+#[cfg(feature = "loudness")]
 mod meter;
+#[cfg(feature = "loudness")]
 mod peak_tail;
+#[cfg(feature = "loudness")]
 pub use meter::{OutputMeter, OutputMeterError, OutputSnapshot};
 mod rate;
 pub use rate::{RateConverter, RateError};
 mod tone;
 pub use tone::ToneControls;
 
+#[cfg(feature = "loudness")]
 #[cfg(test)]
 #[path = "reference_signals.rs"]
 mod reference_signals;

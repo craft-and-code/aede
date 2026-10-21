@@ -3,7 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::pcm_queue;
-use aede_core::playback::format::IntegerPcmFormat;
+use crate::format::IntegerPcmFormat;
 use aede_dsp::ChannelLayout;
 
 #[test]

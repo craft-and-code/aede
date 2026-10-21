@@ -2,6 +2,8 @@
 
 Reviewed on 2026-09-30–2026-10-01, with M3 software hardening on 2026-10-04. Older measurements and verification records below retain their original checkpoint dates; a new software check does not establish physical output or meter certification. This document records the current free DSP foundation, the corrections to normalization startup, filter continuity, native output, converter bandwidth, finite-signal peak measurement and numerical safety, and the remaining quality work. The [product proposal](../design/dsp-product-proposal.md) remains the feature roadmap; [playback design](../design/playback.md) describes the behavior of the player.
 
+See [shared audio foundation](../design/shared-audio.md) for reuse by Phémios and FlacCompagnon and the distinction between numerical processing, decoding and device ownership.
+
 ## Assessment
 
 The architecture is suitable for a reliable music player: decoding, normalization policy, PCM processing and output transport are separate. The signal path uses established algorithms and existing Rust libraries rather than an unvalidated replacement for loudness analysis, equalization or resampling. This is a sound foundation, but implementation and passing software tests alone do not establish hardware gaplessness, absolute meter compliance, or a measured quality/performance budget on a NAS.

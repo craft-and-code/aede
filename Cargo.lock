@@ -17,9 +17,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aede-audio"
+version = "0.6.1"
+dependencies = [
+ "aede-dsp",
+ "cpal",
+ "rtrb",
+ "symphonia",
+]
+
+[[package]]
 name = "aede-cli"
 version = "0.6.1"
 dependencies = [
+ "aede-audio",
  "aede-core",
  "aede-devices",
  "aede-dsp",
@@ -27,7 +38,6 @@ dependencies = [
  "alsa",
  "cpal",
  "flaccompagnon-core",
- "rtrb",
 ]
 
 [[package]]
@@ -35,6 +45,7 @@ name = "aede-core"
 version = "0.6.1"
 dependencies = [
  "aede-accounts",
+ "aede-audio",
  "aede-dsp",
  "aede-moods",
  "flaccompagnon-core",

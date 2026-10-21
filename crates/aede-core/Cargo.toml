@@ -19,6 +19,7 @@ default = ["fetch"]
 fetch = ["dep:ureq"]
 
 [dependencies]
+aede-audio = { path = "../aede-audio", features = ["decode", "dsp"] }
 lofty = { workspace = true }
 ureq = { workspace = true, optional = true }
 flaccompagnon-core = { workspace = true }

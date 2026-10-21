@@ -19,6 +19,7 @@ default = ["fetch"]
 fetch = ["aede-core/fetch", "aede-server/fetch"]
 
 [dependencies]
+aede-audio = { path = "../aede-audio", features = ["queue"] }
 # `default-features = false` so that turning this crate's `fetch` off
 # really does leave the library with no network code compiled in.
 aede-core = { path = "../aede-core", default-features = false }
@@ -29,7 +30,6 @@ flaccompagnon-core = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", target_env = "gnu")))'.dependencies]
 cpal = "0.18.1"
-rtrb = "0.4.0"
 
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 alsa = "=0.11.0"
