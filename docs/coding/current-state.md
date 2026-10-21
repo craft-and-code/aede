@@ -16,7 +16,7 @@ The catalogue is graph-based and common to installation accounts. Personal annot
 - Local playback supports without-effects, DSP and a narrowly admitted direct-ALSA strict bit-perfect route. Native remote PCM uses client consumed-frame ACKs; local history has a different submitted/estimated timing boundary. See [playback](../design/playback.md), [DSP](dsp-review.md) and [acceptance](bit-perfect-acceptance.md).
 - UPnP, OpenHome, Cast and SlimProto reuse `aede-devices`. Authenticated graphical profiles use exact-login ownership, a finite queue and heartbeat leases; physical interoperability remains separate. See [devices](../server/devices.md).
 
-The [shared audio foundation](../design/shared-audio.md) supplies common PCM primitives across the three sibling repositories. It reuses the existing DSP and provides an optional minimal FlacCompagnon player without Aède accounts/server or loudness effects. Client dependencies currently use development path bindings; independently published client builds require a pinned shared-crate source first.
+The [shared audio foundation](../design/shared-audio.md) supplies common PCM primitives across the three repositories. It reuses the existing DSP and provides an optional minimal FlacCompagnon player without Aède accounts/server or loudness effects. Client workspace dependencies and lockfiles pin the public immutable shared-source revision; an adjacent Aède checkout is no longer required for Cargo resolution. Phémios's release engine uses the same revision. Native platform builds remain separate acceptance checks.
 
 ## Verification status
 

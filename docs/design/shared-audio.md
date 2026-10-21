@@ -24,7 +24,11 @@ FlacCompagnon's progressive preview decoder is a compatibility adapter to `aede-
 
 ## Source and release integration
 
-The three repositories currently use relative path dependencies for coordinated local development. Keep `aede`, `phemios` and `FlacCompagnon` as sibling checkouts. This makes every client use the same source files, rather than vendored copies. Before independently publishing a client, publish Aède's shared crates and replace that client's path binding with the corresponding immutable Git revision or published crate version. The existing standalone client release workflows are not certified for this development-only binding.
+Aède keeps ordinary workspace path dependencies between crates in this repository; those paths are contained in a single checkout. Phémios and FlacCompagnon declare `aede-audio` once in their respective `[workspace.dependencies]`, pinned to the public Git revision `d8c0f1a8c134b7366da0983367a9f063527085b7` of `https://github.com/craft-and-code/aede`. Cargo resolves `aede-dsp` from that same revision. Their lockfiles retain both Git source identities, so neither client requires an adjacent Aède checkout or a machine-specific Cargo patch.
+
+The source revision is advertised by the technical tag `audio-core-d8c0f1a8`, which is outside the `v*` release trigger. It exposes the reviewed source without moving a branch or publishing installers. Clients pin the full commit SHA, rather than trusting a movable tag. Phémios's release workflow checks out the same commit for its bundled engine; explicit development engine overrides and the offline preparation policy remain separate from this Cargo dependency.
+
+To update the shared source, first publish the reviewed Aède commit, then update both clients' workspace dependency and lockfiles, together with Phémios's bundled-engine checkout. Verify dependency resolution from independent checkouts with `cargo metadata --locked` and run the relevant library tests. Do not copy the shared implementation into a client, substitute a branch name for the revision, or add a local-only override to a release workflow. A future Aède version can continue using its own workspace crates while clients retain their intentionally selected immutable revision.
 
 ## Verification without rebuilding Apps
 
