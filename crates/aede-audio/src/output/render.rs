@@ -18,6 +18,12 @@ fn render<T: SizedSample + FromSample<f32>>(
     ring.render_mapped(data, T::from_sample(0.), |sample| {
         let value = sample * volume;
         energy += f64::from(value).powi(2);
+        // I24's unchecked float conversion cannot represent the guard's inclusive +1 endpoint.
+        let value = if T::FORMAT == SampleFormat::I24 {
+            value.min(8_388_607. / 8_388_608.)
+        } else {
+            value
+        };
         T::from_sample(value)
     });
     // This meter includes output silence; clock counts only actual source consumption.
