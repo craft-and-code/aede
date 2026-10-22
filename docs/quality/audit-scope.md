@@ -7,14 +7,22 @@
 - Campaign type: `STABILIZATION` — first general campaign under this quality process; earlier milestone reviews remain historical evidence.
 - Branch: `main`.
 - Starting commit: `2ecadf767129ea1710bc38d4e67db43c3d50a1cc`.
-- Initial code-review target: the starting commit. Record any later candidate revision and relevant dirty state before reviewing it.
+- First core audit target: `ebba04dac6757fe57d3d546367c81e59b5c0f033`; CLI pass baseline: `560fb8675cb7b46635dbdcc44aab8caa44edb38a`. Record later candidate revisions and relevant dirty state before reviewing them.
 - Preparation date: `2026-10-22`.
-- Responsible authority: Aède maintainer; decision attribution remains to be recorded without personal identifiers.
-- Target release/version and final candidate: not selected. Campaign closure does not select or approve a release.
-- Scope proposal: approved by the maintainer; prepared documentation awaits validation.
-- Current phase: documentation preparation. First code audit: `NOT STARTED`.
+- Responsible authority: Aède maintainer; scope, phase and local-commit authorization recorded from the 2026-10-22 maintainer instructions, without personal identifiers.
+- Target release/version and release candidate: not selected. CLI-C3 is a reviewed software-fix candidate; campaign closure does not select or approve a release.
+- Scope and prepared documentation: approved by the maintainer.
+- Current phase: focused CLI pass validated; corrections committed locally as `4ebf0c7c98ff1498b485f6f19e9e3552cb816ec2`, quality evidence packaged separately. The preceding core persistence pass produced AE-001–AE-003 and three local fix commits; see the register.
 
-Only necessary Markdown changes within `docs/quality/` and read-only documentary consistency checks are authorized now. Do not begin the code audit, execute tests/builds/lints/security checks, modify other files or create commits. Stop for maintainer validation of these documents before the first audit. The listed later phases and commands do not grant permission to execute them.
+On 2026-10-22 the maintainer authorized the CLI orchestration proposed in the conversation: fresh-context auditor, test engineer, targeted corrector, two consecutive independent adversarial reviewers and final validator; quality-document updates and local commits after validation. Only one agent writes at a time. Auditors/reviewers remain read-only; no dependency upgrades, push, tagging or publication is authorized. Earlier phase restrictions describe historical permissions and have been superseded by these explicit instructions.
+
+### Current focused pass: aede-cli
+
+Inspect argument/option/help/dispatch agreement, refusal of unsupported inputs, errors and exit status, stdout/stderr and machine formats, terminal escaping, destructive confirmation, paths, import/export/persistence, delegated work and cancellation. Follow other crates only where needed to establish these execution paths. The CLI baseline was clean on `main` at the revision above. AE-001–AE-003 remain reserved for the previous findings.
+
+Run focused reproductions before corrections where practical, preserve assertions/coverage, then execute the full root gate before local commits. Freeze code/tests during the two independent reviews; a new confirmed significant defect resets their clean sequence. These are focused CLI reviews, not whole-campaign closure reviews. The general campaign controls below remain mandatory for eventual closure; unexecuted unrelated profiles/platforms are not silently waived by this narrower pass.
+
+The targeted corrections include minimal English/French command-reference amendments for the changed public option/mode contract. They do not authorize unrelated manual cleanup. Final software candidate CLI-C3 and its reproducible source/test fingerprint are recorded in the register; review/validation documentary bookkeeping does not change that frozen software candidate. R-CLI-02 discovered significant AE-008 on C2, resetting the earlier sequence; R-CLI-03 and R-CLI-04 independently reviewed C3 consecutively without a new significant defect.
 
 ## Objectives and invariants
 
@@ -121,23 +129,22 @@ These are separate from the mandatory software controls above. Unavailable accep
 ## Verification limits and documentary follow-up
 
 - Preparation identified a macOS ARM64 host with Rust/Cargo 1.99, Rustfmt/Clippy, Node 26, npm, Python, FFmpeg and ffplay. Tool discovery/version output is not compilation or test evidence. `rustup` was not in `PATH`; Rust 1.89/1.90 minimum-version verification remains outstanding.
-- Dependency-cache availability, native build prerequisites, socket and pseudo-terminal permissions remain unverified by execution. Network restrictions may block fresh advisory lookup or dependency preparation; that would block the relevant mandatory control.
+- CLI-C3's root gate verified the cached root dependencies and required local socket, pseudo-terminal and process-inspection prerequisites on this host. Independent desktop/native SDK and other-platform prerequisites remain unverified. Network restrictions may block fresh advisory lookup or dependency preparation; that would block the relevant mandatory control, not establish a pass.
 - macOS checks cannot establish native Windows behavior, Linux ALSA runtime, physical bit-perfect/gapless output, renderer interoperability or NAS capacity. ACKs/software loopbacks do not prove audible output.
 - Shared JSON stores, resource budgets and filesystem TOCTOU limits do not provide whole-process memory bounds, fairness or protection from an equally privileged hostile OS process. The OS operator and installation token remain trusted; catalogue roots/caches are shared installation data.
 - Historical verification is linked from current state and is not a pass for this campaign. No test count is copied or updated here.
 - Known documentation discrepancies outside the current editable scope: the architecture map omits audio/moods crates; its workflow/site description is outdated; the roadmap's future device-API wording needs reconciliation with delivered authenticated profiles. These are documentary follow-ups, not newly audited code defects, and those documents remain unchanged.
 - Documentary link checks cover local targets and linked anchors within `docs/quality/`; remote URLs and anchors in external documents remain unvalidated.
 
-No genuine `AE-*` finding, rejection or deferral has been recorded yet; see the [register](findings.md). An empty register does not establish the absence of defects.
+The [register](findings.md) retains the core findings, fix commits and subsequent CLI evidence. Historical execution records are identified separately from fresh validation.
 
 ## Review, closure and current outcome
 
 The [README closure policy](README.md#campaign-closure-policy) is authoritative: no unresolved Critical, no unresolved High for normal closure without an exceptional documented maintainer waiver, qualified/resolved or justified deferred Medium/Low, all mandatory controls passing and two consecutive independent reviews with no new confirmed Critical/High/Medium defect. Record unavailable supplementary acceptance explicitly. Closing this campaign is separate from authorizing a release.
 
 - Campaign verdict: `CONTINUE`.
-- First audit and independent reviews: `NOT STARTED`.
-- Findings created, fixed, rejected or deferred: none recorded.
-- Software validation: all controls `NOT RUN`; no application tests, builds, lints or security lookups executed during preparation.
+- Core persistence and CLI passes: completed within their recorded limited scopes. AE-001–AE-008 verified; AE-009 is an unresolved provisional Low policy risk, not a confirmed defect.
+- Software validation: final CLI-C3 root gate and targeted default/minimal CLI controls PASS; AE-C02–AE-C13 remain NOT RUN for general closure. No code checks ran during the preparation phase itself.
 - Documentary checks: file/command-source inspection, local-link and Git-diff consistency checks only; these do not satisfy any software validation control.
-- Next action: maintainer validation of the prepared documentation before the first read-only audit.
-- Remaining decisions: accountable approval attribution, future final candidate/release targets, review assignments, and hardware/client/NAS acceptance environments and measurable budgets. Evidence will be retained in the register and checklist; no separate report file is required.
+- Next action: return the validated pass and local commit references to the maintainer; no push or automatic next pass.
+- Remaining decisions: AE-009 consent policy, remaining general-scope audits/controls, future release targets, and hardware/client/NAS acceptance environments and measurable budgets. Evidence is retained in the register and checklist; no separate report file is required.
