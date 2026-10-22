@@ -275,6 +275,7 @@ async fn write(
 ) -> Result<Json<RuleView>, ApiError> {
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
+    no_query(&request)?;
     let mut row: RuleView = json_body(request).await?;
     row.tags = row
         .tags

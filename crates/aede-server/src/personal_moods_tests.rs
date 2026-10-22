@@ -1,4 +1,78 @@
 use super::*;
+
+#[test]
+fn mood_put_rejects_unknown_query_without_mutating_any_owner() {
+    assert_mood_put_query_is_refused("ignored=true");
+}
+
+#[test]
+fn mood_put_rejects_owner_query_without_mutating_any_owner() {
+    assert_mood_put_query_is_refused("owner=bob");
+}
+
+fn assert_mood_put_query_is_refused(query: &str) {
+    use crate::accounts_test_support::{Fixture, http, login};
+    use crate::test_support::{start_server, test_runtime};
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let alice = login(address, "alice");
+        let bob = login(address, "bob");
+        let route = "/api/me/v1/moods";
+        for (token, body) in [
+            (
+                &alice,
+                r#"{"id":"alice-rule","name":"Alice rule","tags":["calm"],"genres":[]}"#,
+            ),
+            (
+                &bob,
+                r#"{"id":"bob-rule","name":"Bob rule","tags":["energy"],"genres":[]}"#,
+            ),
+        ] {
+            assert_eq!(http(address, "PUT", route, Some(token), body).0, 200);
+        }
+        let alice_before = http(address, "GET", route, Some(&alice), "").1;
+        let bob_before = http(address, "GET", route, Some(&bob), "").1;
+        let path = user::user_path(&fixture.0.data_dir);
+        let before = std::fs::read(&path).unwrap();
+        let body = r#"{"id":"probe","name":"Probe","tags":["concentration"],"genres":[]}"#;
+        let (status, response, _) = http(
+            address,
+            "PUT",
+            &format!("{route}?{query}"),
+            Some(&alice),
+            body,
+        );
+        assert_eq!(status, 400, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_query");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            http(address, "GET", route, Some(&alice), "").1,
+            alice_before
+        );
+        assert_eq!(http(address, "GET", route, Some(&bob), "").1, bob_before);
+
+        assert_eq!(http(address, "PUT", route, Some(&alice), body).0, 200);
+        let (status, own, _) = http(
+            address,
+            "GET",
+            &format!("{route}?mood=probe"),
+            Some(&alice),
+            "",
+        );
+        assert_eq!(status, 200, "{own}");
+        assert!(
+            own["moods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["rule"]["id"] == "probe")
+        );
+        assert_eq!(http(address, "GET", route, Some(&bob), "").1, bob_before);
+        server.abort();
+    });
+}
+
 #[test]
 fn principal_artist_tags_select_owned_tracks_without_guest_or_other_owner_leakage() {
     let state = crate::test_support::sample_state();
