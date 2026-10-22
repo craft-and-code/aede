@@ -65,6 +65,135 @@ fn report_rewrites_keep_per_entry_dates_and_legacy_reports_use_the_file_date() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn report_replacement_cannot_promote_an_older_measurement() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, SystemTime};
+
+    for explicit_date in [Some(1_u64), None] {
+        let dir = crate::store_lock::test_support::Directory::new("report_replacement");
+        let path = dir.path().join("report.json");
+        let original = dir.path().join("original.json");
+        let original_inode = dir.path().join("original-report-inode");
+        let replacement = dir.path().join("replacement.json");
+        let extra = explicit_date
+            .map(|date| format!(", \"aede_result_at_ns\": \"{date}\""))
+            .unwrap_or_default();
+        let text = example(&extra);
+        std::fs::write(&original, &text).unwrap();
+        assert_eq!(read_report(&original).unwrap().files.len(), 1);
+        std::fs::write(&replacement, text.replace("\"Clean\"", "\"Replacement\"")).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(86_400))
+            .unwrap();
+        let replacement_date =
+            crate::clock::mtime_nanoseconds(&std::fs::metadata(&replacement).unwrap());
+        assert!(
+            Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::hard_link(&path, &original_inode).unwrap();
+
+        // The FIFO holds EOF until the writer has replaced the pathname.
+        // This exercises read_report itself without sleeps or a production hook;
+        // the hard link retains the original input's modification-time evidence.
+        let mut writer = Command::new("sh")
+            .args([
+                "-c",
+                "set -eu; exec 3>\"$1\"; cat \"$2\" >&3; mv \"$3\" \"$1\"; exec 3>&-",
+                "report-writer",
+            ])
+            .arg(&path)
+            .arg(&original)
+            .arg(&replacement)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let outcome = read_report(&path);
+        if outcome.is_err() {
+            // Refusing a non-snapshot input is safe, including a future reader
+            // refusing the FIFO before its writer can open it.
+            let _ = writer.kill();
+            let _ = writer.wait();
+            continue;
+        }
+        let written = writer.wait_with_output().unwrap();
+        assert!(written.status.success(), "writer failed: {written:?}");
+        let original_date =
+            crate::clock::mtime_nanoseconds(&std::fs::metadata(&original_inode).unwrap());
+        assert!(original_date < replacement_date);
+        let record = outcome.unwrap().files.remove(0);
+        assert_eq!(record.summary.as_deref(), Some("Clean"));
+        assert_eq!(
+            read_report(&path).unwrap().files[0].summary.as_deref(),
+            Some("Replacement")
+        );
+
+        let mut catalog = catalog_holding(&record.path, record.size_bytes, record.modified_unix);
+        catalog.analyses.push(FileAnalysis {
+            result_at_ns: original_date + 1,
+            summary: Some("newer retained result".into()),
+            ..record.clone()
+        });
+        let received_date = record.result_at_ns;
+        merge_into(&mut catalog, vec![record], 99);
+        assert!(
+            received_date == explicit_date.unwrap_or(original_date)
+                && catalog.analyses[0].summary.as_deref() == Some("newer retained result"),
+            "explicit date={explicit_date:?}, input date={original_date}, replacement date={replacement_date}, received date={received_date}, retained summary={:?}",
+            catalog.analyses[0].summary
+        );
+    }
+}
+
+#[test]
+fn a_replaced_regular_report_keeps_the_opened_contents_and_date_together() {
+    use std::time::{Duration, SystemTime};
+
+    let dir = crate::store_lock::test_support::Directory::new("regular_report_replacement");
+    let path = dir.path().join("report.json");
+    let replacement = dir.path().join("replacement.json");
+    let original_text = example("");
+    std::fs::write(&path, &original_text).unwrap();
+    std::fs::write(
+        &replacement,
+        original_text.replace("\"Clean\"", "\"Replacement\""),
+    )
+    .unwrap();
+    for (path, seconds) in [(&path, 100), (&replacement, 200)] {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds))
+            .unwrap();
+    }
+    let original_date = crate::clock::mtime_nanoseconds(&std::fs::metadata(&path).unwrap());
+    let replacement_date =
+        crate::clock::mtime_nanoseconds(&std::fs::metadata(&replacement).unwrap());
+    assert_ne!(original_date, replacement_date);
+
+    let report = read_report_with_open(&path, |path| {
+        let original = std::fs::File::open(path)?;
+        std::fs::rename(&replacement, path)?;
+        Ok(original)
+    })
+    .unwrap();
+    assert_eq!(report.files[0].summary.as_deref(), Some("Clean"));
+    assert_eq!(report.files[0].result_at_ns, original_date);
+    let current = read_report(&path).unwrap();
+    assert_eq!(current.files[0].summary.as_deref(), Some("Replacement"));
+    assert_eq!(current.files[0].result_at_ns, replacement_date);
+}
+
 #[test]
 fn an_older_report_cannot_replace_a_newer_result_after_a_storage_roundtrip() {
     let newer = FileAnalysis {

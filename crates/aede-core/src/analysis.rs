@@ -583,8 +583,47 @@ const SUPPORTED_VERSION: u32 = 1;
 /// Unknown fields are ignored rather than refused: the tool will grow new
 /// measurements, and a report carrying one must still import the rest.
 pub fn read_report(path: &Path) -> Result<Report, ImportError> {
-    let text = std::fs::read_to_string(path)?;
-    let result_at_ns = crate::clock::mtime_nanoseconds(&std::fs::metadata(path)?);
+    read_report_with_open(path, |path| std::fs::File::open(path))
+}
+
+fn read_report_with_open(
+    path: &Path,
+    open: impl FnOnce(&Path) -> std::io::Result<std::fs::File>,
+) -> Result<Report, ImportError> {
+    // Refuse static special files before opening, then bind content and date
+    // to one descriptor even if another writer replaces the pathname.
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "analysis report must be a regular file",
+        )
+        .into());
+    }
+    let mut file = open(path)?;
+    let before = file.metadata()?;
+    if !before.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "analysis report must be a regular file",
+        )
+        .into());
+    }
+    let limit = before.len().checked_add(1).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "analysis report is too large",
+        )
+    })?;
+    let mut text = String::new();
+    (&mut file).take(limit).read_to_string(&mut text)?;
+    let after = file.metadata()?;
+    if text.len() as u64 != before.len()
+        || before.len() != after.len()
+        || before.modified().ok() != after.modified().ok()
+    {
+        return Err(std::io::Error::other("analysis report changed while reading; retry").into());
+    }
+    let result_at_ns = crate::clock::mtime_nanoseconds(&before);
     parse_report_at(&text, result_at_ns)
 }
 
