@@ -631,10 +631,23 @@ async fn soap(
 
 fn normalized_mime(value: &str) -> &str {
     match value {
-        "audio/x-flac" => "audio/flac",
-        "audio/x-wav" | "audio/wave" | "audio/x-wave" => "audio/wav",
-        "audio/x-m4a" | "audio/m4a" => "audio/mp4",
-        "application/ogg" | "audio/x-ogg" => "audio/ogg",
+        _ if value.eq_ignore_ascii_case("audio/x-flac") => "audio/flac",
+        _ if value.eq_ignore_ascii_case("audio/x-wav")
+            || value.eq_ignore_ascii_case("audio/wave")
+            || value.eq_ignore_ascii_case("audio/x-wave") =>
+        {
+            "audio/wav"
+        }
+        _ if value.eq_ignore_ascii_case("audio/x-m4a")
+            || value.eq_ignore_ascii_case("audio/m4a") =>
+        {
+            "audio/mp4"
+        }
+        _ if value.eq_ignore_ascii_case("application/ogg")
+            || value.eq_ignore_ascii_case("audio/x-ogg") =>
+        {
+            "audio/ogg"
+        }
         _ => value,
     }
 }

@@ -556,3 +556,81 @@ fn device_http_handles_chunked_descriptions_and_refuses_ambiguous_framing() {
         }
     });
 }
+
+#[test]
+fn mime_alias_negotiation_is_case_insensitive_and_preserves_advertised_spelling() {
+    let groups: &[&[&str]] = &[
+        &["audio/flac", "audio/x-flac"],
+        &["audio/wav", "audio/x-wav", "audio/wave", "audio/x-wave"],
+        &["audio/mp4", "audio/x-m4a", "audio/m4a"],
+        &["audio/ogg", "application/ogg", "audio/x-ogg"],
+    ];
+    let spellings = |value: &str| {
+        [
+            value.to_owned(),
+            value.to_ascii_uppercase(),
+            value
+                .chars()
+                .enumerate()
+                .map(|(index, character)| {
+                    if index % 2 == 0 {
+                        character.to_ascii_uppercase()
+                    } else {
+                        character
+                    }
+                })
+                .collect::<String>(),
+        ]
+    };
+    let mut refused = Vec::new();
+    for group in groups {
+        for advertised in group.iter().flat_map(|mime| spellings(mime)) {
+            for source in group.iter().flat_map(|mime| spellings(mime)) {
+                let protocol = format!("HTTP-GET:*:{advertised}:*");
+                let actual = advertised_mime(&protocol, &source);
+                if actual != Some(advertised.as_str()) {
+                    refused.push(format!("{advertised} <- {source}: {actual:?}"));
+                }
+            }
+        }
+    }
+    assert!(
+        refused.is_empty(),
+        "compatible aliases were refused: {refused:?}"
+    );
+}
+
+#[test]
+fn mime_negotiation_retains_codec_protocol_and_wildcard_controls() {
+    for (advertised, source) in [
+        ("AUDIO/X-FLAC", "audio/wav"),
+        ("Audio/X-Wave", "audio/mp4"),
+        ("AUDIO/X-M4A", "audio/ogg"),
+        ("APPLICATION/OGG", "audio/flac"),
+        ("audio/mpeg", "audio/flac"),
+    ] {
+        assert!(advertised_mime(&format!("http-get:*:{advertised}:*"), source).is_none());
+    }
+    for protocol in [
+        "rtsp-rtp-udp:*:audio/flac:*",
+        "http-get:LAN:audio/flac:*",
+        "http-get:*:audio/flac",
+        "http-get:*:*",
+    ] {
+        assert!(
+            advertised_mime(protocol, "audio/flac").is_none(),
+            "{protocol}"
+        );
+    }
+    assert_eq!(
+        advertised_mime("HTTP-GET:*:*:*", "Audio/X-FlAc"),
+        Some("Audio/X-FlAc")
+    );
+    assert_eq!(
+        advertised_mime(
+            "http-get:*:audio/mpeg:*,HTTP-GET:*:Audio/FLAC:*",
+            "audio/flac"
+        ),
+        Some("Audio/FLAC")
+    );
+}
