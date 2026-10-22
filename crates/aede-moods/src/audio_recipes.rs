@@ -34,6 +34,10 @@ pub fn audio_recipes() -> [AudioRecipe; 4] {
         },
     ]
 }
+/// Whether an identity belongs to an immutable measured recipe.
+pub fn is_audio_recipe_id(id: &str) -> bool {
+    audio_recipes().iter().any(|recipe| recipe.id == id)
+}
 impl AudioRecipe {
     /// A matching measurement with its physical unit; missing/silent evidence never matches.
     pub fn measure(&self, features: &Features) -> Option<(f32, &'static str)> {

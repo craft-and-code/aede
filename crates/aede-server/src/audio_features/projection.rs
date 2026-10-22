@@ -157,7 +157,10 @@ pub(crate) fn projection(
     let mut summaries = Vec::new();
     let mut items = Vec::new();
     let mut total = 0;
-    for rule in rules {
+    for rule in rules
+        .iter()
+        .filter(|rule| !aede_moods::is_audio_recipe_id(&rule.id))
+    {
         let (selected, model) = personal(&facts, catalog, rows, rule);
         summaries.push(serde_json::json!({"rule":rule,"count":selected.len(),"model":model.as_ref().map(|m|serde_json::json!({"examples":m.examples(),"radius":m.radius()}))}));
         if chosen == Some(rule.id.as_str()) {
@@ -166,9 +169,6 @@ pub(crate) fn projection(
         }
     }
     for recipe in aede_moods::audio_recipes() {
-        if rules.iter().any(|rule| rule.id == recipe.id) {
-            continue;
-        }
         let selected = rows
             .iter()
             .filter_map(|row| {

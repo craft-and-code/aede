@@ -140,7 +140,16 @@ async fn write(
     if patch.values.is_empty()
         || patch.values.len() > 32
         || patch.values.iter().any(|(key, value)| {
-            !key.starts_with("phemios.") || !user::valid_preference(key, &value.to_string())
+            !key.starts_with("phemios.")
+                || !user::valid_preference(key, &value.to_string())
+                || key == "phemios.moods"
+                    && value.as_array().is_some_and(|rows| {
+                        rows.iter().any(|row| {
+                            row.get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(aede_moods::is_audio_recipe_id)
+                        })
+                    })
         })
     {
         return Err(invalid_query("invalid application preferences"));

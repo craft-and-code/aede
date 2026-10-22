@@ -41,10 +41,14 @@ pub(super) fn routes() -> Router<ApiState> {
     Router::new().route("/api/me/v1/moods", get(read).put(write))
 }
 fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
+    resolved_rules(data, owner).map(|(rules, _)| rules)
+}
+fn resolved_rules(data: &UserData, owner: &str) -> Result<(Vec<RuleView>, Vec<String>), ApiError> {
     let mut result: Vec<RuleView> = aede_moods::presets()
         .into_iter()
         .map(RuleView::from)
         .collect();
+    let mut reserved = Vec::new();
     if let Some(entry) = data
         .client_preferences
         .iter()
@@ -52,10 +56,20 @@ fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
     {
         let custom: Vec<RuleView> = serde_json::from_str(&entry.value)
             .map_err(|_| invalid_query("stored mood rules are invalid"))?;
-        if custom.len() > 32 || custom.iter().any(|row| !domain(row).valid()) {
+        if custom.len() > 32 {
             return Err(invalid_query("stored mood rules are invalid"));
         }
         for row in custom {
+            // Legacy collisions remain in preferences until an explicit replacement.
+            if aede_moods::is_audio_recipe_id(&row.id) {
+                if !reserved.contains(&row.id) {
+                    reserved.push(row.id);
+                }
+                continue;
+            }
+            if !domain(&row).valid() {
+                return Err(invalid_query("stored mood rules are invalid"));
+            }
             if let Some(existing) = result.iter_mut().find(|known| known.id == row.id) {
                 *existing = row;
             } else {
@@ -63,7 +77,7 @@ fn rules(data: &UserData, owner: &str) -> Result<Vec<RuleView>, ApiError> {
             }
         }
     }
-    Ok(result)
+    Ok((result, reserved))
 }
 pub(crate) struct Evidence {
     // Preserve the validated graph link instead of repeatedly resolving a path for every recipe.
@@ -227,7 +241,7 @@ async fn read(
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_lock, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        let rules = rules(&data, &owner.id)?;
+        let (rules, reserved) = resolved_rules(&data, &owner.id)?;
         if query.mood.as_ref().is_some_and(|id| {
             !(rules.iter().any(|row| &row.id == id)
                 || query.audio && aede_moods::audio_recipes().iter().any(|row| row.id == id))
@@ -235,7 +249,7 @@ async fn read(
             return Err(invalid_query("unknown atmosphere"));
         }
         let evidence = evidence(&catalog, &data, &owner.id)?;
-        let response = if query.audio {
+        let mut response = if query.audio {
             super::super::audio_features::projection(
                 &state,
                 &catalog,
@@ -258,6 +272,9 @@ async fn read(
                 limit,
             )?
         };
+        if !reserved.is_empty() {
+            response["reserved_rule_ids"] = serde_json::json!(reserved);
+        }
         owner.admit(&state, Json(response))
     })?
     .await

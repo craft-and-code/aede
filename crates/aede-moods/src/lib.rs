@@ -2,7 +2,7 @@
 //! No network, decoder or mastering-to-emotion inference is involved.
 #![warn(missing_docs)]
 mod audio_recipes;
-pub use audio_recipes::{AudioRecipe, audio_recipes};
+pub use audio_recipes::{AudioRecipe, audio_recipes, is_audio_recipe_id};
 pub mod background;
 mod model;
 pub use model::AcousticModel;
@@ -31,10 +31,11 @@ pub struct Match {
     pub genre: Option<String>,
 }
 impl Rule {
-    /// Refuse unbounded or empty rules; callers normalize with their catalog's text policy.
+    /// Refuse unbounded, empty or engine-owned rules; callers normalize their own text.
     pub fn valid(&self) -> bool {
         !self.id.is_empty()
             && self.id.len() <= 128
+            && !is_audio_recipe_id(&self.id)
             && !self.name.trim().is_empty()
             && self.name.len() <= 256
             && self.tags.len() + self.genres.len() > 0
