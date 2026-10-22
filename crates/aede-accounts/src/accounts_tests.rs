@@ -140,3 +140,145 @@ fn invalid_names_passwords_and_revisions_do_not_change_accounts() {
     data.records[0].revision = MAX_REVISION;
     assert!(data.revoke("operator", 21).is_err());
 }
+
+#[test]
+fn bootstrap_refuses_timestamps_outside_the_persisted_range() {
+    let accepted: Vec<_> = [MAX_REVISION + 1, u64::MAX]
+        .into_iter()
+        .filter(|&now| Accounts::bootstrap("operator", PASSWORD, now).is_ok())
+        .collect();
+    assert!(accepted.is_empty(), "accepted timestamps: {accepted:?}");
+}
+
+#[test]
+fn creation_refuses_unpersistable_timestamps_without_changing_credentials() {
+    let mut base = accounts();
+    let (key, _) = base.create_api_key("operator", "desktop", 20).unwrap();
+    let epoch = base.epoch().to_owned();
+    let revision = base.find("operator").unwrap().revision();
+    let mut violations = Vec::new();
+    for now in [MAX_REVISION + 1, u64::MAX] {
+        let mut data = base.clone();
+        let refused = data.create("alice", PASSWORD, Role::User, now).is_err();
+        let unchanged = data == base
+            && data
+                .session_account(LOCAL_OWNER, &epoch, revision)
+                .is_some()
+            && data
+                .api_key_account(&key.id, LOCAL_OWNER, &epoch, revision)
+                .is_some();
+        if !refused || !unchanged {
+            violations.push((now, refused, unchanged));
+        }
+    }
+    assert!(violations.is_empty(), "invalid creations: {violations:?}");
+}
+
+#[test]
+fn administration_refuses_unpersistable_timestamps_without_changing_credentials() {
+    let mut base = accounts();
+    base.create("alice", PASSWORD, Role::User, 20).unwrap();
+    let (key, _) = base.create_api_key("alice", "phone", 21).unwrap();
+    let (operator_key, _) = base.create_api_key("operator", "desktop", 22).unwrap();
+    let owner = base.find("alice").unwrap().id.clone();
+    let epoch = base.epoch().to_owned();
+    let revision = base.find("alice").unwrap().revision();
+    let operator_revision = base.find("operator").unwrap().revision();
+    let mut violations = Vec::new();
+    for now in [MAX_REVISION + 1, u64::MAX] {
+        for change in ["role", "enabled", "username", "password", "revoke"] {
+            let mut data = base.clone();
+            let refused = match change {
+                "role" => data.set_role("alice", Role::Auditor, now),
+                "enabled" => data.set_enabled("alice", false, now),
+                "username" => data.rename("alice", "listener", now),
+                "password" => data.set_password("alice", "another long passphrase", now),
+                _ => data.revoke("alice", now),
+            }
+            .is_err();
+            let unchanged = data == base
+                && data.session_account(&owner, &epoch, revision).is_some()
+                && data
+                    .session_account(LOCAL_OWNER, &epoch, operator_revision)
+                    .is_some()
+                && data
+                    .api_key_account(&key.id, &owner, &epoch, revision)
+                    .is_some()
+                && data
+                    .api_key_account(&operator_key.id, LOCAL_OWNER, &epoch, operator_revision)
+                    .is_some();
+            if !refused || !unchanged {
+                violations.push((change, now, refused, unchanged));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "invalid edits: {violations:?}");
+}
+
+#[test]
+fn maximum_persistable_timestamp_round_trips_after_creation_and_administration() {
+    let mut base = Accounts::bootstrap("operator", PASSWORD, MAX_REVISION).unwrap();
+    base.create("alice", PASSWORD, Role::User, MAX_REVISION)
+        .unwrap();
+    let (key, _) = base.create_api_key("alice", "phone", MAX_REVISION).unwrap();
+    let (operator_key, _) = base
+        .create_api_key("operator", "desktop", MAX_REVISION)
+        .unwrap();
+    assert_eq!(base.all()[0].created_at, MAX_REVISION);
+    assert_eq!(base.find("alice").unwrap().created_at, MAX_REVISION);
+    assert_eq!(key.created_at, MAX_REVISION);
+    assert_eq!(from_json(&to_json(&base)).unwrap(), base);
+
+    let owner = base.find("alice").unwrap().id.clone();
+    let epoch = base.epoch().to_owned();
+    let revision = base.find("alice").unwrap().revision();
+    let operator_revision = base.find("operator").unwrap().revision();
+    for change in ["role", "enabled", "username", "password", "revoke"] {
+        let mut data = base.clone();
+        match change {
+            "role" => data.set_role("alice", Role::Auditor, MAX_REVISION),
+            "enabled" => data.set_enabled("alice", false, MAX_REVISION),
+            "username" => data.rename("alice", "listener", MAX_REVISION),
+            "password" => data.set_password("alice", "another long passphrase", MAX_REVISION),
+            _ => data.revoke("alice", MAX_REVISION),
+        }
+        .unwrap();
+        let account = data
+            .all()
+            .iter()
+            .find(|account| account.id == owner)
+            .unwrap();
+        assert_eq!(account.updated_at, MAX_REVISION, "{change}");
+        assert_eq!(account.revision(), revision + 1, "{change}");
+        assert!(data.session_account(&owner, &epoch, revision).is_none());
+        assert!(data.api_keys(&account.username).unwrap().is_empty());
+        assert!(
+            data.api_key_account(&operator_key.id, LOCAL_OWNER, &epoch, operator_revision)
+                .is_some()
+        );
+        assert_eq!(from_json(&to_json(&data)).unwrap(), data, "{change}");
+    }
+}
+
+#[test]
+fn administration_no_ops_keep_credentials_unchanged_with_unused_timestamps() {
+    let mut data = accounts();
+    let (key, _) = data.create_api_key("operator", "desktop", 20).unwrap();
+    let before = data.clone();
+    let epoch = data.epoch().to_owned();
+    let revision = data.find("operator").unwrap().revision();
+    for now in [MAX_REVISION + 1, u64::MAX] {
+        data.set_role("operator", Role::Administrator, now).unwrap();
+        data.set_enabled("operator", true, now).unwrap();
+        data.rename("operator", "OPERATOR", now).unwrap();
+        assert_eq!(data, before);
+        assert!(
+            data.session_account(LOCAL_OWNER, &epoch, revision)
+                .is_some()
+        );
+        assert!(
+            data.api_key_account(&key.id, LOCAL_OWNER, &epoch, revision)
+                .is_some()
+        );
+    }
+}

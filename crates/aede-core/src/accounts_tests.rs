@@ -297,3 +297,28 @@ fn corrupt_backup_credentials_leave_personal_data_recoverable_and_source_bytes_i
     std::fs::remove_dir_all(dir).unwrap();
     assert!(outcomes.iter().all(|(_, refused)| *refused), "{outcomes:?}");
 }
+
+#[test]
+fn rejected_account_timestamps_keep_saved_credentials_and_client_keys() {
+    let dir = std::env::temp_dir().join(format!("aede_accounts_time_{}", random_token().unwrap()));
+    let path = accounts_path(&dir);
+    let mut data = accounts();
+    let (_, token) = data.create_api_key("operator", "desktop", 20).unwrap();
+    save(&data, &path).unwrap();
+    let saved_bytes = std::fs::read(&path).unwrap();
+    let unrelated = crate::user::user_path(&dir);
+    crate::user::save(&crate::user::UserData::default(), &unrelated).unwrap();
+    let unrelated_bytes = std::fs::read(&unrelated).unwrap();
+
+    let mut loaded = load(&path).unwrap().unwrap();
+    assert!(loaded.revoke("operator", 1 << 53).is_err());
+    assert_eq!(loaded, data);
+    save(&loaded, &path).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), saved_bytes);
+    assert_eq!(std::fs::read(&unrelated).unwrap(), unrelated_bytes);
+    let reloaded = load(&path).unwrap().unwrap();
+    assert_eq!(reloaded, data);
+    assert!(reloaded.authenticate("operator", PASSWORD).is_some());
+    assert!(reloaded.authenticate_api_key(&token).is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -118,6 +118,7 @@ pub struct Accounts {
 impl Accounts {
     /// Create the first administrator, retaining the existing `local` owner.
     pub fn bootstrap(username: &str, password: &str, now: u64) -> Result<Self, String> {
+        validate_timestamp(now)?;
         Ok(Self {
             epoch: random_token()?,
             records: vec![Account {
@@ -184,6 +185,7 @@ impl Accounts {
         role: Role,
         now: u64,
     ) -> Result<(), String> {
+        validate_timestamp(now)?;
         let username = login_name(username)?;
         if self.records.len() >= MAX_ACCOUNTS {
             return Err("the installation already has 256 accounts".into());
@@ -235,12 +237,14 @@ impl Accounts {
         if self.find(username).is_none() {
             return Err("no account has this login name".into());
         }
+        validate_timestamp(now)?;
         let hash = hash_password(password)?;
         self.edit(username, now, |account| account.password_hash = hash)
     }
 
     /// Revoke one account's sessions and API keys without changing its password or opinions.
     pub fn revoke(&mut self, username: &str, now: u64) -> Result<(), String> {
+        validate_timestamp(now)?;
         let account = self
             .records
             .iter_mut()
@@ -273,9 +277,11 @@ impl Accounts {
             .ok_or("no account has this login name")?;
         let mut candidate = self.records[index].clone();
         edit(&mut candidate);
+        // A no-op publishes no timestamp and preserves existing credentials.
         if candidate == self.records[index] {
             return Ok(());
         }
+        validate_timestamp(now)?;
         let keeps_administrator = (candidate.enabled && candidate.role == Role::Administrator)
             || self.records.iter().enumerate().any(|(other, account)| {
                 other != index && account.enabled && account.role == Role::Administrator
@@ -290,6 +296,13 @@ impl Accounts {
         self.purge_api_keys(&owner);
         Ok(())
     }
+}
+
+fn validate_timestamp(now: u64) -> Result<(), String> {
+    if now > MAX_REVISION {
+        return Err("account timestamp is too large".into());
+    }
+    Ok(())
 }
 
 fn next_revision(previous: u64) -> Result<u64, String> {
