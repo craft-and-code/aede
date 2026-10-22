@@ -6,6 +6,8 @@ By default unchanged files with stored verdicts are reused. --full rereads every
 
 Container-check --threads values are validated even for an empty selection or one whose verdicts are all cached. Zero retains automatic worker selection; positive whole numbers request that many workers.
 
+Full decoding with `--decode-test` processes one file at a time and refuses an explicit `--threads` option, including a valid numeric value.
+
 Verdicts are stored as conclusions and become stale when the source changes. This command is distinct from decoded FLAC MD5 verification or an audio-origin analysis performed through FlacCompagnon. It never repairs or overwrites a damaged file. Keep a separate backup of original music.
 
 ## Syntax and arguments

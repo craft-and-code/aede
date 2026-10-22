@@ -8,6 +8,8 @@ import lit les rapports JSON [FlacCompagnon](https://craft-and-code.github.io/Fl
 
 La date de rapport la plus récente gagne lors d’un recouvrement, y compris quand des rapports en attente sont rattachés après un scan. Changer l’audio rend la mesure obsolète. Supprimer le rapport ensuite n’efface pas l’import. JSON mal formé, structure de rapport invalide, version incompatible ou chemin illisible sont signalés. Un objet report et un tableau files sont requis ; un tableau vide reste valide. Les anciens rapports sans version restent compatibles avec la version 0 ; une version présente doit être un entier non signé sur 32 bits. analyze produit de nouvelles mesures dans Aède.
 
+La recherche récursive refuse un dossier, une entrée de dossier ou un type de fichier illisible en indiquant le chemin et l’erreur. Le parcours précède la publication : son échec préserve les fichiers de données existants même si un autre rapport lisible a déjà été trouvé. Rétablir l’accès puis relancer l’import.
+
 ## Syntaxe et arguments
 
 ```text

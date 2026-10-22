@@ -6,7 +6,7 @@ The next scan rebuilds the graph around that rule. --list shows rules and whethe
 
 The CLI reads, lists and removes only the legacy `local` owner's statements, including the decisions passed to a scan. Other accounts' stored statements remain private and unchanged. An exact canonical artist key takes precedence; otherwise a unique normalized alias can identify the artist. An ambiguous alias is refused before saving, and aliases cannot bypass the different-MusicBrainz-identifiers refusal.
 
-If both local spellings have different MusicBrainz artist identifiers, merge refuses: they identify different people and must be corrected deliberately at the source. doctor suggests candidate spelling pairs but never applies them. --source is only meaningful for the rule/source-related operation offered by the command; it is not a fuzzy auto-merge mode.
+If both local spellings have different MusicBrainz artist identifiers, merge refuses: they identify different people and must be corrected deliberately at the source. doctor suggests candidate spelling pairs but never applies them. Filing rules are personal statements; source selection with `--source` is refused. `--list` and `--forget` select different operations and cannot be combined.
 
 ## Syntax and arguments
 
@@ -22,7 +22,6 @@ Ordinary action: exactly two separately quoted artist spellings. Removal: the sp
 | --- | --- |
 | `--forget` | Remove stored data/decisions in this command’s scope. It does not delete audio or retag files. |
 | `--list` | List the individual stored records or decisions instead of the normal summary/operation. |
-| `--source NAME` | Recognized by command scope, but the current merge handler does not apply this filter. Filing rules remain personal statements. |
 
 The shared [options reference](options.md) explains `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, option values and output/pagination rules. These shared presentation/data options do not make every command support CSV/JSON or pagination.
 

@@ -8,6 +8,8 @@ Normally it lists absent studio albums and leaves singles, live records, compila
 
 --forget TITLE sets one missing release aside without erasing what MusicBrainz said. --list shows those personal decisions. --forget --remove TITLE puts it back. Multiple equally matching releases are refused so no wrong album is hidden. This comparison uses MusicBrainz discographies; --source is refused rather than silently ignored.
 
+`--remove` requires `--forget`; `--list` and `--forget` cannot be combined. `--limit`, `--offset` and `--all` apply to the normal missing-album report and are refused when listing or changing set-aside decisions.
+
 The CLI lists, removes and applies only the `local` owner's set-aside decisions, including the missing-album hint on artist pages. Another account's choices remain private and do not hide albums from this report. A complete operator backup still preserves every owner's personal data.
 
 ## Syntax and arguments

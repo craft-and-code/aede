@@ -6,7 +6,7 @@ Le prochain scan reconstruit le graphe selon la règle. --list affiche les règl
 
 La CLI lit, liste et retire seulement les décisions du propriétaire historique `local`, y compris celles transmises au scan. Les décisions des autres comptes restent privées et inchangées. La clé canonique exacte d’un artiste est prioritaire ; sinon un alias normalisé unique peut l’identifier. Un alias ambigu est refusé avant enregistrement et ne permet pas de contourner le refus des identifiants MusicBrainz différents.
 
-Deux identifiants MusicBrainz locaux différents provoquent un refus : ils désignent des personnes distinctes, à corriger volontairement à la source. doctor suggère des rapprochements sans les appliquer. --source ne crée pas un mode de fusion approximative automatique.
+Deux identifiants MusicBrainz locaux différents provoquent un refus : ils désignent des personnes distinctes, à corriger volontairement à la source. doctor suggère des rapprochements sans les appliquer. Les règles restent personnelles ; `--source` est refusé. `--list` et `--forget` choisissent des opérations différentes et ne peuvent pas être combinés.
 
 ## Syntaxe et arguments
 
@@ -22,7 +22,6 @@ Action normale : exactement deux écritures citées séparément. Retrait : écr
 | --- | --- |
 | `--forget` | Retirer les données/décisions mémorisées dans cette portée. Aucun fichier audio n’est supprimé ni retagué. |
 | `--list` | Lister les enregistrements ou décisions mémorisés au lieu du résumé/de l’opération habituelle. |
-| `--source NAME` | Reconnu par la portée, mais le traitement merge actuel n’applique pas ce filtre. Les règles restent personnelles. |
 
 La [référence des options](options.md) explique `--data`, `--no-color`, `--help`/`-h`, `--version`/`-v`/`-V`, valeurs et règles d’export/pagination. Elles ne rendent pas CSV/JSON ou pagination disponibles partout.
 

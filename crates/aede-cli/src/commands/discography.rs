@@ -315,6 +315,25 @@ pub(super) fn local_asides(user: &aede_core::user::UserData) -> Vec<aede_core::u
 
 /// The `missing` command: the records your artists made and you do not have.
 pub fn missing(args: &crate::args::Args) -> Res {
+    if args.has("list") && args.has("forget") {
+        return Err("--list and --forget ask for different missing-album operations".into());
+    }
+    if args.has("remove") && !args.has("forget") {
+        return Err(
+            "--remove puts an album back with --forget: aede missing --forget --remove \"<title>\""
+                .into(),
+        );
+    }
+    if (args.has("list") || args.has("forget"))
+        && let Some(option) = ["limit", "offset", "all"]
+            .into_iter()
+            .find(|option| args.has(option))
+    {
+        return Err(format!(
+            "--{option} applies to the missing-album report, not listing or changing set-aside decisions"
+        )
+        .into());
+    }
     let catalog = super::load(args)?;
     let held = super::sources_held(args)?;
     let user_path = aede_core::user::user_path(&super::data_dir(args));

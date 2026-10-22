@@ -183,7 +183,11 @@ fn missing_refuses_source_selection_but_keeps_its_set_aside_operations() {
         !source_commands.contains(&"missing"),
         "missing cannot honor a source selector"
     );
-    for command in ["import", "sources", "merge", "review", "relations"] {
+    assert!(
+        !source_commands.contains(&"merge"),
+        "merge cannot honor a source selector"
+    );
+    for command in ["import", "sources", "review", "relations"] {
         assert!(
             source_commands.contains(&command),
             "{command} still selects sources"

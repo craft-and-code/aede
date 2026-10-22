@@ -25,6 +25,7 @@ use crate::ui::{self, Align, Table};
 pub const DEFAULT_SIZE: spectrum::Size = spectrum::Size::Half;
 
 pub fn spectrum(args: &Args) -> Res {
+    let requested_threads = args.number_or("threads", 0)?;
     let catalog = load(args)?;
     let scope = super::scope_of(args, &catalog)?;
     let redraw_everything = args.has("full");
@@ -67,8 +68,8 @@ pub fn spectrum(args: &Args) -> Res {
         let mut t = Table::new(&["Picture", "Track"]);
         for (audio, picture, _) in work.iter().take(20) {
             t.push(vec![
-                picture.display().to_string(),
-                aede_core::text::file_name(&audio.display().to_string()).to_string(),
+                ui::literal(&picture.display().to_string()),
+                ui::literal(aede_core::text::file_name(&audio.display().to_string())),
             ]);
         }
         print!("{}", t.render());
@@ -89,7 +90,7 @@ pub fn spectrum(args: &Args) -> Res {
     // pictures share anything. The same answer the scan gives to the same
     // question, down to `--threads` meaning the same thing.
     let total = work.len();
-    let threads = aede_core::scan::resolve_threads(args.number_or("threads", 0)?).min(total.max(1));
+    let threads = aede_core::scan::resolve_threads(requested_threads).min(total.max(1));
     draw_pictures(work, threads, |audio, picture, caption| {
         spectrum::render(&program, audio, picture, size, Some(caption))
     })

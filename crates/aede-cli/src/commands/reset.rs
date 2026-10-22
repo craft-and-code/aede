@@ -50,7 +50,10 @@ pub fn reset(args: &Args) -> Res {
     }
     table.push(vec!["File".into(), text::format_size(size)]);
     print!("{}", table.render());
-    println!("  {}", ui::dim(&catalog_file.display().to_string()));
+    println!(
+        "  {}",
+        ui::dim(&ui::literal(&catalog_file.display().to_string()))
+    );
 
     // What a scan brings back and what it does not: the difference is the whole
     // reason to hesitate.

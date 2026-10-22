@@ -44,7 +44,7 @@ Work reuse: `--full` belongs to scan/check/spectrum/fetch/fingerprint with diffe
 
 ## Complete recognized-option matrix
 
-This inventory follows the current dispatcher and handlers. It lists accepted command scope, not a promise that every combination is valid. Specialized constraints are documented per command. Current known handler gaps: `missing --source` and `merge --source` are accepted but not applied; `sources --source` filters list/forget and selects template provenance, while summary/export currently include every source. `--compress`/`--quality` belong semantically to copy although the current dispatcher does not reject those recognized names on every unrelated command. Use only their documented copy scope.
+This inventory follows the current dispatcher and handlers. It lists accepted command scope, not a promise that every combination is valid. Specialized constraints are documented per command. `missing` and `merge` refuse `--source`; `sources --source` requires `--list`, `--forget` or `--template`. `--compress` and `--quality` are refused outside `copy`.
 
 
 | Option | Commands / scope |
@@ -97,7 +97,7 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--collection NAME` | [copy](copy.md) |
 | `--compress FORMAT` | [copy](copy.md) |
 | `--quality SETTING` | [copy](copy.md) |
-| `--source NAME` | [import](import.md), [sources](sources.md), [review](review.md), [relations](relations.md), [missing](missing.md), [merge](merge.md) |
+| `--source NAME` | [import](import.md), [sources](sources.md), [review](review.md), [relations](relations.md) |
 | `--compilations` | [albums](albums.md) |
 | `--no-compilations` | [albums](albums.md) |
 | `--role ROLE` | [credit](credit.md), [artists](artists.md), [artist](artist.md) |

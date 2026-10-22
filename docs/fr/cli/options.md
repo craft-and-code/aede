@@ -44,7 +44,7 @@ Réutilisation : `--full` concerne scan/check/spectrum/fetch/fingerprint avec de
 
 ## Matrice complète des options reconnues
 
-Cette liste suit répartition et traitements actuels. Elle décrit la portée acceptée, pas toutes les combinaisons valides. Contraintes sur chaque page. Limites actuelles : `missing --source` et `merge --source` acceptés sans appliquer le filtre ; `sources --source` filtre list/forget et choisit la provenance de template, mais résumé/export incluent tout. `--compress`/`--quality` relèvent de copy même si la répartition actuelle ne refuse pas ces noms sur toutes les autres commandes. Employer seulement leur portée documentée.
+Cette liste suit répartition et traitements actuels. Elle décrit la portée acceptée, pas toutes les combinaisons valides. Contraintes sur chaque page. `missing` et `merge` refusent `--source` ; `sources --source` exige `--list`, `--forget` ou `--template`. `--compress` et `--quality` sont refusés hors de `copy`.
 
 
 | Option | Commandes / portée |
@@ -97,7 +97,7 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--collection NAME` | [copy](copy.md) |
 | `--compress FORMAT` | [copy](copy.md) |
 | `--quality SETTING` | [copy](copy.md) |
-| `--source NAME` | [import](import.md), [sources](sources.md), [review](review.md), [relations](relations.md), [missing](missing.md), [merge](merge.md) |
+| `--source NAME` | [import](import.md), [sources](sources.md), [review](review.md), [relations](relations.md) |
 | `--compilations` | [albums](albums.md) |
 | `--no-compilations` | [albums](albums.md) |
 | `--role ROLE` | [credit](credit.md), [artists](artists.md), [artist](artist.md) |

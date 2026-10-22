@@ -62,6 +62,9 @@ fn chosen(data: &UserData) -> Vec<aede_core::model::identity::Chosen> {
 }
 
 pub fn merge(args: &Args) -> Res {
+    if args.has("list") && args.has("forget") {
+        return Err("--list and --forget ask for different merge operations".into());
+    }
     let dir = data_dir(args);
     let path = user::user_path(&dir);
     let mut data = user::load(&path)?.unwrap_or_default();

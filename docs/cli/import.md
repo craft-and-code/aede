@@ -8,6 +8,8 @@ import reads [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/) JS
 
 The newer available report date wins for overlapping file results, including waiting reports attached after a scan. Changing source audio makes old measurements stale. Deleting a report later does not remove imported data. A malformed JSON file, invalid report envelope, unsupported version or unreadable path is reported rather than treated as audio. A report requires a report object and a files array; an empty array remains valid. Legacy reports without a version retain version 0 compatibility, while a present version must be an unsigned 32-bit integer. Use analyze when you want fresh in-process measurements.
 
+Recursive discovery refuses an unreadable folder, directory entry or file type with its path and error. Discovery completes before publication, so a traversal failure preserves the existing stores even when another readable report has already been found. Restore access and retry the import.
+
 ## Syntax and arguments
 
 ```text

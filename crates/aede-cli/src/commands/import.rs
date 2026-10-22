@@ -477,7 +477,7 @@ fn collect_reports(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), Box<dyn st
     if !path.is_dir() {
         return Err(format!("\"{}\" does not exist", path.display()).into());
     }
-    let found = walk_for_reports(path);
+    let found = walk_for_reports(path)?;
     if found.is_empty() {
         return Err(format!("no .json report under \"{}\"", path.display()).into());
     }
@@ -489,31 +489,40 @@ fn collect_reports(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), Box<dyn st
 ///
 /// Sorted so that importing the same folder twice does the same thing twice:
 /// when two reports describe the same file, the same one wins both times.
-fn walk_for_reports(dir: &Path) -> Vec<PathBuf> {
+fn walk_for_reports(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut found = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&current) else {
-            // An unreadable folder must not stop the rest of the walk.
-            continue;
-        };
-        for entry in entries.flatten() {
+        let entries = std::fs::read_dir(&current).map_err(|error| {
+            format!(
+                "cannot read report folder \"{}\": {error}",
+                current.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                format!(
+                    "cannot read an entry in report folder \"{}\": {error}",
+                    current.display()
+                )
+            })?;
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.') {
                 continue;
             }
-            match entry.file_type() {
-                Ok(kind) if kind.is_dir() => stack.push(path),
-                Ok(kind) if kind.is_file() && name.to_ascii_lowercase().ends_with(".json") => {
-                    found.push(path);
-                }
-                _ => {}
+            let kind = entry.file_type().map_err(|error| {
+                format!("cannot read file type for \"{}\": {error}", path.display())
+            })?;
+            if kind.is_dir() {
+                stack.push(path);
+            } else if kind.is_file() && name.to_ascii_lowercase().ends_with(".json") {
+                found.push(path);
             }
         }
     }
     found.sort();
-    found
+    Ok(found)
 }
 
 #[cfg(test)]

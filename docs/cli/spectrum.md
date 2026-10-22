@@ -4,6 +4,8 @@ spectrum draws spectrogram images beside selected catalogued music using FFmpeg 
 
 Half-size images are the default; --size full uses the full drawing size. Existing pictures are skipped unless --full is supplied, including when only the size changed. --dry-run lists planned outputs without drawing, and --threads controls concurrent work.
 
+Invalid `--threads` values are refused before work, including empty selections, already-current pictures and `--dry-run` previews.
+
 The command creates sidecar images and needs write access to those folders; original music is read only. When tools/decoding fail, inspect the reported filename and verify format/tool availability before retrying. Use analyze for stored numerical measurements rather than interpreting an image as a checksum.
 
 Rendering uses an isolated temporary output, then replaces the final picture only after success. Existing destination links and special files are refused before rendering and publication. A failed attempt preserves the previous picture; other selected tracks continue. Any picture failure makes the final command and its administrative server task fail, while keeping completed images.

@@ -133,6 +133,7 @@ const VALUED_WORD: &[&str] = &[
     "reject",
     "undo",
     "artist-id",
+    "artist-ref",
     "normalize",
     "playback",
     "output-device",

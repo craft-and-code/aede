@@ -8,6 +8,8 @@ Normalement, il liste les albums studio absents et laisse de côté singles, con
 
 --forget TITRE met une parution de côté sans effacer la source. --list montre ces décisions. --forget --remove TITRE la remet. Plusieurs parutions également correspondantes sont refusées pour éviter de masquer le mauvais album. Cette comparaison utilise les discographies MusicBrainz ; --source est refusé au lieu d’être ignoré silencieusement.
 
+`--remove` exige `--forget` ; `--list` et `--forget` ne peuvent pas être combinés. `--limit`, `--offset` et `--all` s’appliquent au rapport normal des albums manquants et sont refusés lors de la consultation ou modification des décisions de mise de côté.
+
 La CLI liste, retire et applique uniquement les décisions du propriétaire `local`, y compris dans l’indication d’albums manquants des pages artiste. Les choix d’un autre compte restent privés et ne masquent aucun album dans ce rapport. Une sauvegarde complète de l’opérateur conserve toujours les données personnelles de tous les propriétaires.
 
 ## Syntaxe et arguments

@@ -46,7 +46,11 @@ fn main() {
     let unknown = args.unknown_flags(OPTIONS);
     if !unknown.is_empty() {
         for option in &unknown {
-            eprintln!("{} unknown option: {option}", ui::red("Error:"));
+            eprintln!(
+                "{} unknown option: {}",
+                ui::red("Error:"),
+                ui::literal(option)
+            );
             if let Some(near) = args::nearest(option, OPTIONS) {
                 eprintln!("Did you mean {near}?");
             }
@@ -72,7 +76,7 @@ fn main() {
             if *name == "data" {
                 eprintln!(
                     "Its catalog is currently in {}",
-                    commands::data_dir(&args).display()
+                    ui::literal(&commands::data_dir(&args).display().to_string())
                 );
                 // The location can be changed for good, and the variable that
                 // does it is the least discoverable thing in the program.
@@ -86,8 +90,9 @@ fn main() {
     if !unexpected_values.is_empty() {
         for option in unexpected_values {
             eprintln!(
-                "{} option {option} does not accept a value",
-                ui::red("Error:")
+                "{} option {} does not accept a value",
+                ui::red("Error:"),
+                ui::literal(option)
             );
         }
         std::process::exit(2);
@@ -141,7 +146,7 @@ fn main() {
         eprintln!(
             "{} no command to apply {} to.",
             ui::red("Error:"),
-            idle.join(", ")
+            ui::literal(&idle.join(", "))
         );
         eprintln!("An option shapes what a command does; alone it does nothing.");
         // Naming the commands is not always enough — the same reason `--role`
@@ -150,6 +155,7 @@ fn main() {
         // `aede --data ~/Music` is what someone types who reads it that way.
         // The error that only says "no command" leaves them exactly there.
         if let Some(folder) = args.value("data") {
+            let folder = ui::literal(folder);
             eprintln!("--data says where the catalog is kept, not what to read:");
             eprintln!("  aede scan {folder}              reads the music in that folder");
             eprintln!("  aede --data {folder} stats      uses a catalog kept there");
@@ -177,7 +183,7 @@ fn main() {
             eprintln!(
                 "{} \"{}\" cannot {what}: --{option} applies to {}",
                 ui::red("Error:"),
-                args.command,
+                ui::literal(&args.command),
                 commands.join(", ")
             );
             // Naming the commands is not always enough. A role means nothing
@@ -192,7 +198,7 @@ fn main() {
             if *option == "role" {
                 eprintln!(
                     "A role needs a person: aede artist \"<name>\" --role {}",
-                    args.value("role").unwrap_or("<role>")
+                    ui::literal(args.value("role").unwrap_or("<role>"))
                 );
             }
             std::process::exit(2);
@@ -242,8 +248,8 @@ fn main() {
         eprintln!(
             "{} \"{}\" takes no argument: \"{}\" was ignored.\n{hint}",
             ui::red("Error:"),
-            args.command,
-            args.positionals.join(" ")
+            ui::literal(&args.command),
+            ui::literal(&args.positionals.join(" "))
         );
         std::process::exit(2);
     }
@@ -255,7 +261,7 @@ fn main() {
         eprintln!(
             "{} unknown command: \"{}\"",
             ui::red("Error:"),
-            args.command
+            ui::literal(&args.command)
         );
         if let Some(near) = args::nearest(
             &args.command,
@@ -851,6 +857,8 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "hold an expression",
     ),
     ("extras", &["copy"], "choose what travels beside the audio"),
+    ("compress", &["copy"], "encode copied audio"),
+    ("quality", &["copy"], "choose copied audio encoding quality"),
     (
         "dry-run",
         &[
@@ -980,7 +988,7 @@ const SAID_ELSEWHERE_COMMANDS: &[&str] = &["import", "sources", "missing", "merg
 /// Commands where one external source can be selected. Review joins the
 /// attributed-data commands here without inheriting their destructive
 /// `--forget` option.
-const SOURCE_COMMANDS: &[&str] = &["import", "sources", "merge", "review", "relations"];
+const SOURCE_COMMANDS: &[&str] = &["import", "sources", "review", "relations"];
 
 /// Commands that can list what they hold rather than go and get more.
 ///

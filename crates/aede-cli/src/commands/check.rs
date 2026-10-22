@@ -38,6 +38,12 @@ const LONG_RUN: usize = 500;
 const SAVE_EVERY: usize = 250;
 
 pub fn check(args: &Args) -> Res {
+    if args.has("decode-test") && args.has("threads") {
+        return Err(
+            "--threads does not apply to --decode-test: full decoding runs one file at a time"
+                .into(),
+        );
+    }
     if args.has("json") && !args.has("decode-test") {
         return Err("--json requires --decode-test for check".into());
     }
@@ -240,7 +246,10 @@ fn report(
     }
     print!("{}", table.render());
     if !scope.is_empty() {
-        println!("  {}", ui::dim(&format!("in {}", scope.join(", "))));
+        println!(
+            "  {}",
+            ui::dim(&format!("in {}", ui::literal(&scope.join(", "))))
+        );
     }
 
     // What this run did, said apart from what the library holds.

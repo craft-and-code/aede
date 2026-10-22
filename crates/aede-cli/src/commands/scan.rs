@@ -306,7 +306,11 @@ pub fn roots(args: &Args) -> Res {
                 return Err(format!("\"{folder}\" is not excluded").into());
             }
             store::save(&catalog, &catalog_file)?;
-            println!("{} {folder} will be read again", ui::green("->"));
+            println!(
+                "{} {} will be read again",
+                ui::green("->"),
+                ui::literal(folder)
+            );
             return take_effect(args, "it will be read again at the next scan");
         }
         if catalog.excluded.contains(&wanted) {
@@ -315,7 +319,11 @@ pub fn roots(args: &Args) -> Res {
         catalog.excluded.push(wanted);
         catalog.excluded.sort();
         store::save(&catalog, &catalog_file)?;
-        println!("{} {folder} will not be read", ui::green("->"));
+        println!(
+            "{} {} will not be read",
+            ui::green("->"),
+            ui::literal(folder)
+        );
         // The files already in the catalog do not vanish because the folder
         // stopped being read: the same promise `--remove` on a root makes, and
         // the same way of keeping it.
@@ -337,7 +345,11 @@ pub fn roots(args: &Args) -> Res {
             return Err(format!("\"{target}\" is not a watched folder").into());
         }
         store::save(&catalog, &catalog_file)?;
-        println!("{} no longer watching {target}", ui::green("->"));
+        println!(
+            "{} no longer watching {}",
+            ui::green("->"),
+            ui::literal(target)
+        );
         if catalog.roots.is_empty() && !args.has("no-scan") {
             println!(
                 "{}",
@@ -367,7 +379,7 @@ pub fn roots(args: &Args) -> Res {
         counted.extend(tracks.iter().copied());
         let (duration, size) = totals(&catalog, &tracks);
         t.push(vec![
-            root.clone(),
+            ui::literal(root),
             tracks.len().to_string(),
             text::format_duration(duration),
             text::format_size(size),
@@ -421,7 +433,7 @@ pub fn roots(args: &Args) -> Res {
         println!("{}", ui::section("Never read"));
         let mut t = Table::new(&["Folder"]).path_limit(0, 70);
         for folder in &catalog.excluded {
-            t.push(vec![folder.clone()]);
+            t.push(vec![ui::literal(folder)]);
         }
         print!("{}", t.render());
         println!(
@@ -434,7 +446,10 @@ pub fn roots(args: &Args) -> Res {
     // location it never named — only `scan` mentioned it, once, in passing.
     println!(
         "  {}",
-        ui::dim(&format!("catalog: {}", catalog_file.display()))
+        ui::dim(&format!(
+            "catalog: {}",
+            ui::literal(&catalog_file.display().to_string())
+        ))
     );
     Ok(())
 }

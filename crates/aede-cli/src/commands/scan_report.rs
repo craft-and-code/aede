@@ -95,7 +95,13 @@ pub(super) fn print(
             ui::dim("  preview only: catalog, watched folders and personal data were not changed")
         );
     }
-    println!("{}", ui::dim(&format!("  catalog: {}", path.display())));
+    println!(
+        "{}",
+        ui::dim(&format!(
+            "  catalog: {}",
+            ui::literal(&path.display().to_string())
+        ))
+    );
 }
 
 fn paths(title: &str, paths: &[String]) {
