@@ -534,6 +534,16 @@ Complete guides to Aède's features and architecture:
 - [M1 Manual Verification](docs/coding/m1-manual-verification.md) — Results and coverage of the pre-M2 check
 - [Engineering Rules](docs/coding/engineering-rules.md) — Development guidelines and standards
 
+### Quality Assurance Templates
+
+- [Quality Workflow](docs/quality/README.md) — Reusable audit process and evidence requirements
+- [Audit Scope](docs/quality/audit-scope.md) — Template for defining an investigation
+- [Findings Register](docs/quality/findings.md) — Template for recording confirmed and rejected findings
+- [Release Checklist](docs/quality/release-checklist.md) — Template for evidence-based release validation
+- Role prompts: [Code Auditor](docs/quality/prompts/auditor.md), [Test Engineer](docs/quality/prompts/test-engineer.md), [Adversarial Reviewer](docs/quality/prompts/adversarial-reviewer.md), [Release Validator](docs/quality/prompts/release-validator.md)
+
+These are preparation templates, not records of completed audits.
+
 ---
 
 ## ⚖️ License & Archival Ethos
