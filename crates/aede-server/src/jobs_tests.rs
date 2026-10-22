@@ -803,6 +803,241 @@ fn whole_library_generation_excludes_parallel_jobs_until_confirmed_completion() 
     assert!(registry.insert(5, "library_generation").is_err());
 }
 
+async fn compatibility_scan_fixture() -> crate::accounts_test_support::Fixture {
+    let fixture = crate::accounts_test_support::Fixture::new();
+    let mut guard = fixture.0.catalog.write().await;
+    let catalog = guard.as_mut().unwrap();
+    catalog.roots = vec![
+        fixture
+            .0
+            .data_dir
+            .join("fictional-library")
+            .to_string_lossy()
+            .into_owned(),
+    ];
+    store::save_catalog_only(catalog, &store::catalog_path(&fixture.0.data_dir)).unwrap();
+    drop(guard);
+    fixture
+}
+
+#[test]
+fn whole_library_generation_excludes_bodyless_scan_until_completion_over_http() {
+    use crate::accounts_test_support::{http, login};
+
+    runtime().block_on(async {
+        let mut fixture = compatibility_scan_fixture().await;
+        let (started, received) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let released = Mutex::new(released);
+        let scan_calls = Arc::new(AtomicUsize::new(0));
+        let calls = scan_calls.clone();
+        let admin = fixture.0.admin.as_mut().unwrap();
+        admin.job = Arc::new(move |job, _| {
+            assert!(matches!(job, JobRequest::Generate(_)));
+            started.send(()).unwrap();
+            released
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap();
+            Ok(JobOutput::default())
+        });
+        admin.scan = Arc::new(move |_| {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+        let (address, server) = crate::test_support::start_server(fixture.0.clone()).await;
+        let token = login(address, "operator");
+        let accepted = http(
+            address,
+            "POST",
+            "/api/admin/v1/generate",
+            Some(&token),
+            r#"{"steps":["analyze"]}"#,
+        );
+        assert_eq!(accepted.0, 202, "{}", accepted.1);
+        received.recv_timeout(Duration::from_secs(3)).unwrap();
+        let refused = http(address, "POST", "/api/admin/v1/scan", Some(&token), "");
+        let calls_before_completion = scan_calls.load(Ordering::Relaxed);
+        release.send(()).unwrap();
+        wait_for_jobs(&fixture.0).await;
+        let completed = http(address, "POST", "/api/admin/v1/scan", Some(&token), "");
+        let tasks = http(address, "GET", "/api/admin/v1/tasks", Some(&token), "");
+        server.abort();
+
+        assert_eq!(refused.0, 409, "{}", refused.1);
+        assert_eq!(refused.1["error"]["code"], "generation_task_active");
+        assert_eq!(calls_before_completion, 0);
+        assert_eq!(completed.0, 200, "{}", completed.1);
+        assert_eq!(completed.1["status"], "completed");
+        assert_eq!(completed.1["files"], 1);
+        assert!(completed.1["scanned_at"].is_u64());
+        assert_eq!(scan_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(tasks.0, 200);
+        assert_eq!(tasks.1.as_array().unwrap().len(), 1);
+        assert_eq!(tasks.1[0]["task_id"], accepted.1["task_id"]);
+    });
+}
+
+#[test]
+fn bodyless_scan_excludes_whole_library_generation_until_completion_over_http() {
+    use crate::accounts_test_support::{http, login};
+
+    runtime().block_on(async {
+        let mut fixture = compatibility_scan_fixture().await;
+        let (started, received) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let released = Mutex::new(released);
+        let job_calls = Arc::new(AtomicUsize::new(0));
+        let calls = job_calls.clone();
+        let admin = fixture.0.admin.as_mut().unwrap();
+        admin.scan = Arc::new(move |_| {
+            started.send(()).unwrap();
+            released
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap();
+            Ok(())
+        });
+        admin.job = Arc::new(move |job, _| {
+            assert!(matches!(job, JobRequest::Generate(_)));
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(JobOutput::default())
+        });
+        let (address, server) = crate::test_support::start_server(fixture.0.clone()).await;
+        let token = login(address, "operator");
+        let scan_token = token.clone();
+        let scan_waiter = tokio::task::spawn_blocking(move || {
+            http(address, "POST", "/api/admin/v1/scan", Some(&scan_token), "")
+        });
+        received.recv_timeout(Duration::from_secs(3)).unwrap();
+        let refused = http(
+            address,
+            "POST",
+            "/api/admin/v1/generate",
+            Some(&token),
+            r#"{"steps":["analyze"]}"#,
+        );
+        release.send(()).unwrap();
+        let completed = scan_waiter.await.unwrap();
+        wait_for_jobs(&fixture.0).await;
+        let calls_before_readmission = job_calls.load(Ordering::Relaxed);
+        let accepted = http(
+            address,
+            "POST",
+            "/api/admin/v1/generate",
+            Some(&token),
+            r#"{"steps":["analyze"]}"#,
+        );
+        wait_for_jobs(&fixture.0).await;
+        server.abort();
+
+        assert_eq!(refused.0, 409, "{}", refused.1);
+        assert_eq!(refused.1["error"]["code"], "generation_task_active");
+        assert_eq!(calls_before_readmission, 0);
+        assert_eq!(completed.0, 200, "{}", completed.1);
+        assert_eq!(completed.1["status"], "completed");
+        assert_eq!(accepted.0, 202, "{}", accepted.1);
+        assert_eq!(job_calls.load(Ordering::Relaxed), 1);
+    });
+}
+
+#[test]
+fn aborted_bodyless_scan_waiter_keeps_generation_exclusion_until_worker_stops() {
+    runtime().block_on(async {
+        for fails in [false, true] {
+            let mut fixture = compatibility_scan_fixture().await;
+            let (started, received) = std::sync::mpsc::channel();
+            let (release, released) = std::sync::mpsc::channel();
+            let released = Mutex::new(released);
+            let admin = fixture.0.admin.as_mut().unwrap();
+            admin.token = TOKEN.into();
+            admin.scan = Arc::new(move |_| {
+                started.send(()).unwrap();
+                released
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+                if fails {
+                    Err("deliberate scan failure".into())
+                } else {
+                    Ok(())
+                }
+            });
+            let state = fixture.0.clone();
+            let waiter = tokio::spawn(scan_route(
+                State(state.clone()),
+                request("POST", "/api/admin/v1/scan", Body::empty()),
+            ));
+            received.recv_timeout(Duration::from_secs(3)).unwrap();
+            waiter.abort();
+            assert!(waiter.await.unwrap_err().is_cancelled());
+            let refused = state.jobs.insert(91, "library_generation").err();
+            // Release all work before assertions, including the baseline's
+            // incorrectly admitted generation reservation.
+            if refused.is_none() {
+                state.jobs.finish(91, Ok(JobOutput::default())).unwrap();
+            }
+            release.send(()).unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while state.scan_activity.is_running() {
+                    tokio::task::yield_now().await;
+                }
+                wait_for_jobs(&state).await;
+            })
+            .await
+            .unwrap();
+            state.jobs.insert(92, "library_generation").unwrap();
+            state.jobs.finish(92, Ok(JobOutput::default())).unwrap();
+
+            let refused = refused.expect("the cancelled waiter cannot release its active worker");
+            assert_eq!(refused.status, StatusCode::CONFLICT);
+            assert_eq!(refused.code, "generation_task_active");
+        }
+    });
+}
+
+#[test]
+fn bodyless_scan_errors_release_generation_exclusion() {
+    runtime().block_on(async {
+        for failure in ["store_busy", "scan_failed", "store_error", "panic"] {
+            let mut fixture = compatibility_scan_fixture().await;
+            let admin = fixture.0.admin.as_mut().unwrap();
+            admin.token = TOKEN.into();
+            admin.scan = Arc::new(move |_| match failure {
+                "scan_failed" => Err("deliberate scan failure".into()),
+                "panic" => panic!("deliberate scan worker panic"),
+                _ => Ok(()),
+            });
+            let held_store = (failure == "store_busy")
+                .then(|| aede_core::store_lock::StoreLock::acquire(&fixture.0.data_dir).unwrap());
+            if failure == "store_error" {
+                std::fs::write(store::catalog_path(&fixture.0.data_dir), "invalid catalog")
+                    .unwrap();
+            }
+            let refused = scan_route(
+                State(fixture.0.clone()),
+                request("POST", "/api/admin/v1/scan", Body::empty()),
+            )
+            .await
+            .unwrap_err();
+            drop(held_store);
+            assert_eq!(
+                refused.code,
+                if failure == "panic" {
+                    "scan_failed"
+                } else {
+                    failure
+                }
+            );
+            fixture.0.jobs.insert(91, "library_generation").unwrap();
+            fixture.0.jobs.finish(91, Ok(JobOutput::default())).unwrap();
+        }
+    });
+}
+
 #[test]
 fn generation_route_accepts_only_fixed_nonempty_distinct_stages() {
     runtime().block_on(async {

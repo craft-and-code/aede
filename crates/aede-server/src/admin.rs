@@ -29,10 +29,14 @@ pub(super) async fn admin_scan(
             )
         })?;
     let admin = admin.clone();
+    let reservation = state.jobs.reserve_synchronous_scan()?;
     let task_id = state.next_task_id.fetch_add(1, Ordering::Relaxed);
     let events = state.events.clone();
     let scan_activity = state.scan_activity.clone();
     let outcome = tokio::task::spawn_blocking(move || {
+        // The blocking worker outlives a cancelled HTTP waiter. Keep admission
+        // with it, then return it alongside the writer lock through publication.
+        let admission = reservation;
         let _guard = StoreLock::try_acquire(&admin.data_dir).map_err(|error| {
             if error.kind() == std::io::ErrorKind::WouldBlock {
                 error_message(StatusCode::CONFLICT, "store_busy", "Aède data is busy")
@@ -83,7 +87,9 @@ pub(super) async fn admin_scan(
             Ok((catalog, storage_stamp(&path)))
         })();
         match outcome {
-            Ok((catalog, saved_stamp)) => Ok((_guard, scan_guard, catalog, saved_stamp)),
+            Ok((catalog, saved_stamp)) => {
+                Ok(((_guard, scan_guard, admission), catalog, saved_stamp))
+            }
             Err(error) => {
                 let _ = events.send(CatalogEvent::TaskFailed {
                     task_id,
@@ -109,7 +115,7 @@ pub(super) async fn admin_scan(
             join_error.to_string(),
         )
     })?;
-    let (_store_guard, _scan_guard, catalog, saved_stamp) = outcome?;
+    let (_work_guards, catalog, saved_stamp) = outcome?;
     // Keep other writers out until the just-saved snapshot is published. A
     // second writer must not turn a successful scan into a spurious reload error.
     let _reload = state.reload_gate.lock().await;

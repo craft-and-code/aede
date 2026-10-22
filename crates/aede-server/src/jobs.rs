@@ -443,17 +443,10 @@ struct RegistryData {
     active: usize,
 }
 
-#[derive(Default)]
-pub(super) struct JobRegistry {
-    data: Mutex<RegistryData>,
-    finished: tokio::sync::Notify,
-}
-
-impl JobRegistry {
-    fn insert(&self, task_id: u64, task_kind: &'static str) -> Result<Arc<AtomicBool>, ApiError> {
-        let mut data = self.data.lock().map_err(|_| registry_error())?;
-        if (task_kind.starts_with("library_generation") && data.active > 0)
-            || data.tasks.values().any(|task| {
+impl RegistryData {
+    fn admit(&mut self, task_kind: &'static str) -> Result<(), ApiError> {
+        if (task_kind.starts_with("library_generation") && self.active > 0)
+            || self.tasks.values().any(|task| {
                 task.task_kind.starts_with("library_generation") && !task.status.is_terminal()
             })
         {
@@ -464,7 +457,7 @@ impl JobRegistry {
             ));
         }
         if task_kind == "mood_features"
-            && data
+            && self
                 .tasks
                 .values()
                 .any(|task| task.task_kind == task_kind && !task.status.is_terminal())
@@ -475,13 +468,57 @@ impl JobRegistry {
                 "acoustic extraction is already active",
             ));
         }
-        if data.active >= MAX_ACTIVE {
+        if self.active >= MAX_ACTIVE {
             return Err(error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "task_limit",
                 "administrative task capacity reached",
             ));
         }
+        self.active += 1;
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub(super) struct JobRegistry {
+    data: Mutex<RegistryData>,
+    finished: tokio::sync::Notify,
+}
+
+/// Compatibility scans participate in admission without becoming pollable jobs.
+pub(super) struct SynchronousScanReservation {
+    registry: Arc<JobRegistry>,
+}
+
+impl Drop for SynchronousScanReservation {
+    fn drop(&mut self) {
+        match self.registry.data.lock() {
+            Ok(mut data) => {
+                data.active -= 1;
+                self.registry.finished.notify_waiters();
+            }
+            Err(_) => eprintln!("Aède could not release synchronous scan admission"),
+        }
+    }
+}
+
+impl JobRegistry {
+    pub(super) fn reserve_synchronous_scan(
+        self: &Arc<Self>,
+    ) -> Result<SynchronousScanReservation, ApiError> {
+        self.data
+            .lock()
+            .map_err(|_| registry_error())?
+            .admit("scan")?;
+        Ok(SynchronousScanReservation {
+            registry: self.clone(),
+        })
+    }
+
+    fn insert(&self, task_id: u64, task_kind: &'static str) -> Result<Arc<AtomicBool>, ApiError> {
+        let mut data = self.data.lock().map_err(|_| registry_error())?;
+        data.admit(task_kind)?;
         if data.tasks.len() >= MAX_RETAINED
             && let Some(oldest) = data
                 .tasks
@@ -506,7 +543,6 @@ impl JobRegistry {
                 cancellation: cancellation.clone(),
             },
         );
-        data.active += 1;
         Ok(cancellation)
     }
 
