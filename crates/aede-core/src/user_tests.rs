@@ -8,6 +8,92 @@ use super::test_support::library;
 use super::*;
 use crate::model;
 
+#[test]
+fn missing_legacy_owners_and_explicit_owners_survive_loading_and_saving() {
+    use super::test_support::{TemporaryUser, owner_scoped_rows};
+    use crate::json::Json;
+
+    for version in [1, USER_FORMAT_VERSION] {
+        for owner in [None, Some("account-alice")] {
+            let fixture = TemporaryUser::new();
+            let mut document = Json::obj();
+            document.set("format_version", version.into());
+            for (table, mut row) in owner_scoped_rows() {
+                if let Some(owner) = owner {
+                    row.set("owner", owner.into());
+                }
+                document.set(table, Json::Arr(vec![row]));
+            }
+            let original = document.to_string_pretty();
+            std::fs::write(fixture.path(), &original).unwrap();
+            let data = load(&fixture.path()).unwrap().unwrap();
+            assert_eq!(std::fs::read(fixture.path()).unwrap(), original.as_bytes());
+            save(&data, &fixture.path()).unwrap();
+            let stored =
+                crate::json::parse(&std::fs::read_to_string(fixture.path()).unwrap()).unwrap();
+            for (table, _) in owner_scoped_rows() {
+                let rows = stored.get(table).unwrap().as_arr().unwrap();
+                assert_eq!(rows.len(), 1, "v{version} {table}");
+                assert_eq!(
+                    rows[0].field_str("owner").as_deref(),
+                    Some(owner.unwrap_or(LOCAL_USER)),
+                    "v{version} {table}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn malformed_personal_owners_are_rejected_without_rewriting_original_data() {
+    use super::test_support::{TemporaryUser, owner_scoped_rows};
+    use crate::json::Json;
+
+    let mut failures = Vec::new();
+    for version in [1, USER_FORMAT_VERSION] {
+        for (table, row) in owner_scoped_rows() {
+            for invalid in [
+                Json::Null,
+                Json::Bool(true),
+                Json::Num(42.0),
+                Json::obj(),
+                Json::Arr(vec![]),
+            ] {
+                let fixture = TemporaryUser::new();
+                let mut document = Json::obj();
+                document.set("format_version", version.into());
+                let mut row = row.clone();
+                row.set("owner", invalid.clone());
+                document.set(table, Json::Arr(vec![row]));
+                let original = document.to_string_pretty();
+                std::fs::write(fixture.path(), &original).unwrap();
+
+                // Exercise an ordinary read/modify/save caller: a rejected load
+                // must prevent publication and leave the recovery input intact.
+                let outcome = load(&fixture.path()).and_then(|data| {
+                    save(&data.expect("the personal store exists"), &fixture.path())
+                });
+                let preserved = std::fs::read(fixture.path()).unwrap() == original.as_bytes();
+                if outcome.is_ok() || !preserved {
+                    let after = load(&fixture.path()).unwrap().unwrap();
+                    let stored = to_json(&after);
+                    let owner = stored.get(table).unwrap().as_arr().unwrap()[0].field_str("owner");
+                    failures.push(format!(
+                        "v{version} {table}: {invalid:?} accepted={}, original bytes preserved={preserved}, saved owner={owner:?}",
+                        outcome.is_ok()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} malformed owner cases violated rejection/preservation:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn saving_user_data_does_not_follow_an_existing_temporary_symlink() {

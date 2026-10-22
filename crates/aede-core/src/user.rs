@@ -1078,6 +1078,18 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
     root
 }
 
+fn read_owner(row: &crate::json::Json) -> Result<UserRef, crate::store::StoreError> {
+    match row.get("owner") {
+        // Older documents can omit ownership; a present unreadable owner
+        // must never transfer a personal statement to the local account.
+        None => Ok(LOCAL_USER.into()),
+        Some(crate::json::Json::Str(owner)) => Ok(owner.clone()),
+        Some(_) => Err(crate::store::StoreError::Invalid(
+            "personal owner must be a string",
+        )),
+    }
+}
+
 /// Reads the document back.
 ///
 /// A legacy row whose target cannot be parsed is **skipped rather than fatal**: one
@@ -1159,7 +1171,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         };
         data.annotations.push(Annotation {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner: read_owner(row)?,
             target,
             loved: row.field_bool("loved"),
             rating: row.field_u32("rating").map(|r| r.clamp(1, 5) as u8),
@@ -1190,7 +1202,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         };
         let annotation = RelationAnnotation {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner: read_owner(row)?,
             relation: crate::graph::RelationRef {
                 source,
                 kind,
@@ -1225,7 +1237,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         };
         data.plays.push(Play {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner: read_owner(row)?,
             track,
             at: row.field_u64("at").unwrap_or(0),
             ms_played: row.field_u64("ms_played").unwrap_or(0),
@@ -1248,7 +1260,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         else {
             continue;
         };
-        let owner = row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into());
+        let owner = read_owner(row)?;
         let completed_count = match row.get("completed_count") {
             Some(value) => value.as_u32().ok_or(crate::store::StoreError::Invalid(
                 "invalid completed listening count",
@@ -1276,7 +1288,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         };
         data.collections.push(Collection {
-            owner: row.field_str("owner").unwrap_or_else(|| LOCAL_USER.into()),
+            owner: read_owner(row)?,
             name,
             expression,
             created_at: row.field_u64("created_at").unwrap_or(0),
@@ -1295,9 +1307,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         };
         data.set_aside.push(SetAside {
-            owner: row
-                .field_str("owner")
-                .unwrap_or_else(|| LOCAL_USER.to_string()),
+            owner: read_owner(row)?,
             release_group,
             title: row.field_str("title").unwrap_or_default(),
             created_at: row.field_u64("created_at").unwrap_or(0),
@@ -1325,9 +1335,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             continue;
         }
         data.same_artist.push(SameArtist {
-            owner: row
-                .field_str("owner")
-                .unwrap_or_else(|| LOCAL_USER.to_string()),
+            owner: read_owner(row)?,
             spelling,
             filed_as,
             created_at: row.field_u64("created_at").unwrap_or(0),
