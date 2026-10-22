@@ -1,6 +1,41 @@
 use super::*;
 use aede_core::user::EntityRef;
 use aede_moods::{Features, Statistics};
+
+struct SourceFiles(PathBuf);
+
+impl SourceFiles {
+    fn new(state: &ApiState) -> Self {
+        std::fs::create_dir_all(&state.data_dir).unwrap();
+        Self(state.data_dir.clone())
+    }
+
+    fn retain_sources(&self, catalog: &mut Catalog) {
+        for file in &mut catalog.files {
+            let path = self.0.join(format!("{}.flac", file.id));
+            std::fs::write(&path, [0_u8; 42]).unwrap();
+            let metadata = std::fs::metadata(&path).unwrap();
+            let modified = metadata
+                .modified()
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            file.path = path.to_str().unwrap().into();
+            file.size = metadata.len();
+            file.mtime = modified.as_secs();
+            catalog
+                .file_mtime_subseconds
+                .insert(file.path.clone(), modified.subsec_nanos());
+        }
+    }
+}
+
+impl Drop for SourceFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn feature() -> Features {
     Features {
         profile: aede_moods::PROFILE,
@@ -28,6 +63,7 @@ fn feature() -> Features {
 #[test]
 fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging() {
     let state = crate::test_support::sample_state();
+    let sources = SourceFiles::new(&state);
     let mut guard = state.catalog.try_write().unwrap();
     let catalog = guard.as_mut().unwrap();
     for n in 1..=2 {
@@ -41,6 +77,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
         catalog.tracks.push(track);
         catalog.releases[0].track_ids.push(n);
     }
+    sources.retain_sources(catalog);
     let refs = catalog
         .files
         .iter()
@@ -68,7 +105,6 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
     {
         let mut facts = state.audio_features.facts.lock().unwrap();
         for file in &catalog.files {
-            catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
             facts.rows.insert(
                 file.path.clone(),
                 Record {
@@ -76,7 +112,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
                         path: file.path.clone(),
                         size: file.size,
                         modified: file.mtime,
-                        nanos: 0,
+                        nanos: catalog.file_mtime_subseconds[&file.path],
                     },
                     features: feature(),
                 },
@@ -162,6 +198,7 @@ fn acoustic_examples_are_owner_private_and_changed_evidence_invalidates_paging()
 #[test]
 fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examples() {
     let state = crate::test_support::sample_state();
+    let sources = SourceFiles::new(&state);
     let mut guard = state.catalog.try_write().unwrap();
     let catalog = guard.as_mut().unwrap();
     for n in 1..2048 {
@@ -175,6 +212,7 @@ fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examp
         catalog.tracks.push(track);
         catalog.releases[0].track_ids.push(n);
     }
+    sources.retain_sources(catalog);
     let rows = catalog
         .files
         .iter()
@@ -199,7 +237,6 @@ fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examp
     {
         let mut facts = state.audio_features.facts.lock().unwrap();
         for file in &catalog.files {
-            catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
             facts.rows.insert(
                 file.path.clone(),
                 Record {
@@ -207,7 +244,7 @@ fn large_acoustic_projection_preserves_counts_and_requires_distinct_source_examp
                         path: file.path.clone(),
                         size: file.size,
                         modified: file.mtime,
-                        nanos: 0,
+                        nanos: catalog.file_mtime_subseconds[&file.path],
                     },
                     features: feature(),
                 },

@@ -118,16 +118,9 @@ pub(super) fn warm(state: &ApiState) {
         .try_read()
         .ok()
         .and_then(|c| c.as_ref().map(signature));
-    let loaded = state
-        .audio_features
-        .facts
-        .lock()
-        .ok()
-        .and_then(|facts| facts.epoch);
-    if epoch.is_none()
-        || loaded == epoch
-        || state.audio_features.warming.swap(true, Ordering::AcqRel)
-    {
+    // The catalogue stamp alone cannot detect replacement or removal of an
+    // original between scans. Revalidate even when the catalogue is unchanged.
+    if epoch.is_none() || state.audio_features.warming.swap(true, Ordering::AcqRel) {
         return;
     }
     let mut state = state.clone();
@@ -140,6 +133,13 @@ pub(super) fn warm(state: &ApiState) {
             let mut control =
                 worker::Control::new(&state, &cancel, &mut shutdown, None, Default::default());
             let _worker = worker::lock(&state, || control.checkpoint())?;
+            let retained = state
+                .audio_features
+                .facts
+                .lock()
+                .map_err(|_| "feature state unavailable")?
+                .rows
+                .clone();
             let mut rows = BTreeMap::new();
             let mut errors = 0;
             for source in sources {
@@ -147,7 +147,15 @@ pub(super) fn warm(state: &ApiState) {
                 // Unknown scan precision is missing evidence, not a zero stamp
                 // with which to address a previously measured cache record.
                 let Ok(source) = source else { continue };
-                match aede_core::audio_features::load(&state.data_dir, &identity(&source)) {
+                if playback_api::validate_source(&source).is_err() {
+                    continue;
+                }
+                let input = identity(&source);
+                let cached = match retained.get(&input.path) {
+                    Some(record) if record.input == input => Ok(Some(record.clone())),
+                    _ => aede_core::audio_features::load(&state.data_dir, &input),
+                };
+                match cached {
                     Ok(Some(record)) => {
                         rows.insert(record.input.path.clone(), record);
                     }
@@ -155,9 +163,9 @@ pub(super) fn warm(state: &ApiState) {
                     Err(_) => errors += 1,
                 }
             }
-            if state
-                .catalog
-                .blocking_read()
+            rows.retain(|_, record| original_matches(&record.input));
+            let catalog = state.catalog.blocking_read();
+            if catalog
                 .as_ref()
                 .is_none_or(|catalog| signature(catalog) != epoch)
             {
@@ -183,12 +191,42 @@ pub(super) fn warm(state: &ApiState) {
     });
 }
 pub(super) fn facts(state: &ApiState) -> Result<std::sync::MutexGuard<'_, Facts>, ApiError> {
-    state.audio_features.facts.lock().map_err(|_| {
+    let mut facts = state.audio_features.facts.lock().map_err(|_| {
         error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "features_unavailable",
             "acoustic state unavailable",
         )
+    })?;
+    // Validate once per projection, before its revision is calculated. Recipes
+    // can then share this bounded snapshot without a filesystem read per row.
+    let before = facts.rows.len();
+    facts
+        .rows
+        .retain(|_, record| original_matches(&record.input));
+    if facts.rows.len() != before {
+        facts.revision = facts.revision.saturating_add(1);
+    }
+    Ok(facts)
+}
+
+fn original_matches(input: &InputIdentity) -> bool {
+    let path = Path::new(&input.path);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+        !metadata.file_type().is_symlink()
+            && aede_core::user::PlaybackSource {
+                size: input.size,
+                mtime: input.modified,
+                mtime_ns: Some(input.nanos),
+            }
+            .matches_metadata(&metadata)
     })
 }
 pub(super) fn current<'a>(
@@ -211,6 +249,9 @@ pub(super) fn coverage(state: &ApiState, catalog: &Catalog, facts: &Facts) -> se
         .count();
     serde_json::json!({"profile":aede_moods::PROFILE,"ready":ready,"missing":catalog.files.len()-ready,"cache_errors":facts.cache_errors,"warming":state.audio_features.warming.load(Ordering::Acquire)})
 }
+#[cfg(test)]
+#[path = "ae016_tests.rs"]
+mod ae016_tests;
 #[cfg(test)]
 #[path = "audio_features_tests.rs"]
 mod tests;

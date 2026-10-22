@@ -440,13 +440,20 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
     use crate::test_support::{encoded, start_server, test_runtime};
     test_runtime().block_on(async {
         let fixture = Fixture::new();
+        let installed = crate::playback_test_support::install_wav(&fixture, 16_000).await;
+        let features = aede_core::audio_features::extract(&installed.path, || Ok(())).unwrap();
         let refs = {
             let mut guard = fixture.0.catalog.write().await;
             let catalog = guard.as_mut().unwrap();
             for n in 1..=2 {
                 let mut file = catalog.files[0].clone();
                 file.id = n;
-                file.path = format!("/music/album/{n}.flac");
+                let path = fixture.0.data_dir.join(format!("mood-source-{n}.wav"));
+                std::fs::copy(&installed.path, &path).unwrap();
+                let metadata = std::fs::metadata(&path).unwrap();
+                file.path = path.to_str().unwrap().into();
+                file.size = metadata.len();
+                file.mtime = aede_core::clock::mtime_seconds(&metadata);
                 catalog.files.push(file);
                 let mut track = catalog.tracks[0].clone();
                 track.id = n;
@@ -456,14 +463,12 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
                 catalog.recordings[0].track_ids.push(n);
             }
             let mut facts = fixture.0.audio_features.facts.lock().unwrap();
-            let mut extract = aede_moods::Extractor::new(1).unwrap();
-            let samples = (0..44100)
-                .map(|n| 0.2 * (std::f32::consts::TAU * 440. * n as f32 / 22050.).sin())
-                .collect::<Vec<_>>();
-            extract.push(&samples, || Ok(())).unwrap();
-            let features = extract.finish().unwrap();
             for file in &catalog.files {
-                catalog.file_mtime_subseconds.insert(file.path.clone(), 0);
+                let metadata = std::fs::metadata(&file.path).unwrap();
+                let nanos = aede_core::clock::mtime_subseconds(&metadata);
+                catalog
+                    .file_mtime_subseconds
+                    .insert(file.path.clone(), nanos);
                 facts.rows.insert(
                     file.path.clone(),
                     Record {
@@ -471,7 +476,7 @@ fn shared_descriptors_never_train_on_another_owner_and_legacy_reads_remain_uncha
                             path: file.path.clone(),
                             size: file.size,
                             modified: file.mtime,
-                            nanos: 0,
+                            nanos,
                         },
                         features: features.clone(),
                     },
