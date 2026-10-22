@@ -40,6 +40,108 @@ fn wave(path: &Path, rate: u32, amplitude: f32) {
     std::fs::write(path, wav).unwrap();
 }
 
+fn decodable_silent_wave(path: &Path, rate: u32) -> Vec<u8> {
+    wave(path, rate, 0.0);
+    let original = std::fs::read(path).unwrap();
+    let mut decoder = FileDecoder::open(path).expect("valid mono PCM16 WAV");
+    assert_eq!(decoder.sample_rate(), rate);
+    assert_eq!(decoder.channels(), 1);
+    let mut buffer = [1.0; 4096];
+    let mut decoded_frames = 0;
+    loop {
+        let frames = decoder.read_frames(&mut buffer).unwrap();
+        if frames == 0 {
+            break;
+        }
+        assert!(buffer[..frames].iter().all(|sample| *sample == 0.0));
+        decoded_frames += frames;
+    }
+    assert_eq!(decoded_frames, rate as usize);
+    original
+}
+
+fn assert_low_rate_track_refused(rate: u32) {
+    let directory = crate::store_lock::test_support::Directory::new("loudness_track_rate");
+    let path = directory.path().join("silence.wav");
+    let original = decodable_silent_wave(&path, rate);
+    assert!(
+        measure_track(&path).is_err(),
+        "{rate} Hz must return a loudness measurement error"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+}
+
+fn assert_low_rate_programme_refused(rate: u32) {
+    let directory = crate::store_lock::test_support::Directory::new("loudness_programme_rate");
+    let path = directory.path().join("silence.wav");
+    let original = decodable_silent_wave(&path, rate);
+    assert!(
+        measure_programme(&[path.as_path()]).is_err(),
+        "{rate} Hz must return a programme measurement error"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn track_loudness_refuses_real_pcm16_wav_at_16_hz() {
+    assert_low_rate_track_refused(16);
+}
+
+#[test]
+fn track_loudness_refuses_real_pcm16_wav_at_17_hz() {
+    assert_low_rate_track_refused(17);
+}
+
+#[test]
+fn programme_loudness_refuses_real_pcm16_wav_at_16_hz() {
+    assert_low_rate_programme_refused(16);
+}
+
+#[test]
+fn programme_loudness_refuses_real_pcm16_wav_at_17_hz() {
+    assert_low_rate_programme_refused(17);
+}
+
+#[test]
+fn loudness_refuses_real_pcm16_wav_below_16_hz() {
+    for rate in [1, 15] {
+        assert_low_rate_track_refused(rate);
+        assert_low_rate_programme_refused(rate);
+    }
+}
+
+#[test]
+fn programme_loudness_refuses_real_low_rate_wav_after_valid_audio() {
+    for rate in [16, 17] {
+        let directory = crate::store_lock::test_support::Directory::new("loudness_rate_change");
+        let valid = directory.path().join("valid.wav");
+        wave(&valid, 44_100, 0.25);
+        let valid_original = std::fs::read(&valid).unwrap();
+        assert!(measure_programme(&[valid.as_path()]).unwrap().is_some());
+        let unsupported = directory.path().join("unsupported.wav");
+        let unsupported_original = decodable_silent_wave(&unsupported, rate);
+        assert!(
+            measure_programme(&[valid.as_path(), unsupported.as_path()]).is_err(),
+            "a {rate} Hz section must return a programme measurement error"
+        );
+        assert_eq!(std::fs::read(&valid).unwrap(), valid_original);
+        assert_eq!(std::fs::read(&unsupported).unwrap(), unsupported_original);
+    }
+}
+
+#[test]
+fn loudness_accepts_real_pcm16_silence_at_18_hz_and_conventional_rates() {
+    for rate in [18, 8_000, 44_100] {
+        let directory = crate::store_lock::test_support::Directory::new("loudness_silent_rate");
+        let path = directory.path().join("silence.wav");
+        let original = decodable_silent_wave(&path, rate);
+        assert_eq!(measure_track(&path).unwrap(), None);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(measure_programme(&[path.as_path()]).unwrap(), None);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+}
+
 #[test]
 fn imported_loudness_requires_current_bytes_and_attributed_success() {
     let file = ProgrammeFile {

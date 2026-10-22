@@ -8,6 +8,17 @@ use crate::PcmFormat;
 // Retaining 24 source frames supplies the complete state for either path.
 const TAIL_FRAMES: usize = 24;
 
+/// Enforce the admission boundary shared by EBU-backed measurements.
+pub(crate) fn validate_meter_rate(rate: u32) -> Result<(), ebur128::Error> {
+    // ebur128 0.1.10 accepts 16/17 Hz, but its rounded first loudness gate
+    // exceeds its PCM window there. Preserve its existing lower-rate error
+    // without constructing a meter or changing an existing meter's format.
+    if rate < 18 {
+        return Err(ebur128::Error::NoMem);
+    }
+    Ok(())
+}
+
 pub(crate) struct PeakTail {
     format: PcmFormat,
     samples: Vec<f32>,
@@ -53,6 +64,7 @@ impl PeakTail {
         if self.format.sample_rate() >= 192_000 {
             return Ok(None);
         }
+        validate_meter_rate(self.format.sample_rate())?;
         let channels = u32::from(self.format.channels());
         let mut peak = 0.0_f64;
         for channel in 0..channels {

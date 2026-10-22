@@ -149,3 +149,169 @@ fn high_rate_section_keeps_true_peak_unknown_after_returning_to_low_rate() {
     }
     assert_eq!(programme.measurement().unwrap().unwrap().true_peak, None);
 }
+
+#[test]
+fn low_rate_single_frames_are_refused_without_starting_a_programme() {
+    for rate in [1, 15, 16, 17] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+            let mut programme = LoudnessProgramme::new();
+            let samples = vec![0.0; usize::from(channels)];
+            assert!(
+                matches!(
+                    programme.push(format, &samples),
+                    Err(LoudnessError::Meter(ebur128::Error::NoMem))
+                ),
+                "rate {rate}, channels {channels}: unsupported meter rate must be refused"
+            );
+            assert_eq!(programme.measurement().expect("empty programme"), None);
+        }
+    }
+}
+
+#[test]
+fn low_rate_seven_frame_blocks_are_refused_without_starting_a_programme() {
+    for rate in [1, 15, 16, 17] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+            let mut programme = LoudnessProgramme::new();
+            let samples = vec![0.0; 7 * usize::from(channels)];
+            assert!(
+                matches!(
+                    programme.push(format, &samples),
+                    Err(LoudnessError::Meter(ebur128::Error::NoMem))
+                ),
+                "rate {rate}, channels {channels}: unsupported meter rate must be refused"
+            );
+            assert_eq!(programme.measurement().expect("empty programme"), None);
+        }
+    }
+}
+
+#[test]
+fn low_rate_refusal_preserves_the_full_measurement_and_valid_continuation() {
+    for channels in [1, 2] {
+        let format = PcmFormat::new(48_000, channels).expect("ordinary PCM format");
+        // Include an unfinished gate after a measured prefix so refusal must
+        // preserve ongoing capture as well as already completed loudness.
+        let prefix = sine(48_000, 0.2)
+            .into_iter()
+            .cycle()
+            .take(48_013)
+            .flat_map(|sample| std::iter::repeat_n(sample, usize::from(channels)))
+            .collect::<Vec<_>>();
+        let continuation = sine(48_000, 0.05)
+            .into_iter()
+            .flat_map(|sample| std::iter::repeat_n(sample, usize::from(channels)))
+            .collect::<Vec<_>>();
+        for rate in [1, 15, 16, 17] {
+            for frames in [1, 7] {
+                let mut programme = LoudnessProgramme::new();
+                let mut control = LoudnessProgramme::new();
+                programme.push(format, &prefix).expect("measured prefix");
+                control.push(format, &prefix).expect("control prefix");
+                let previous = programme
+                    .measurement()
+                    .expect("prefix measurement")
+                    .expect("complete loudness gate");
+                assert!(previous.integrated_lufs.is_finite());
+                assert!(previous.true_peak.is_some_and(|peak| peak > 0.19));
+                assert!(
+                    matches!(
+                        programme.push(
+                            PcmFormat::new(rate, channels).expect("positive PCM format"),
+                            &vec![0.0; frames * usize::from(channels)],
+                        ),
+                        Err(LoudnessError::Meter(ebur128::Error::NoMem))
+                    ),
+                    "rate {rate}, channels {channels}, frames {frames}: transition must be refused"
+                );
+                assert_eq!(
+                    programme.measurement().expect("unchanged measurement"),
+                    Some(previous),
+                    "rate {rate}, channels {channels}, frames {frames}"
+                );
+                programme
+                    .push(format, &continuation)
+                    .expect("valid continuation after refusal");
+                control
+                    .push(format, &continuation)
+                    .expect("control continuation");
+                assert_eq!(
+                    programme.measurement().expect("continued measurement"),
+                    control.measurement().expect("control measurement"),
+                    "rate {rate}, channels {channels}, frames {frames}: refusal must not reset capture"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn low_rate_invalid_buffers_are_refused_before_starting_a_programme() {
+    for rate in [16, 17] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+            let mut invalid = vec![
+                Vec::new(),
+                vec![f32::NAN; usize::from(channels)],
+                vec![f32::INFINITY; usize::from(channels)],
+            ];
+            if channels == 2 {
+                invalid.push(vec![0.0]);
+            }
+            for samples in invalid {
+                let mut programme = LoudnessProgramme::new();
+                assert!(matches!(
+                    programme.push(format, &samples),
+                    Err(LoudnessError::InvalidBuffer)
+                ));
+                assert_eq!(programme.measurement().expect("empty programme"), None);
+            }
+        }
+    }
+}
+
+#[test]
+fn minimum_supported_rate_accepts_single_and_seven_frame_programme_blocks() {
+    for channels in [1, 2] {
+        let format = PcmFormat::new(18, channels).expect("minimum supported meter rate");
+        let mut programme = LoudnessProgramme::new();
+        for frames in [1, 7] {
+            programme
+                .push(format, &vec![0.0; frames * usize::from(channels)])
+                .expect("supported silent frames");
+            assert_eq!(programme.measurement().expect("silent programme"), None);
+        }
+    }
+}
+
+#[test]
+fn ordinary_rates_retain_complete_programme_measurements() {
+    for rate in [8_000, 44_100, 48_000, 192_000, 384_000] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("ordinary PCM format");
+            let samples = sine(rate, 0.2)
+                .into_iter()
+                .flat_map(|sample| std::iter::repeat_n(sample, usize::from(channels)))
+                .collect::<Vec<_>>();
+            let mut programme = LoudnessProgramme::new();
+            programme
+                .push(format, &samples)
+                .expect("complete programme");
+            let measured = programme
+                .measurement()
+                .expect("programme measurement")
+                .expect("audible complete loudness gate");
+            assert!(
+                (-40.0..=-5.0).contains(&measured.integrated_lufs),
+                "rate {rate}, channels {channels}: {measured:?}"
+            );
+            if rate < 192_000 {
+                assert!(measured.true_peak.is_some_and(|peak| peak > 0.19));
+            } else {
+                assert_eq!(measured.true_peak, None);
+            }
+        }
+    }
+}

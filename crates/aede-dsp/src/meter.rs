@@ -4,7 +4,7 @@ use std::fmt;
 
 use ebur128::{EbuR128, Mode};
 
-use crate::peak_tail::PeakTail;
+use crate::peak_tail::{PeakTail, validate_meter_rate};
 use crate::{PcmFormat, ProcessStats};
 
 #[derive(Debug)]
@@ -65,6 +65,7 @@ impl OutputMeter {
     /// Prepare sample/guard diagnostics and oversampled true peak when supported.
     /// True peak is unavailable at sample rates of 192 kHz and above.
     pub fn new(format: PcmFormat) -> Result<Self, OutputMeterError> {
+        validate_meter_rate(format.sample_rate()).map_err(OutputMeterError::Meter)?;
         let true_peak = if format.sample_rate() < 192_000 {
             Some(
                 EbuR128::new(

@@ -72,3 +72,154 @@ fn invalid_meter_block_leaves_previous_measurements_intact() {
     ));
     assert_eq!(meter.snapshot().expect("snapshot").frames, 0);
 }
+
+#[test]
+fn low_rate_output_meter_is_refused_before_observation_or_snapshot() {
+    for rate in [1, 15, 16, 17] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+            assert!(
+                matches!(
+                    OutputMeter::new(format),
+                    Err(OutputMeterError::Meter(ebur128::Error::NoMem))
+                ),
+                "rate {rate}, channels {channels}: construction must refuse an unsafe meter"
+            );
+        }
+    }
+}
+
+#[test]
+fn low_rate_sample_peak_fallback_snapshots_single_and_seven_frame_blocks_safely() {
+    for rate in [16, 17] {
+        for channels in [1, 2] {
+            for frames in [1, 7] {
+                let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+                let mut meter = OutputMeter::sample_peak_only(format);
+                let samples = vec![-0.5; frames * usize::from(channels)];
+                meter
+                    .observe(
+                        &samples,
+                        ProcessStats {
+                            sample_peak: 0.75,
+                            overfull_samples: 0,
+                        },
+                    )
+                    .expect("guarded fallback frames");
+                let expected = OutputSnapshot {
+                    frames: frames as u64,
+                    pre_guard_sample_peak: 0.75,
+                    output_sample_peak: 0.5,
+                    output_true_peak: None,
+                    guarded_samples: 0,
+                };
+                assert_eq!(meter.snapshot().expect("fallback snapshot"), expected);
+                assert_eq!(meter.snapshot().expect("repeated snapshot"), expected);
+                assert_eq!(meter.sample_peak_snapshot(), expected);
+                meter
+                    .observe(
+                        &vec![1.0; usize::from(channels)],
+                        ProcessStats {
+                            sample_peak: 1.5,
+                            overfull_samples: usize::from(channels),
+                        },
+                    )
+                    .expect("continued guarded fallback capture");
+                assert_eq!(
+                    meter.snapshot().expect("continued fallback snapshot"),
+                    OutputSnapshot {
+                        frames: frames as u64 + 1,
+                        pre_guard_sample_peak: 1.5,
+                        output_sample_peak: 1.0,
+                        output_true_peak: None,
+                        guarded_samples: u64::from(channels),
+                    }
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn low_rate_sample_peak_fallback_refuses_invalid_buffers_without_changing_diagnostics() {
+    for rate in [16, 17] {
+        for channels in [1, 2] {
+            let format = PcmFormat::new(rate, channels).expect("positive PCM format");
+            let mut meter = OutputMeter::sample_peak_only(format);
+            let samples = vec![0.5; usize::from(channels)];
+            let stats = ProcessStats {
+                sample_peak: 0.5,
+                overfull_samples: 0,
+            };
+            meter.observe(&samples, stats).expect("valid prefix");
+            let previous = meter.snapshot().expect("prefix snapshot");
+            let mut invalid = vec![
+                (Vec::new(), stats),
+                (vec![f32::NAN; usize::from(channels)], stats),
+                (vec![f32::INFINITY; usize::from(channels)], stats),
+                (vec![1.25; usize::from(channels)], stats),
+                (
+                    samples.clone(),
+                    ProcessStats {
+                        sample_peak: 0.25,
+                        overfull_samples: 0,
+                    },
+                ),
+                (
+                    samples.clone(),
+                    ProcessStats {
+                        sample_peak: f32::NAN,
+                        overfull_samples: 0,
+                    },
+                ),
+                (
+                    samples.clone(),
+                    ProcessStats {
+                        sample_peak: 0.5,
+                        overfull_samples: samples.len() + 1,
+                    },
+                ),
+            ];
+            if channels == 2 {
+                invalid.push((vec![0.0], stats));
+            }
+            for (block, invalid_stats) in invalid {
+                assert!(matches!(
+                    meter.observe(&block, invalid_stats),
+                    Err(OutputMeterError::InvalidBuffer)
+                ));
+                assert_eq!(meter.snapshot().expect("unchanged snapshot"), previous);
+            }
+        }
+    }
+}
+
+#[test]
+fn supported_rates_snapshot_single_and_seven_frame_output_blocks_safely() {
+    for rate in [18, 8_000, 44_100, 48_000, 192_000, 384_000] {
+        for channels in [1, 2] {
+            for frames in [1, 7] {
+                let format = PcmFormat::new(rate, channels).expect("supported PCM format");
+                let mut meter = OutputMeter::new(format).expect("supported output meter");
+                meter
+                    .observe(
+                        &vec![0.0; frames * usize::from(channels)],
+                        ProcessStats {
+                            sample_peak: 0.0,
+                            overfull_samples: 0,
+                        },
+                    )
+                    .expect("supported silent frames");
+                let expected = OutputSnapshot {
+                    frames: frames as u64,
+                    pre_guard_sample_peak: 0.0,
+                    output_sample_peak: 0.0,
+                    output_true_peak: (rate < 192_000).then_some(0.0),
+                    guarded_samples: 0,
+                };
+                assert_eq!(meter.snapshot().expect("supported snapshot"), expected);
+                assert_eq!(meter.snapshot().expect("repeated snapshot"), expected);
+            }
+        }
+    }
+}

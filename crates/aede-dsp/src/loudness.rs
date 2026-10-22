@@ -8,7 +8,7 @@ use std::fmt;
 use ebur128::{EbuR128, Mode};
 
 use crate::PcmFormat;
-use crate::peak_tail::PeakTail;
+use crate::peak_tail::{PeakTail, validate_meter_rate};
 
 /// Integrated programme loudness and peak of the original PCM.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,6 +92,7 @@ impl LoudnessProgramme {
         {
             return Err(LoudnessError::InvalidBuffer);
         }
+        validate_meter_rate(format.sample_rate())?;
         let reuse = self.sections.last().is_some_and(|section| {
             section.meter.rate() == format.sample_rate()
                 && section.meter.channels() == u32::from(format.channels())
