@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["preferred_langs","run","store","targets","waiting"],"struct":["Target"]};
+window.SIDEBAR_ITEMS = {"fn":["preferred_langs","run","store","targets","waiting"],"mod":["artist_links"],"struct":["Target"]};

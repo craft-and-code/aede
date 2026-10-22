@@ -168,185 +168,199 @@
 <a href=#168 id=168 data-nosnippet>168</a>    validate_arrays(response, <span class="kw-2">&amp;</span>[<span class="string">"musiclabel"</span>])
 <a href=#169 id=169 data-nosnippet>169</a>}
 <a href=#170 id=170 data-nosnippet>170</a>
-<a href=#171 id=171 data-nosnippet>171</a><span class="doccomment">/// Missing and empty image pools are valid absences; unreadable pools are not.
+<a href=#171 id=171 data-nosnippet>171</a><span class="doccomment">/// Missing and empty pools are valid absences; unreadable entries are not.
 <a href=#172 id=172 data-nosnippet>172</a></span><span class="kw">fn </span>validate_arrays(response: <span class="kw-2">&amp;</span>Json, fields: <span class="kw-2">&amp;</span>[<span class="kw-2">&amp;</span>str]) -&gt; <span class="prelude-ty">Result</span>&lt;(), String&gt; {
 <a href=#173 id=173 data-nosnippet>173</a>    <span class="kw">for </span>field <span class="kw">in </span>fields {
-<a href=#174 id=174 data-nosnippet>174</a>        <span class="kw">if </span>response
-<a href=#175 id=175 data-nosnippet>175</a>            .get(field)
-<a href=#176 id=176 data-nosnippet>176</a>            .is_some_and(|value| !<span class="macro">matches!</span>(value, Json::Arr(<span class="kw">_</span>)))
-<a href=#177 id=177 data-nosnippet>177</a>        {
+<a href=#174 id=174 data-nosnippet>174</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(value) = response.get(field) <span class="kw">else </span>{
+<a href=#175 id=175 data-nosnippet>175</a>            <span class="kw">continue</span>;
+<a href=#176 id=176 data-nosnippet>176</a>        };
+<a href=#177 id=177 data-nosnippet>177</a>        <span class="kw">let </span>Json::Arr(rows) = value <span class="kw">else </span>{
 <a href=#178 id=178 data-nosnippet>178</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"Fanart.tv returned no valid {field} array"</span>));
-<a href=#179 id=179 data-nosnippet>179</a>        }
-<a href=#180 id=180 data-nosnippet>180</a>    }
-<a href=#181 id=181 data-nosnippet>181</a>    <span class="prelude-val">Ok</span>(())
-<a href=#182 id=182 data-nosnippet>182</a>}
-<a href=#183 id=183 data-nosnippet>183</a>
-<a href=#184 id=184 data-nosnippet>184</a><span class="doccomment">/// One image the service knows of, and how well liked it is.
-<a href=#185 id=185 data-nosnippet>185</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq)]
-<a href=#186 id=186 data-nosnippet>186</a></span><span class="kw">struct </span>Thumb {
-<a href=#187 id=187 data-nosnippet>187</a>    url: String,
-<a href=#188 id=188 data-nosnippet>188</a>    likes: u32,
-<a href=#189 id=189 data-nosnippet>189</a>}
-<a href=#190 id=190 data-nosnippet>190</a>
-<a href=#191 id=191 data-nosnippet>191</a><span class="doccomment">/// The most liked image under `field`, or `None` when it is empty or absent.
-<a href=#192 id=192 data-nosnippet>192</a>///
-<a href=#193 id=193 data-nosnippet>193</a>/// Ranked by `likes`, which is the only signal the service gives about which
-<a href=#194 id=194 data-nosnippet>194</a>/// of several submissions is the one people chose — the same role a score
-<a href=#195 id=195 data-nosnippet>195</a>/// plays for a search result, and unlike a search result these are not scored
-<a href=#196 id=196 data-nosnippet>196</a>/// against the question at all, only against each other.
-<a href=#197 id=197 data-nosnippet>197</a></span><span class="kw">fn </span>best(response: <span class="kw-2">&amp;</span>Json, field: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;Thumb&gt; {
-<a href=#198 id=198 data-nosnippet>198</a>    response
-<a href=#199 id=199 data-nosnippet>199</a>        .get(field)
-<a href=#200 id=200 data-nosnippet>200</a>        .and_then(Json::as_arr)
-<a href=#201 id=201 data-nosnippet>201</a>        .unwrap_or(<span class="kw-2">&amp;</span>[])
-<a href=#202 id=202 data-nosnippet>202</a>        .iter()
-<a href=#203 id=203 data-nosnippet>203</a>        .filter_map(|row| {
-<a href=#204 id=204 data-nosnippet>204</a>            <span class="kw">let </span>url = row.field_str(<span class="string">"url"</span>).filter(|u| !u.is_empty())<span class="question-mark">?</span>;
-<a href=#205 id=205 data-nosnippet>205</a>            <span class="kw">let </span>likes = row
-<a href=#206 id=206 data-nosnippet>206</a>                .field_str(<span class="string">"likes"</span>)
-<a href=#207 id=207 data-nosnippet>207</a>                .and_then(|l| l.parse::&lt;u32&gt;().ok())
-<a href=#208 id=208 data-nosnippet>208</a>                .unwrap_or(<span class="number">0</span>);
-<a href=#209 id=209 data-nosnippet>209</a>            <span class="prelude-val">Some</span>(Thumb { url, likes })
-<a href=#210 id=210 data-nosnippet>210</a>        })
-<a href=#211 id=211 data-nosnippet>211</a>        .min_by(|a, b| b.likes.cmp(<span class="kw-2">&amp;</span>a.likes).then_with(|| a.url.cmp(<span class="kw-2">&amp;</span>b.url)))
-<a href=#212 id=212 data-nosnippet>212</a>}
-<a href=#213 id=213 data-nosnippet>213</a>
-<a href=#214 id=214 data-nosnippet>214</a><span class="doccomment">/// The most liked portrait the service holds for this artist, or `None`.
-<a href=#215 id=215 data-nosnippet>215</a>///
-<a href=#216 id=216 data-nosnippet>216</a>/// **`artistthumb` only.** Fanart.tv also serves banners, logos and backdrops
-<a href=#217 id=217 data-nosnippet>217</a>/// for the same artist, and those answer a different question — the wallpaper
-<a href=#218 id=218 data-nosnippet>218</a>/// behind a "now playing" screen, not "who is this". Bringing them in under
-<a href=#219 id=219 data-nosnippet>219</a>/// one function would ask a caller wanting a portrait to filter what should
-<a href=#220 id=220 data-nosnippet>220</a>/// never have been mixed together.
-<a href=#221 id=221 data-nosnippet>221</a></span><span class="kw">fn </span>best_thumb(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Thumb&gt; {
-<a href=#222 id=222 data-nosnippet>222</a>    best(response, <span class="string">"artistthumb"</span>)
-<a href=#223 id=223 data-nosnippet>223</a>}
-<a href=#224 id=224 data-nosnippet>224</a>
-<a href=#225 id=225 data-nosnippet>225</a><span class="doccomment">/// The image address to download, or `None` when the service has nothing.
-<a href=#226 id=226 data-nosnippet>226</a></span><span class="kw">pub fn </span>portrait_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#227 id=227 data-nosnippet>227</a>    best_thumb(response).map(|thumb| thumb.url)
-<a href=#228 id=228 data-nosnippet>228</a>}
-<a href=#229 id=229 data-nosnippet>229</a>
-<a href=#230 id=230 data-nosnippet>230</a><span class="doccomment">/// The artist's logo address to download, or `None` when the service has
-<a href=#231 id=231 data-nosnippet>231</a>/// none.
-<a href=#232 id=232 data-nosnippet>232</a>///
-<a href=#233 id=233 data-nosnippet>233</a>/// **`hdmusiclogo`, then `musiclogo`.** The two are the same submissions at
-<a href=#234 id=234 data-nosnippet>234</a>/// two resolutions, not two different pools to rank against each other — an
-<a href=#235 id=235 data-nosnippet>235</a>/// HD entry always wins over a standard one, however many likes the standard
-<a href=#236 id=236 data-nosnippet>236</a>/// one has, and `musiclogo` is only consulted when `hdmusiclogo` is empty.
-<a href=#237 id=237 data-nosnippet>237</a></span><span class="kw">pub fn </span>logo_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#238 id=238 data-nosnippet>238</a>    best(response, <span class="string">"hdmusiclogo"</span>)
-<a href=#239 id=239 data-nosnippet>239</a>        .or_else(|| best(response, <span class="string">"musiclogo"</span>))
-<a href=#240 id=240 data-nosnippet>240</a>        .map(|thumb| thumb.url)
-<a href=#241 id=241 data-nosnippet>241</a>}
-<a href=#242 id=242 data-nosnippet>242</a>
-<a href=#243 id=243 data-nosnippet>243</a><span class="doccomment">/// The artist's banner address to download, or `None` when the service has
-<a href=#244 id=244 data-nosnippet>244</a>/// none.
-<a href=#245 id=245 data-nosnippet>245</a>///
-<a href=#246 id=246 data-nosnippet>246</a>/// **`musicbanner`.** Unlike the logo, the service serves this at one
-<a href=#247 id=247 data-nosnippet>247</a>/// resolution only — there is no `hdmusicbanner` to prefer first.
-<a href=#248 id=248 data-nosnippet>248</a></span><span class="kw">pub fn </span>banner_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#249 id=249 data-nosnippet>249</a>    best(response, <span class="string">"musicbanner"</span>).map(|thumb| thumb.url)
-<a href=#250 id=250 data-nosnippet>250</a>}
-<a href=#251 id=251 data-nosnippet>251</a>
-<a href=#252 id=252 data-nosnippet>252</a><span class="doccomment">/// The best artist background, preferring the native 4K pool.
-<a href=#253 id=253 data-nosnippet>253</a>///
-<a href=#254 id=254 data-nosnippet>254</a>/// Fanart.tv exposes 3840×2160 images separately from its 1920×1080
-<a href=#255 id=255 data-nosnippet>255</a>/// backgrounds.  They are alternative resolutions for the same use, so any
-<a href=#256 id=256 data-nosnippet>256</a>/// 4K image wins; likes only choose within one resolution.
-<a href=#257 id=257 data-nosnippet>257</a></span><span class="kw">pub fn </span>background_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#258 id=258 data-nosnippet>258</a>    best(response, <span class="string">"artist4kbackground"</span>)
-<a href=#259 id=259 data-nosnippet>259</a>        .or_else(|| best(response, <span class="string">"artistbackground"</span>))
-<a href=#260 id=260 data-nosnippet>260</a>        .map(|thumb| thumb.url)
-<a href=#261 id=261 data-nosnippet>261</a>}
-<a href=#262 id=262 data-nosnippet>262</a>
-<a href=#263 id=263 data-nosnippet>263</a><span class="doccomment">/// Fanart.tv artwork belonging to one MusicBrainz release group.
-<a href=#264 id=264 data-nosnippet>264</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq)]
-<a href=#265 id=265 data-nosnippet>265</a></span><span class="kw">pub struct </span>AlbumArtwork {
-<a href=#266 id=266 data-nosnippet>266</a>    <span class="doccomment">/// The most liked album cover, when present.
-<a href=#267 id=267 data-nosnippet>267</a>    </span><span class="kw">pub </span>cover: <span class="prelude-ty">Option</span>&lt;String&gt;,
-<a href=#268 id=268 data-nosnippet>268</a>    <span class="doccomment">/// The best disc image for each disc number, in disc order.
-<a href=#269 id=269 data-nosnippet>269</a>    </span><span class="kw">pub </span>discs: Vec&lt;String&gt;,
-<a href=#270 id=270 data-nosnippet>270</a>}
-<a href=#271 id=271 data-nosnippet>271</a>
-<a href=#272 id=272 data-nosnippet>272</a><span class="doccomment">/// Reads the album artwork embedded in an artist response from API v3.2.
-<a href=#273 id=273 data-nosnippet>273</a>///
-<a href=#274 id=274 data-nosnippet>274</a>/// Covers are interchangeable alternatives, hence one most-liked image.
-<a href=#275 id=275 data-nosnippet>275</a>/// Disc art is not: disc one and disc two depict different objects, so the
-<a href=#276 id=276 data-nosnippet>276</a>/// most-liked image for every distinct `disc` value is retained.
-<a href=#277 id=277 data-nosnippet>277</a></span><span class="kw">pub fn </span>album_artwork(response: <span class="kw-2">&amp;</span>Json, release_group: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;AlbumArtwork&gt; {
-<a href=#278 id=278 data-nosnippet>278</a>    <span class="kw">let </span>album = response
-<a href=#279 id=279 data-nosnippet>279</a>        .get(<span class="string">"albums"</span>)<span class="question-mark">?
-<a href=#280 id=280 data-nosnippet>280</a>        </span>.as_arr()<span class="question-mark">?
-<a href=#281 id=281 data-nosnippet>281</a>        </span>.iter()
-<a href=#282 id=282 data-nosnippet>282</a>        .find(|album| album.field_str(<span class="string">"release_group_id"</span>).as_deref() == <span class="prelude-val">Some</span>(release_group))<span class="question-mark">?</span>;
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="kw">let </span>cover = best(album, <span class="string">"albumcover"</span>).map(|thumb| thumb.url);
-<a href=#284 id=284 data-nosnippet>284</a>
-<a href=#285 id=285 data-nosnippet>285</a>    <span class="kw">let </span><span class="kw-2">mut </span>discs = std::collections::BTreeMap::&lt;String, Thumb&gt;::new();
-<a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">for </span>row <span class="kw">in </span>album.get(<span class="string">"cdart"</span>).and_then(Json::as_arr).unwrap_or(<span class="kw-2">&amp;</span>[]) {
-<a href=#287 id=287 data-nosnippet>287</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(url) = row.field_str(<span class="string">"url"</span>).filter(|url| !url.is_empty()) <span class="kw">else </span>{
-<a href=#288 id=288 data-nosnippet>288</a>            <span class="kw">continue</span>;
-<a href=#289 id=289 data-nosnippet>289</a>        };
-<a href=#290 id=290 data-nosnippet>290</a>        <span class="kw">let </span>disc = row.field_str(<span class="string">"disc"</span>).unwrap_or_else(|| <span class="string">"1"</span>.to_string());
-<a href=#291 id=291 data-nosnippet>291</a>        <span class="kw">let </span>likes = row
-<a href=#292 id=292 data-nosnippet>292</a>            .field_str(<span class="string">"likes"</span>)
-<a href=#293 id=293 data-nosnippet>293</a>            .and_then(|likes| likes.parse::&lt;u32&gt;().ok())
-<a href=#294 id=294 data-nosnippet>294</a>            .unwrap_or(<span class="number">0</span>);
-<a href=#295 id=295 data-nosnippet>295</a>        <span class="kw">let </span>candidate = Thumb { url, likes };
-<a href=#296 id=296 data-nosnippet>296</a>        <span class="kw">match </span>discs.get_mut(<span class="kw-2">&amp;</span>disc) {
-<a href=#297 id=297 data-nosnippet>297</a>            <span class="prelude-val">Some</span>(current)
-<a href=#298 id=298 data-nosnippet>298</a>                <span class="kw">if </span>candidate.likes &gt; current.likes
-<a href=#299 id=299 data-nosnippet>299</a>                    || (candidate.likes == current.likes &amp;&amp; candidate.url &lt; current.url) =&gt;
-<a href=#300 id=300 data-nosnippet>300</a>            {
-<a href=#301 id=301 data-nosnippet>301</a>                <span class="kw-2">*</span>current = candidate;
-<a href=#302 id=302 data-nosnippet>302</a>            }
-<a href=#303 id=303 data-nosnippet>303</a>            <span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; {}
-<a href=#304 id=304 data-nosnippet>304</a>            <span class="prelude-val">None </span>=&gt; {
-<a href=#305 id=305 data-nosnippet>305</a>                discs.insert(disc, candidate);
-<a href=#306 id=306 data-nosnippet>306</a>            }
-<a href=#307 id=307 data-nosnippet>307</a>        }
-<a href=#308 id=308 data-nosnippet>308</a>    }
-<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">let </span><span class="kw-2">mut </span>discs: Vec&lt;<span class="kw">_</span>&gt; = discs.into_iter().collect();
-<a href=#310 id=310 data-nosnippet>310</a>    discs.sort_by(|(a, <span class="kw">_</span>), (b, <span class="kw">_</span>)| {
-<a href=#311 id=311 data-nosnippet>311</a>        a.parse::&lt;u32&gt;()
-<a href=#312 id=312 data-nosnippet>312</a>            .unwrap_or(u32::MAX)
-<a href=#313 id=313 data-nosnippet>313</a>            .cmp(<span class="kw-2">&amp;</span>b.parse::&lt;u32&gt;().unwrap_or(u32::MAX))
-<a href=#314 id=314 data-nosnippet>314</a>            .then_with(|| a.cmp(b))
-<a href=#315 id=315 data-nosnippet>315</a>    });
-<a href=#316 id=316 data-nosnippet>316</a>    <span class="prelude-val">Some</span>(AlbumArtwork {
-<a href=#317 id=317 data-nosnippet>317</a>        cover,
-<a href=#318 id=318 data-nosnippet>318</a>        discs: discs.into_iter().map(|(<span class="kw">_</span>, image)| image.url).collect(),
-<a href=#319 id=319 data-nosnippet>319</a>    })
-<a href=#320 id=320 data-nosnippet>320</a>}
-<a href=#321 id=321 data-nosnippet>321</a>
-<a href=#322 id=322 data-nosnippet>322</a><span class="doccomment">/// The record label's logo address, or `None` when it has none.
-<a href=#323 id=323 data-nosnippet>323</a></span><span class="kw">pub fn </span>label_logo_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
-<a href=#324 id=324 data-nosnippet>324</a>    best(response, <span class="string">"musiclabel"</span>).map(|thumb| thumb.url)
-<a href=#325 id=325 data-nosnippet>325</a>}
-<a href=#326 id=326 data-nosnippet>326</a>
-<a href=#327 id=327 data-nosnippet>327</a><span class="doccomment">/// What to tell somebody who has no application key.
-<a href=#328 id=328 data-nosnippet>328</a>///
-<a href=#329 id=329 data-nosnippet>329</a>/// Named separately from [`crate::acoustid::no_key`] rather than shared: the
-<a href=#330 id=330 data-nosnippet>330</a>/// two services, the two registration pages and the two variables are not the
-<a href=#331 id=331 data-nosnippet>331</a>/// same fact stated twice, and a reader following one must not be sent to
-<a href=#332 id=332 data-nosnippet>332</a>/// register at the other's address by an error message that forgot which it
-<a href=#333 id=333 data-nosnippet>333</a>/// was talking about.
-<a href=#334 id=334 data-nosnippet>334</a>///
-<a href=#335 id=335 data-nosnippet>335</a>/// States only the key itself, never who is affected: `--portraits` can fall
-<a href=#336 id=336 data-nosnippet>336</a>/// back to Wikidata and `--logos` cannot, so which artists a missing key
-<a href=#337 id=337 data-nosnippet>337</a>/// leaves untouched is a different sentence for each — one this function does
-<a href=#338 id=338 data-nosnippet>338</a>/// not know and must not guess at — and each pass says it in the line before
-<a href=#339 id=339 data-nosnippet>339</a>/// this one is printed.
-<a href=#340 id=340 data-nosnippet>340</a></span><span class="kw">pub fn </span>no_key() -&gt; String {
-<a href=#341 id=341 data-nosnippet>341</a>    <span class="macro">format!</span>(
-<a href=#342 id=342 data-nosnippet>342</a>        <span class="string">"\
-<a href=#343 id=343 data-nosnippet>343</a>Fanart.tv images need an application key, and none is set.
-<a href=#344 id=344 data-nosnippet>344</a>
-<a href=#345 id=345 data-nosnippet>345</a>  1. Register at https://fanart.tv/get-an-api-key/
-<a href=#346 id=346 data-nosnippet>346</a>  2. export {KEY_VARIABLE}=&lt;the key it gives you&gt;"
-<a href=#347 id=347 data-nosnippet>347</a>    </span>)
-<a href=#348 id=348 data-nosnippet>348</a>}
-<a href=#349 id=349 data-nosnippet>349</a>
-<a href=#350 id=350 data-nosnippet>350</a><span class="attr">#[cfg(test)]
-<a href=#351 id=351 data-nosnippet>351</a>#[path = <span class="string">"fanarttv_tests.rs"</span>]
-<a href=#352 id=352 data-nosnippet>352</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#179 id=179 data-nosnippet>179</a>        };
+<a href=#180 id=180 data-nosnippet>180</a>        <span class="comment">// Album entries carry their release-group selector; image entries
+<a href=#181 id=181 data-nosnippet>181</a>        // carry an address. Discarding either would cache a false absence.
+<a href=#182 id=182 data-nosnippet>182</a>        </span><span class="kw">let </span>required = <span class="kw">if </span><span class="kw-2">*</span>field == <span class="string">"albums" </span>{
+<a href=#183 id=183 data-nosnippet>183</a>            <span class="string">"release_group_id"
+<a href=#184 id=184 data-nosnippet>184</a>        </span>} <span class="kw">else </span>{
+<a href=#185 id=185 data-nosnippet>185</a>            <span class="string">"url"
+<a href=#186 id=186 data-nosnippet>186</a>        </span>};
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw">if </span>rows.iter().any(|row| {
+<a href=#188 id=188 data-nosnippet>188</a>            row.get(required)
+<a href=#189 id=189 data-nosnippet>189</a>                .and_then(Json::as_str)
+<a href=#190 id=190 data-nosnippet>190</a>                .is_none_or(|text| text.trim().is_empty())
+<a href=#191 id=191 data-nosnippet>191</a>        }) {
+<a href=#192 id=192 data-nosnippet>192</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">format!</span>(<span class="string">"Fanart.tv returned an unreadable {field} entry"</span>));
+<a href=#193 id=193 data-nosnippet>193</a>        }
+<a href=#194 id=194 data-nosnippet>194</a>    }
+<a href=#195 id=195 data-nosnippet>195</a>    <span class="prelude-val">Ok</span>(())
+<a href=#196 id=196 data-nosnippet>196</a>}
+<a href=#197 id=197 data-nosnippet>197</a>
+<a href=#198 id=198 data-nosnippet>198</a><span class="doccomment">/// One image the service knows of, and how well liked it is.
+<a href=#199 id=199 data-nosnippet>199</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq)]
+<a href=#200 id=200 data-nosnippet>200</a></span><span class="kw">struct </span>Thumb {
+<a href=#201 id=201 data-nosnippet>201</a>    url: String,
+<a href=#202 id=202 data-nosnippet>202</a>    likes: u32,
+<a href=#203 id=203 data-nosnippet>203</a>}
+<a href=#204 id=204 data-nosnippet>204</a>
+<a href=#205 id=205 data-nosnippet>205</a><span class="doccomment">/// The most liked image under `field`, or `None` when it is empty or absent.
+<a href=#206 id=206 data-nosnippet>206</a>///
+<a href=#207 id=207 data-nosnippet>207</a>/// Ranked by `likes`, which is the only signal the service gives about which
+<a href=#208 id=208 data-nosnippet>208</a>/// of several submissions is the one people chose — the same role a score
+<a href=#209 id=209 data-nosnippet>209</a>/// plays for a search result, and unlike a search result these are not scored
+<a href=#210 id=210 data-nosnippet>210</a>/// against the question at all, only against each other.
+<a href=#211 id=211 data-nosnippet>211</a></span><span class="kw">fn </span>best(response: <span class="kw-2">&amp;</span>Json, field: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;Thumb&gt; {
+<a href=#212 id=212 data-nosnippet>212</a>    response
+<a href=#213 id=213 data-nosnippet>213</a>        .get(field)
+<a href=#214 id=214 data-nosnippet>214</a>        .and_then(Json::as_arr)
+<a href=#215 id=215 data-nosnippet>215</a>        .unwrap_or(<span class="kw-2">&amp;</span>[])
+<a href=#216 id=216 data-nosnippet>216</a>        .iter()
+<a href=#217 id=217 data-nosnippet>217</a>        .filter_map(|row| {
+<a href=#218 id=218 data-nosnippet>218</a>            <span class="kw">let </span>url = row.field_str(<span class="string">"url"</span>).filter(|u| !u.is_empty())<span class="question-mark">?</span>;
+<a href=#219 id=219 data-nosnippet>219</a>            <span class="kw">let </span>likes = row
+<a href=#220 id=220 data-nosnippet>220</a>                .field_str(<span class="string">"likes"</span>)
+<a href=#221 id=221 data-nosnippet>221</a>                .and_then(|l| l.parse::&lt;u32&gt;().ok())
+<a href=#222 id=222 data-nosnippet>222</a>                .unwrap_or(<span class="number">0</span>);
+<a href=#223 id=223 data-nosnippet>223</a>            <span class="prelude-val">Some</span>(Thumb { url, likes })
+<a href=#224 id=224 data-nosnippet>224</a>        })
+<a href=#225 id=225 data-nosnippet>225</a>        .min_by(|a, b| b.likes.cmp(<span class="kw-2">&amp;</span>a.likes).then_with(|| a.url.cmp(<span class="kw-2">&amp;</span>b.url)))
+<a href=#226 id=226 data-nosnippet>226</a>}
+<a href=#227 id=227 data-nosnippet>227</a>
+<a href=#228 id=228 data-nosnippet>228</a><span class="doccomment">/// The most liked portrait the service holds for this artist, or `None`.
+<a href=#229 id=229 data-nosnippet>229</a>///
+<a href=#230 id=230 data-nosnippet>230</a>/// **`artistthumb` only.** Fanart.tv also serves banners, logos and backdrops
+<a href=#231 id=231 data-nosnippet>231</a>/// for the same artist, and those answer a different question — the wallpaper
+<a href=#232 id=232 data-nosnippet>232</a>/// behind a "now playing" screen, not "who is this". Bringing them in under
+<a href=#233 id=233 data-nosnippet>233</a>/// one function would ask a caller wanting a portrait to filter what should
+<a href=#234 id=234 data-nosnippet>234</a>/// never have been mixed together.
+<a href=#235 id=235 data-nosnippet>235</a></span><span class="kw">fn </span>best_thumb(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;Thumb&gt; {
+<a href=#236 id=236 data-nosnippet>236</a>    best(response, <span class="string">"artistthumb"</span>)
+<a href=#237 id=237 data-nosnippet>237</a>}
+<a href=#238 id=238 data-nosnippet>238</a>
+<a href=#239 id=239 data-nosnippet>239</a><span class="doccomment">/// The image address to download, or `None` when the service has nothing.
+<a href=#240 id=240 data-nosnippet>240</a></span><span class="kw">pub fn </span>portrait_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#241 id=241 data-nosnippet>241</a>    best_thumb(response).map(|thumb| thumb.url)
+<a href=#242 id=242 data-nosnippet>242</a>}
+<a href=#243 id=243 data-nosnippet>243</a>
+<a href=#244 id=244 data-nosnippet>244</a><span class="doccomment">/// The artist's logo address to download, or `None` when the service has
+<a href=#245 id=245 data-nosnippet>245</a>/// none.
+<a href=#246 id=246 data-nosnippet>246</a>///
+<a href=#247 id=247 data-nosnippet>247</a>/// **`hdmusiclogo`, then `musiclogo`.** The two are the same submissions at
+<a href=#248 id=248 data-nosnippet>248</a>/// two resolutions, not two different pools to rank against each other — an
+<a href=#249 id=249 data-nosnippet>249</a>/// HD entry always wins over a standard one, however many likes the standard
+<a href=#250 id=250 data-nosnippet>250</a>/// one has, and `musiclogo` is only consulted when `hdmusiclogo` is empty.
+<a href=#251 id=251 data-nosnippet>251</a></span><span class="kw">pub fn </span>logo_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#252 id=252 data-nosnippet>252</a>    best(response, <span class="string">"hdmusiclogo"</span>)
+<a href=#253 id=253 data-nosnippet>253</a>        .or_else(|| best(response, <span class="string">"musiclogo"</span>))
+<a href=#254 id=254 data-nosnippet>254</a>        .map(|thumb| thumb.url)
+<a href=#255 id=255 data-nosnippet>255</a>}
+<a href=#256 id=256 data-nosnippet>256</a>
+<a href=#257 id=257 data-nosnippet>257</a><span class="doccomment">/// The artist's banner address to download, or `None` when the service has
+<a href=#258 id=258 data-nosnippet>258</a>/// none.
+<a href=#259 id=259 data-nosnippet>259</a>///
+<a href=#260 id=260 data-nosnippet>260</a>/// **`musicbanner`.** Unlike the logo, the service serves this at one
+<a href=#261 id=261 data-nosnippet>261</a>/// resolution only — there is no `hdmusicbanner` to prefer first.
+<a href=#262 id=262 data-nosnippet>262</a></span><span class="kw">pub fn </span>banner_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#263 id=263 data-nosnippet>263</a>    best(response, <span class="string">"musicbanner"</span>).map(|thumb| thumb.url)
+<a href=#264 id=264 data-nosnippet>264</a>}
+<a href=#265 id=265 data-nosnippet>265</a>
+<a href=#266 id=266 data-nosnippet>266</a><span class="doccomment">/// The best artist background, preferring the native 4K pool.
+<a href=#267 id=267 data-nosnippet>267</a>///
+<a href=#268 id=268 data-nosnippet>268</a>/// Fanart.tv exposes 3840×2160 images separately from its 1920×1080
+<a href=#269 id=269 data-nosnippet>269</a>/// backgrounds.  They are alternative resolutions for the same use, so any
+<a href=#270 id=270 data-nosnippet>270</a>/// 4K image wins; likes only choose within one resolution.
+<a href=#271 id=271 data-nosnippet>271</a></span><span class="kw">pub fn </span>background_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#272 id=272 data-nosnippet>272</a>    best(response, <span class="string">"artist4kbackground"</span>)
+<a href=#273 id=273 data-nosnippet>273</a>        .or_else(|| best(response, <span class="string">"artistbackground"</span>))
+<a href=#274 id=274 data-nosnippet>274</a>        .map(|thumb| thumb.url)
+<a href=#275 id=275 data-nosnippet>275</a>}
+<a href=#276 id=276 data-nosnippet>276</a>
+<a href=#277 id=277 data-nosnippet>277</a><span class="doccomment">/// Fanart.tv artwork belonging to one MusicBrainz release group.
+<a href=#278 id=278 data-nosnippet>278</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq)]
+<a href=#279 id=279 data-nosnippet>279</a></span><span class="kw">pub struct </span>AlbumArtwork {
+<a href=#280 id=280 data-nosnippet>280</a>    <span class="doccomment">/// The most liked album cover, when present.
+<a href=#281 id=281 data-nosnippet>281</a>    </span><span class="kw">pub </span>cover: <span class="prelude-ty">Option</span>&lt;String&gt;,
+<a href=#282 id=282 data-nosnippet>282</a>    <span class="doccomment">/// The best disc image for each disc number, in disc order.
+<a href=#283 id=283 data-nosnippet>283</a>    </span><span class="kw">pub </span>discs: Vec&lt;String&gt;,
+<a href=#284 id=284 data-nosnippet>284</a>}
+<a href=#285 id=285 data-nosnippet>285</a>
+<a href=#286 id=286 data-nosnippet>286</a><span class="doccomment">/// Reads the album artwork embedded in an artist response from API v3.2.
+<a href=#287 id=287 data-nosnippet>287</a>///
+<a href=#288 id=288 data-nosnippet>288</a>/// Covers are interchangeable alternatives, hence one most-liked image.
+<a href=#289 id=289 data-nosnippet>289</a>/// Disc art is not: disc one and disc two depict different objects, so the
+<a href=#290 id=290 data-nosnippet>290</a>/// most-liked image for every distinct `disc` value is retained.
+<a href=#291 id=291 data-nosnippet>291</a></span><span class="kw">pub fn </span>album_artwork(response: <span class="kw-2">&amp;</span>Json, release_group: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;AlbumArtwork&gt; {
+<a href=#292 id=292 data-nosnippet>292</a>    <span class="kw">let </span>album = response
+<a href=#293 id=293 data-nosnippet>293</a>        .get(<span class="string">"albums"</span>)<span class="question-mark">?
+<a href=#294 id=294 data-nosnippet>294</a>        </span>.as_arr()<span class="question-mark">?
+<a href=#295 id=295 data-nosnippet>295</a>        </span>.iter()
+<a href=#296 id=296 data-nosnippet>296</a>        .find(|album| album.field_str(<span class="string">"release_group_id"</span>).as_deref() == <span class="prelude-val">Some</span>(release_group))<span class="question-mark">?</span>;
+<a href=#297 id=297 data-nosnippet>297</a>    <span class="kw">let </span>cover = best(album, <span class="string">"albumcover"</span>).map(|thumb| thumb.url);
+<a href=#298 id=298 data-nosnippet>298</a>
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="kw">let </span><span class="kw-2">mut </span>discs = std::collections::BTreeMap::&lt;String, Thumb&gt;::new();
+<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">for </span>row <span class="kw">in </span>album.get(<span class="string">"cdart"</span>).and_then(Json::as_arr).unwrap_or(<span class="kw-2">&amp;</span>[]) {
+<a href=#301 id=301 data-nosnippet>301</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(url) = row.field_str(<span class="string">"url"</span>).filter(|url| !url.is_empty()) <span class="kw">else </span>{
+<a href=#302 id=302 data-nosnippet>302</a>            <span class="kw">continue</span>;
+<a href=#303 id=303 data-nosnippet>303</a>        };
+<a href=#304 id=304 data-nosnippet>304</a>        <span class="kw">let </span>disc = row.field_str(<span class="string">"disc"</span>).unwrap_or_else(|| <span class="string">"1"</span>.to_string());
+<a href=#305 id=305 data-nosnippet>305</a>        <span class="kw">let </span>likes = row
+<a href=#306 id=306 data-nosnippet>306</a>            .field_str(<span class="string">"likes"</span>)
+<a href=#307 id=307 data-nosnippet>307</a>            .and_then(|likes| likes.parse::&lt;u32&gt;().ok())
+<a href=#308 id=308 data-nosnippet>308</a>            .unwrap_or(<span class="number">0</span>);
+<a href=#309 id=309 data-nosnippet>309</a>        <span class="kw">let </span>candidate = Thumb { url, likes };
+<a href=#310 id=310 data-nosnippet>310</a>        <span class="kw">match </span>discs.get_mut(<span class="kw-2">&amp;</span>disc) {
+<a href=#311 id=311 data-nosnippet>311</a>            <span class="prelude-val">Some</span>(current)
+<a href=#312 id=312 data-nosnippet>312</a>                <span class="kw">if </span>candidate.likes &gt; current.likes
+<a href=#313 id=313 data-nosnippet>313</a>                    || (candidate.likes == current.likes &amp;&amp; candidate.url &lt; current.url) =&gt;
+<a href=#314 id=314 data-nosnippet>314</a>            {
+<a href=#315 id=315 data-nosnippet>315</a>                <span class="kw-2">*</span>current = candidate;
+<a href=#316 id=316 data-nosnippet>316</a>            }
+<a href=#317 id=317 data-nosnippet>317</a>            <span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; {}
+<a href=#318 id=318 data-nosnippet>318</a>            <span class="prelude-val">None </span>=&gt; {
+<a href=#319 id=319 data-nosnippet>319</a>                discs.insert(disc, candidate);
+<a href=#320 id=320 data-nosnippet>320</a>            }
+<a href=#321 id=321 data-nosnippet>321</a>        }
+<a href=#322 id=322 data-nosnippet>322</a>    }
+<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span><span class="kw-2">mut </span>discs: Vec&lt;<span class="kw">_</span>&gt; = discs.into_iter().collect();
+<a href=#324 id=324 data-nosnippet>324</a>    discs.sort_by(|(a, <span class="kw">_</span>), (b, <span class="kw">_</span>)| {
+<a href=#325 id=325 data-nosnippet>325</a>        a.parse::&lt;u32&gt;()
+<a href=#326 id=326 data-nosnippet>326</a>            .unwrap_or(u32::MAX)
+<a href=#327 id=327 data-nosnippet>327</a>            .cmp(<span class="kw-2">&amp;</span>b.parse::&lt;u32&gt;().unwrap_or(u32::MAX))
+<a href=#328 id=328 data-nosnippet>328</a>            .then_with(|| a.cmp(b))
+<a href=#329 id=329 data-nosnippet>329</a>    });
+<a href=#330 id=330 data-nosnippet>330</a>    <span class="prelude-val">Some</span>(AlbumArtwork {
+<a href=#331 id=331 data-nosnippet>331</a>        cover,
+<a href=#332 id=332 data-nosnippet>332</a>        discs: discs.into_iter().map(|(<span class="kw">_</span>, image)| image.url).collect(),
+<a href=#333 id=333 data-nosnippet>333</a>    })
+<a href=#334 id=334 data-nosnippet>334</a>}
+<a href=#335 id=335 data-nosnippet>335</a>
+<a href=#336 id=336 data-nosnippet>336</a><span class="doccomment">/// The record label's logo address, or `None` when it has none.
+<a href=#337 id=337 data-nosnippet>337</a></span><span class="kw">pub fn </span>label_logo_url(response: <span class="kw-2">&amp;</span>Json) -&gt; <span class="prelude-ty">Option</span>&lt;String&gt; {
+<a href=#338 id=338 data-nosnippet>338</a>    best(response, <span class="string">"musiclabel"</span>).map(|thumb| thumb.url)
+<a href=#339 id=339 data-nosnippet>339</a>}
+<a href=#340 id=340 data-nosnippet>340</a>
+<a href=#341 id=341 data-nosnippet>341</a><span class="doccomment">/// What to tell somebody who has no application key.
+<a href=#342 id=342 data-nosnippet>342</a>///
+<a href=#343 id=343 data-nosnippet>343</a>/// Named separately from [`crate::acoustid::no_key`] rather than shared: the
+<a href=#344 id=344 data-nosnippet>344</a>/// two services, the two registration pages and the two variables are not the
+<a href=#345 id=345 data-nosnippet>345</a>/// same fact stated twice, and a reader following one must not be sent to
+<a href=#346 id=346 data-nosnippet>346</a>/// register at the other's address by an error message that forgot which it
+<a href=#347 id=347 data-nosnippet>347</a>/// was talking about.
+<a href=#348 id=348 data-nosnippet>348</a>///
+<a href=#349 id=349 data-nosnippet>349</a>/// States only the key itself, never who is affected: `--portraits` can fall
+<a href=#350 id=350 data-nosnippet>350</a>/// back to Wikidata and `--logos` cannot, so which artists a missing key
+<a href=#351 id=351 data-nosnippet>351</a>/// leaves untouched is a different sentence for each — one this function does
+<a href=#352 id=352 data-nosnippet>352</a>/// not know and must not guess at — and each pass says it in the line before
+<a href=#353 id=353 data-nosnippet>353</a>/// this one is printed.
+<a href=#354 id=354 data-nosnippet>354</a></span><span class="kw">pub fn </span>no_key() -&gt; String {
+<a href=#355 id=355 data-nosnippet>355</a>    <span class="macro">format!</span>(
+<a href=#356 id=356 data-nosnippet>356</a>        <span class="string">"\
+<a href=#357 id=357 data-nosnippet>357</a>Fanart.tv images need an application key, and none is set.
+<a href=#358 id=358 data-nosnippet>358</a>
+<a href=#359 id=359 data-nosnippet>359</a>  1. Register at https://fanart.tv/get-an-api-key/
+<a href=#360 id=360 data-nosnippet>360</a>  2. export {KEY_VARIABLE}=&lt;the key it gives you&gt;"
+<a href=#361 id=361 data-nosnippet>361</a>    </span>)
+<a href=#362 id=362 data-nosnippet>362</a>}
+<a href=#363 id=363 data-nosnippet>363</a>
+<a href=#364 id=364 data-nosnippet>364</a><span class="attr">#[cfg(test)]
+<a href=#365 id=365 data-nosnippet>365</a>#[path = <span class="string">"fanarttv_tests.rs"</span>]
+<a href=#366 id=366 data-nosnippet>366</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

@@ -1153,6 +1153,18 @@
       "navigation": true
     },
     {
+      "slug": "server/source-review",
+      "section": "server",
+      "command": null,
+      "source": {
+        "en": "docs/server/source-review.md",
+        "fr": "docs/fr/server/source-review.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "manual/privacy",
       "section": "manual",
       "command": null,

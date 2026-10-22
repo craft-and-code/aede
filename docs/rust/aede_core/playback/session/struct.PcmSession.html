@@ -13,7 +13,7 @@ session rather than retrying partially consumed PCM.</p>
 </div></details><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-PcmSession" class="impl"><a class="src rightside" href="../../../src/aede_core/playback/session.rs.html#135-377">Source</a><a href="#impl-PcmSession" class="anchor">§</a><h3 class="code-header">impl <a class="struct" href="struct.PcmSession.html" title="struct aede_core::playback::session::PcmSession">PcmSession</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.new" class="method"><a class="src rightside" href="../../../src/aede_core/playback/session.rs.html#138-166">Source</a><h4 class="code-header">pub fn <a href="#method.new" class="fn">new</a>(
     input: <a class="struct" href="../format/struct.PcmStreamFormat.html" title="struct aede_core::playback::format::PcmStreamFormat">PcmFormat</a>,
     output_rate: <a class="primitive" href="https://doc.rust-lang.org/1.89.0/std/primitive.u32.html">u32</a>,
-    tone: <a class="struct" href="../../../aede_dsp/tone/struct.ToneControls.html" title="struct aede_dsp::tone::ToneControls">ToneControls</a>,
+    tone: ToneControls,
 ) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.89.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;Self, <a class="enum" href="enum.SessionError.html" title="enum aede_core::playback::session::SessionError">SessionError</a>&gt;</h4></section></summary><div class="docblock"><p>Prepare a fixed PCM format, optional rate conversion and persistent tone
 shelves outside the output callback.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.input_format" class="method"><a class="src rightside" href="../../../src/aede_core/playback/session.rs.html#169-171">Source</a><h4 class="code-header">pub fn <a href="#method.input_format" class="fn">input_format</a>(&amp;self) -&gt; <a class="struct" href="../format/struct.PcmStreamFormat.html" title="struct aede_core::playback::format::PcmStreamFormat">PcmFormat</a></h4></section></summary><div class="docblock"><p>Source PCM format after any downmix and before rate conversion.</p>
@@ -22,7 +22,7 @@ shelves outside the output callback.</p>
     &amp;self,
     input: <a class="struct" href="../format/struct.PcmStreamFormat.html" title="struct aede_core::playback::format::PcmStreamFormat">PcmFormat</a>,
     output_rate: <a class="primitive" href="https://doc.rust-lang.org/1.89.0/std/primitive.u32.html">u32</a>,
-    tone: <a class="struct" href="../../../aede_dsp/tone/struct.ToneControls.html" title="struct aede_dsp::tone::ToneControls">ToneControls</a>,
+    tone: ToneControls,
 ) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.89.0/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the next naturally advancing track can share this unfinished
 processing session. Channel positions are part of compatibility.</p>
 </div></details><details class="toggle method-toggle" open><summary><section id="method.begin_track" class="method"><a class="src rightside" href="../../../src/aede_core/playback/session.rs.html#190-206">Source</a><h4 class="code-header">pub fn <a href="#method.begin_track" class="fn">begin_track</a>(

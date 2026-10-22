@@ -66,15 +66,15 @@
 <a href=#66 id=66 data-nosnippet>66</a>                <span class="kw">if </span>rate &gt; <span class="number">0 </span>{
 <a href=#67 id=67 data-nosnippet>67</a>                    tags.properties.sample_rate = <span class="prelude-val">Some</span>(rate);
 <a href=#68 id=68 data-nosnippet>68</a>                }
-<a href=#69 id=69 data-nosnippet>69</a>                <span class="kw">if </span>bits &gt; <span class="number">0 </span>{
-<a href=#70 id=70 data-nosnippet>70</a>                    tags.properties.bit_depth = <span class="prelude-val">Some</span>(bits);
-<a href=#71 id=71 data-nosnippet>71</a>                }
-<a href=#72 id=72 data-nosnippet>72</a>                tags.properties.codec = <span class="kw">match </span>format {
-<a href=#73 id=73 data-nosnippet>73</a>                    <span class="number">1 </span>=&gt; <span class="string">"pcm"</span>.into(),
-<a href=#74 id=74 data-nosnippet>74</a>                    <span class="number">3 </span>=&gt; <span class="string">"pcm_float"</span>.into(),
-<a href=#75 id=75 data-nosnippet>75</a>                    other =&gt; <span class="macro">format!</span>(<span class="string">"wav_{other:#x}"</span>),
-<a href=#76 id=76 data-nosnippet>76</a>                };
-<a href=#77 id=77 data-nosnippet>77</a>                tags.properties.lossless = <span class="macro">matches!</span>(format, <span class="number">1 </span>| <span class="number">3</span>);
+<a href=#69 id=69 data-nosnippet>69</a>                tags.properties.codec = <span class="kw">match </span>format {
+<a href=#70 id=70 data-nosnippet>70</a>                    <span class="number">1 </span>=&gt; <span class="string">"pcm"</span>.into(),
+<a href=#71 id=71 data-nosnippet>71</a>                    <span class="number">3 </span>=&gt; <span class="string">"pcm_float"</span>.into(),
+<a href=#72 id=72 data-nosnippet>72</a>                    other =&gt; <span class="macro">format!</span>(<span class="string">"wav_{other:#x}"</span>),
+<a href=#73 id=73 data-nosnippet>73</a>                };
+<a href=#74 id=74 data-nosnippet>74</a>                tags.properties.lossless = <span class="macro">matches!</span>(format, <span class="number">1 </span>| <span class="number">3</span>);
+<a href=#75 id=75 data-nosnippet>75</a>                <span class="comment">// Compressed word widths (for example A-law's eight bits)
+<a href=#76 id=76 data-nosnippet>76</a>                // do not establish decoded linear PCM precision.
+<a href=#77 id=77 data-nosnippet>77</a>                </span>tags.properties.bit_depth = (tags.properties.lossless &amp;&amp; bits &gt; <span class="number">0</span>).then_some(bits);
 <a href=#78 id=78 data-nosnippet>78</a>            }
 <a href=#79 id=79 data-nosnippet>79</a>            <span class="string">b"data" </span><span class="kw">if </span>byte_rate &gt; <span class="number">0 </span>=&gt; {
 <a href=#80 id=80 data-nosnippet>80</a>                tags.properties.duration_ms = <span class="prelude-val">Some</span>(size * <span class="number">1000 </span>/ byte_rate <span class="kw">as </span>u64);

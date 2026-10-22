@@ -37,7 +37,7 @@
 <a href=#37 id=37 data-nosnippet>37</a>    <span class="kw">pub</span>(<span class="kw">super</span>) loaded_stamp: Arc&lt;RwLock&lt;<span class="prelude-ty">Option</span>&lt;(SystemTime, u64)&gt;&gt;&gt;,
 <a href=#38 id=38 data-nosnippet>38</a>    <span class="kw">pub</span>(<span class="kw">super</span>) reload_gate: Arc&lt;Mutex&lt;()&gt;&gt;,
 <a href=#39 id=39 data-nosnippet>39</a>    <span class="kw">pub</span>(<span class="kw">super</span>) events: broadcast::Sender&lt;CatalogEvent&gt;,
-<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">pub</span>(<span class="kw">super</span>) shutdown: broadcast::Sender&lt;()&gt;,
+<a href=#40 id=40 data-nosnippet>40</a>    <span class="kw">pub</span>(<span class="kw">super</span>) shutdown: <span class="kw">crate</span>::shutdown::Sender,
 <a href=#41 id=41 data-nosnippet>41</a>    <span class="kw">pub</span>(<span class="kw">super</span>) admin: <span class="prelude-ty">Option</span>&lt;Admin&gt;,
 <a href=#42 id=42 data-nosnippet>42</a>    <span class="kw">pub</span>(<span class="kw">super</span>) auth: Arc&lt;auth::AuthState&gt;,
 <a href=#43 id=43 data-nosnippet>43</a>    <span class="kw">pub</span>(<span class="kw">super</span>) subsonic: Arc&lt;subsonic::authentication::Authentication&gt;,

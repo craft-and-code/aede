@@ -30,8 +30,8 @@
 <a href=#30 id=30 data-nosnippet>30</a>///
 <a href=#31 id=31 data-nosnippet>31</a>/// Two ways of recognising a record you already have, in this order:
 <a href=#32 id=32 data-nosnippet>32</a>///
-<a href=#33 id=33 data-nosnippet>33</a>/// 1. the **release-group identifier**, when your tags carry one. Exact, and
-<a href=#34 id=34 data-nosnippet>34</a>///    the only comparison that cannot be wrong.
+<a href=#33 id=33 data-nosnippet>33</a>/// 1. the **release-group identifier**, when your tags carry one, including a
+<a href=#34 id=34 data-nosnippet>34</a>///    trusted exact lookup's verified alias. Edition IDs never establish groups.
 <a href=#35 id=35 data-nosnippet>35</a>/// 2. the **normalised title**, otherwise. `text::normalize` is the same
 <a href=#36 id=36 data-nosnippet>36</a>///    function that decides two spellings are one name everywhere else in this
 <a href=#37 id=37 data-nosnippet>37</a>///    program, so a shelf that says "Kind Of Blue" is not told it is missing
@@ -54,135 +54,151 @@
 <a href=#54 id=54 data-nosnippet>54</a>    everything: bool,
 <a href=#55 id=55 data-nosnippet>55</a>) -&gt; Vec&lt;Absent&lt;<span class="lifetime">'a</span>&gt;&gt; {
 <a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">let </span><span class="kw-2">mut </span>out: Vec&lt;Absent&lt;<span class="lifetime">'a</span>&gt;&gt; = Vec::new();
-<a href=#57 id=57 data-nosnippet>57</a>    <span class="kw">let </span>ids: std::collections::BTreeSet&lt;<span class="kw-2">&amp;</span>str&gt; = catalog
+<a href=#57 id=57 data-nosnippet>57</a>    <span class="kw">let </span><span class="kw-2">mut </span>ids: std::collections::BTreeSet&lt;<span class="kw-2">&amp;</span>str&gt; = catalog
 <a href=#58 id=58 data-nosnippet>58</a>        .releases
 <a href=#59 id=59 data-nosnippet>59</a>        .iter()
 <a href=#60 id=60 data-nosnippet>60</a>        .filter_map(|release| release.release_group_mbid.as_deref())
 <a href=#61 id=61 data-nosnippet>61</a>        .filter(|id| !id.trim().is_empty())
 <a href=#62 id=62 data-nosnippet>62</a>        .collect();
-<a href=#63 id=63 data-nosnippet>63</a>    <span class="kw">for </span>record <span class="kw">in </span><span class="kw-2">&amp;</span>held.records {
-<a href=#64 id=64 data-nosnippet>64</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ {
-<a href=#65 id=65 data-nosnippet>65</a>            <span class="kw">continue</span>;
-<a href=#66 id=66 data-nosnippet>66</a>        }
-<a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">if </span>!held.is_trusted(catalog, record) {
-<a href=#68 id=68 data-nosnippet>68</a>            <span class="kw">continue</span>;
-<a href=#69 id=69 data-nosnippet>69</a>        }
-<a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">let </span>Facts::Artist(facts) = <span class="kw-2">&amp;</span>record.facts <span class="kw">else </span>{
+<a href=#63 id=63 data-nosnippet>63</a>    <span class="comment">// A verified redirect describes the same group on either side of a retag.
+<a href=#64 id=64 data-nosnippet>64</a>    // Keep literal tag identities; add only the confirmed equivalent of an
+<a href=#65 id=65 data-nosnippet>65</a>    // owned group, never an edition fallback or a conflicting accepted claim.
+<a href=#66 id=66 data-nosnippet>66</a>    </span><span class="kw">for </span>record <span class="kw">in </span><span class="kw-2">&amp;</span>held.records {
+<a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">let </span>(<span class="prelude-val">Some</span>(sources::MusicBrainzReleaseIdentity::ReleaseGroup(canonical)), <span class="prelude-val">Some</span>(alias)) = (
+<a href=#68 id=68 data-nosnippet>68</a>            record.musicbrainz_release_identity(),
+<a href=#69 id=69 data-nosnippet>69</a>            record.musicbrainz_lookup_alias(),
+<a href=#70 id=70 data-nosnippet>70</a>        ) <span class="kw">else </span>{
 <a href=#71 id=71 data-nosnippet>71</a>            <span class="kw">continue</span>;
 <a href=#72 id=72 data-nosnippet>72</a>        };
-<a href=#73 id=73 data-nosnippet>73</a>        <span class="kw">if </span>facts.discography.is_empty() {
-<a href=#74 id=74 data-nosnippet>74</a>            <span class="kw">continue</span>;
-<a href=#75 id=75 data-nosnippet>75</a>        }
-<a href=#76 id=76 data-nosnippet>76</a>        <span class="kw">let </span>entity = record.entity();
-<a href=#77 id=77 data-nosnippet>77</a>        <span class="comment">// An artist the catalog cannot place has no shelf to be missing from.
-<a href=#78 id=78 data-nosnippet>78</a>        </span><span class="kw">let </span><span class="prelude-val">Some</span>(artist_id) = entity.resolve(catalog) <span class="kw">else </span>{
-<a href=#79 id=79 data-nosnippet>79</a>            <span class="kw">continue</span>;
-<a href=#80 id=80 data-nosnippet>80</a>        };
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(artist) = catalog.artist(artist_id) <span class="kw">else </span>{
-<a href=#82 id=82 data-nosnippet>82</a>            <span class="kw">continue</span>;
-<a href=#83 id=83 data-nosnippet>83</a>        };
-<a href=#84 id=84 data-nosnippet>84</a>
-<a href=#85 id=85 data-nosnippet>85</a>        <span class="comment">// Exact identities apply across the catalog; a title fallback belongs
-<a href=#86 id=86 data-nosnippet>86</a>        // only to this artist's albums without a known release-group identity.
-<a href=#87 id=87 data-nosnippet>87</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>has_shelf = <span class="bool-val">false</span>;
-<a href=#88 id=88 data-nosnippet>88</a>        <span class="kw">let </span><span class="kw-2">mut </span>titles: Vec&lt;String&gt; = Vec::new();
-<a href=#89 id=89 data-nosnippet>89</a>        <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
-<a href=#90 id=90 data-nosnippet>90</a>            <span class="kw">if </span>release.album_artist_id != <span class="prelude-val">Some</span>(artist_id) {
-<a href=#91 id=91 data-nosnippet>91</a>                <span class="kw">continue</span>;
-<a href=#92 id=92 data-nosnippet>92</a>            }
-<a href=#93 id=93 data-nosnippet>93</a>            has_shelf = <span class="bool-val">true</span>;
-<a href=#94 id=94 data-nosnippet>94</a>            <span class="kw">if </span>release
-<a href=#95 id=95 data-nosnippet>95</a>                .release_group_mbid
-<a href=#96 id=96 data-nosnippet>96</a>                .as_deref()
-<a href=#97 id=97 data-nosnippet>97</a>                .is_none_or(|id| id.trim().is_empty())
-<a href=#98 id=98 data-nosnippet>98</a>            {
-<a href=#99 id=99 data-nosnippet>99</a>                titles.push(text::normalize(<span class="kw-2">&amp;</span>release.title));
-<a href=#100 id=100 data-nosnippet>100</a>            }
-<a href=#101 id=101 data-nosnippet>101</a>        }
-<a href=#102 id=102 data-nosnippet>102</a>
-<a href=#103 id=103 data-nosnippet>103</a>        <span class="comment">// **No album of their own, no shelf to have gaps in.** The catalog
-<a href=#104 id=104 data-nosnippet>104</a>        // holds an artist for every credit it reads — a guest on one track, a
-<a href=#105 id=105 data-nosnippet>105</a>        // composer, one name on a compilation — and being in the catalog is
-<a href=#106 id=106 data-nosnippet>106</a>        // not the same as having a place in the library. The first version
-<a href=#107 id=107 data-nosnippet>107</a>        // missed that distinction and answered a question nobody asked: one
-<a href=#108 id=108 data-nosnippet>108</a>        // Rolling Stones track on a compilation produced their entire studio
-<a href=#109 id=109 data-nosnippet>109</a>        // discography as "missing", which is true and worthless, and it did
-<a href=#110 id=110 data-nosnippet>110</a>        // so for every passing credit at once until the report was mostly
-<a href=#111 id=111 data-nosnippet>111</a>        // that. What this reports is an *incomplete* discography, which means
-<a href=#112 id=112 data-nosnippet>112</a>        // one that was started.
-<a href=#113 id=113 data-nosnippet>113</a>        //
-<a href=#114 id=114 data-nosnippet>114</a>        // The same rule decides who is browsed at all — see the discography fetch selection.
-<a href=#115 id=115 data-nosnippet>115</a>        </span><span class="kw">if </span>!has_shelf {
-<a href=#116 id=116 data-nosnippet>116</a>            <span class="kw">continue</span>;
+<a href=#73 id=73 data-nosnippet>73</a>        <span class="kw">let </span>local = record.local_musicbrainz_id(catalog);
+<a href=#74 id=74 data-nosnippet>74</a>        <span class="kw">if </span>(local == <span class="prelude-val">Some</span>(canonical) || local == <span class="prelude-val">Some</span>(alias)) &amp;&amp; held.is_trusted(catalog, record) {
+<a href=#75 id=75 data-nosnippet>75</a>            ids.insert(canonical);
+<a href=#76 id=76 data-nosnippet>76</a>            ids.insert(alias);
+<a href=#77 id=77 data-nosnippet>77</a>        }
+<a href=#78 id=78 data-nosnippet>78</a>    }
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">for </span>record <span class="kw">in </span><span class="kw-2">&amp;</span>held.records {
+<a href=#80 id=80 data-nosnippet>80</a>        <span class="kw">if </span>record.source != sources::MUSICBRAINZ {
+<a href=#81 id=81 data-nosnippet>81</a>            <span class="kw">continue</span>;
+<a href=#82 id=82 data-nosnippet>82</a>        }
+<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">if </span>!held.is_trusted(catalog, record) {
+<a href=#84 id=84 data-nosnippet>84</a>            <span class="kw">continue</span>;
+<a href=#85 id=85 data-nosnippet>85</a>        }
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="kw">let </span>Facts::Artist(facts) = <span class="kw-2">&amp;</span>record.facts <span class="kw">else </span>{
+<a href=#87 id=87 data-nosnippet>87</a>            <span class="kw">continue</span>;
+<a href=#88 id=88 data-nosnippet>88</a>        };
+<a href=#89 id=89 data-nosnippet>89</a>        <span class="kw">if </span>facts.discography.is_empty() {
+<a href=#90 id=90 data-nosnippet>90</a>            <span class="kw">continue</span>;
+<a href=#91 id=91 data-nosnippet>91</a>        }
+<a href=#92 id=92 data-nosnippet>92</a>        <span class="kw">let </span>entity = record.entity();
+<a href=#93 id=93 data-nosnippet>93</a>        <span class="comment">// An artist the catalog cannot place has no shelf to be missing from.
+<a href=#94 id=94 data-nosnippet>94</a>        </span><span class="kw">let </span><span class="prelude-val">Some</span>(artist_id) = entity.resolve(catalog) <span class="kw">else </span>{
+<a href=#95 id=95 data-nosnippet>95</a>            <span class="kw">continue</span>;
+<a href=#96 id=96 data-nosnippet>96</a>        };
+<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(artist) = catalog.artist(artist_id) <span class="kw">else </span>{
+<a href=#98 id=98 data-nosnippet>98</a>            <span class="kw">continue</span>;
+<a href=#99 id=99 data-nosnippet>99</a>        };
+<a href=#100 id=100 data-nosnippet>100</a>
+<a href=#101 id=101 data-nosnippet>101</a>        <span class="comment">// Exact identities apply across the catalog; a title fallback belongs
+<a href=#102 id=102 data-nosnippet>102</a>        // only to this artist's albums without a known release-group identity.
+<a href=#103 id=103 data-nosnippet>103</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>has_shelf = <span class="bool-val">false</span>;
+<a href=#104 id=104 data-nosnippet>104</a>        <span class="kw">let </span><span class="kw-2">mut </span>titles: Vec&lt;String&gt; = Vec::new();
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="kw">for </span>release <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.releases {
+<a href=#106 id=106 data-nosnippet>106</a>            <span class="kw">if </span>release.album_artist_id != <span class="prelude-val">Some</span>(artist_id) {
+<a href=#107 id=107 data-nosnippet>107</a>                <span class="kw">continue</span>;
+<a href=#108 id=108 data-nosnippet>108</a>            }
+<a href=#109 id=109 data-nosnippet>109</a>            has_shelf = <span class="bool-val">true</span>;
+<a href=#110 id=110 data-nosnippet>110</a>            <span class="kw">if </span>release
+<a href=#111 id=111 data-nosnippet>111</a>                .release_group_mbid
+<a href=#112 id=112 data-nosnippet>112</a>                .as_deref()
+<a href=#113 id=113 data-nosnippet>113</a>                .is_none_or(|id| id.trim().is_empty())
+<a href=#114 id=114 data-nosnippet>114</a>            {
+<a href=#115 id=115 data-nosnippet>115</a>                titles.push(text::normalize(<span class="kw-2">&amp;</span>release.title));
+<a href=#116 id=116 data-nosnippet>116</a>            }
 <a href=#117 id=117 data-nosnippet>117</a>        }
 <a href=#118 id=118 data-nosnippet>118</a>
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">for </span>known <span class="kw">in </span><span class="kw-2">&amp;</span>facts.discography {
-<a href=#120 id=120 data-nosnippet>120</a>            <span class="comment">// Set aside by hand. Filtered here rather than by dropping it from
-<a href=#121 id=121 data-nosnippet>121</a>            // the layer, because the two are different claims and this program
-<a href=#122 id=122 data-nosnippet>122</a>            // keeps them apart everywhere else: MusicBrainz still says this is
-<a href=#123 id=123 data-nosnippet>123</a>            // an album, and the user still says it is not one they want listed.
-<a href=#124 id=124 data-nosnippet>124</a>            // Deleting the record would lose the first to record the second.
-<a href=#125 id=125 data-nosnippet>125</a>            </span><span class="kw">let </span>put_aside = aside.iter().any(|a| a.release_group == known.mbid);
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a>            <span class="comment">// Both reasons, in the order a reader meets them: what it is, then
-<a href=#128 id=128 data-nosnippet>128</a>            // what they decided about it. A record can be both, and naming only
-<a href=#129 id=129 data-nosnippet>129</a>            // one would answer half the question.
-<a href=#130 id=130 data-nosnippet>130</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>why: Vec&lt;String&gt; = Vec::new();
-<a href=#131 id=131 data-nosnippet>131</a>            <span class="kw">if </span>!known.is_studio_album() {
-<a href=#132 id=132 data-nosnippet>132</a>                why.push(known.stated_type());
-<a href=#133 id=133 data-nosnippet>133</a>            }
-<a href=#134 id=134 data-nosnippet>134</a>            <span class="kw">if </span>put_aside {
-<a href=#135 id=135 data-nosnippet>135</a>                why.push(<span class="string">"set aside"</span>.to_string());
-<a href=#136 id=136 data-nosnippet>136</a>            }
-<a href=#137 id=137 data-nosnippet>137</a>            <span class="kw">let </span>held_back = (!why.is_empty()).then(|| why.join(<span class="string">", "</span>));
-<a href=#138 id=138 data-nosnippet>138</a>            <span class="kw">if </span>held_back.is_some() &amp;&amp; !everything {
-<a href=#139 id=139 data-nosnippet>139</a>                <span class="kw">continue</span>;
-<a href=#140 id=140 data-nosnippet>140</a>            }
-<a href=#141 id=141 data-nosnippet>141</a>
-<a href=#142 id=142 data-nosnippet>142</a>            <span class="kw">let </span>have = ids.contains(known.mbid.as_str())
-<a href=#143 id=143 data-nosnippet>143</a>                || titles.contains(<span class="kw-2">&amp;</span>text::normalize(<span class="kw-2">&amp;</span>known.title));
-<a href=#144 id=144 data-nosnippet>144</a>            <span class="kw">if </span>!have {
-<a href=#145 id=145 data-nosnippet>145</a>                out.push(Absent {
-<a href=#146 id=146 data-nosnippet>146</a>                    artist: artist.name.clone(),
-<a href=#147 id=147 data-nosnippet>147</a>                    held_back,
-<a href=#148 id=148 data-nosnippet>148</a>                    set_aside: put_aside,
-<a href=#149 id=149 data-nosnippet>149</a>                    artist_id,
-<a href=#150 id=150 data-nosnippet>150</a>                    known,
-<a href=#151 id=151 data-nosnippet>151</a>                });
+<a href=#119 id=119 data-nosnippet>119</a>        <span class="comment">// **No album of their own, no shelf to have gaps in.** The catalog
+<a href=#120 id=120 data-nosnippet>120</a>        // holds an artist for every credit it reads — a guest on one track, a
+<a href=#121 id=121 data-nosnippet>121</a>        // composer, one name on a compilation — and being in the catalog is
+<a href=#122 id=122 data-nosnippet>122</a>        // not the same as having a place in the library. The first version
+<a href=#123 id=123 data-nosnippet>123</a>        // missed that distinction and answered a question nobody asked: one
+<a href=#124 id=124 data-nosnippet>124</a>        // Rolling Stones track on a compilation produced their entire studio
+<a href=#125 id=125 data-nosnippet>125</a>        // discography as "missing", which is true and worthless, and it did
+<a href=#126 id=126 data-nosnippet>126</a>        // so for every passing credit at once until the report was mostly
+<a href=#127 id=127 data-nosnippet>127</a>        // that. What this reports is an *incomplete* discography, which means
+<a href=#128 id=128 data-nosnippet>128</a>        // one that was started.
+<a href=#129 id=129 data-nosnippet>129</a>        //
+<a href=#130 id=130 data-nosnippet>130</a>        // The same rule decides who is browsed at all — see the discography fetch selection.
+<a href=#131 id=131 data-nosnippet>131</a>        </span><span class="kw">if </span>!has_shelf {
+<a href=#132 id=132 data-nosnippet>132</a>            <span class="kw">continue</span>;
+<a href=#133 id=133 data-nosnippet>133</a>        }
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a>        <span class="kw">for </span>known <span class="kw">in </span><span class="kw-2">&amp;</span>facts.discography {
+<a href=#136 id=136 data-nosnippet>136</a>            <span class="comment">// Set aside by hand. Filtered here rather than by dropping it from
+<a href=#137 id=137 data-nosnippet>137</a>            // the layer, because the two are different claims and this program
+<a href=#138 id=138 data-nosnippet>138</a>            // keeps them apart everywhere else: MusicBrainz still says this is
+<a href=#139 id=139 data-nosnippet>139</a>            // an album, and the user still says it is not one they want listed.
+<a href=#140 id=140 data-nosnippet>140</a>            // Deleting the record would lose the first to record the second.
+<a href=#141 id=141 data-nosnippet>141</a>            </span><span class="kw">let </span>put_aside = aside.iter().any(|a| a.release_group == known.mbid);
+<a href=#142 id=142 data-nosnippet>142</a>
+<a href=#143 id=143 data-nosnippet>143</a>            <span class="comment">// Both reasons, in the order a reader meets them: what it is, then
+<a href=#144 id=144 data-nosnippet>144</a>            // what they decided about it. A record can be both, and naming only
+<a href=#145 id=145 data-nosnippet>145</a>            // one would answer half the question.
+<a href=#146 id=146 data-nosnippet>146</a>            </span><span class="kw">let </span><span class="kw-2">mut </span>why: Vec&lt;String&gt; = Vec::new();
+<a href=#147 id=147 data-nosnippet>147</a>            <span class="kw">if </span>!known.is_studio_album() {
+<a href=#148 id=148 data-nosnippet>148</a>                why.push(known.stated_type());
+<a href=#149 id=149 data-nosnippet>149</a>            }
+<a href=#150 id=150 data-nosnippet>150</a>            <span class="kw">if </span>put_aside {
+<a href=#151 id=151 data-nosnippet>151</a>                why.push(<span class="string">"set aside"</span>.to_string());
 <a href=#152 id=152 data-nosnippet>152</a>            }
-<a href=#153 id=153 data-nosnippet>153</a>        }
-<a href=#154 id=154 data-nosnippet>154</a>    }
-<a href=#155 id=155 data-nosnippet>155</a>    <span class="comment">// Oldest first within an artist, so a discography reads as one.
-<a href=#156 id=156 data-nosnippet>156</a>    </span>out.sort_by(|a, b| {
-<a href=#157 id=157 data-nosnippet>157</a>        a.artist
-<a href=#158 id=158 data-nosnippet>158</a>            .cmp(<span class="kw-2">&amp;</span>b.artist)
-<a href=#159 id=159 data-nosnippet>159</a>            .then_with(|| a.known.first_released.cmp(<span class="kw-2">&amp;</span>b.known.first_released))
-<a href=#160 id=160 data-nosnippet>160</a>    });
-<a href=#161 id=161 data-nosnippet>161</a>    out
-<a href=#162 id=162 data-nosnippet>162</a>}
-<a href=#163 id=163 data-nosnippet>163</a>
-<a href=#164 id=164 data-nosnippet>164</a><span class="doccomment">/// How many records one artist has that this shelf does not.
-<a href=#165 id=165 data-nosnippet>165</a>///
-<a href=#166 id=166 data-nosnippet>166</a>/// For a page to say so at the moment somebody is looking at that artist —
-<a href=#167 id=167 data-nosnippet>167</a>/// which is the moment they wonder. `aede missing` was in the help, in the
-<a href=#168 id=168 data-nosnippet>168</a>/// README and in the manual, and still could not be found, because it was
-<a href=#169 id=169 data-nosnippet>169</a>/// named nowhere near the question it answers. The same fault `aede extract`
-<a href=#170 id=170 data-nosnippet>170</a>/// had, and the same fix.
-<a href=#171 id=171 data-nosnippet>171</a>///
-<a href=#172 id=172 data-nosnippet>172</a>/// Derived like everything else here: nothing is stored, so the number falls
-<a href=#173 id=173 data-nosnippet>173</a>/// the day an album is added.
-<a href=#174 id=174 data-nosnippet>174</a></span><span class="kw">pub fn </span>absent_for(
-<a href=#175 id=175 data-nosnippet>175</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#176 id=176 data-nosnippet>176</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
-<a href=#177 id=177 data-nosnippet>177</a>    aside: <span class="kw-2">&amp;</span>[<span class="kw">crate</span>::user::SetAside],
-<a href=#178 id=178 data-nosnippet>178</a>    artist_id: <span class="kw">crate</span>::model::Id,
-<a href=#179 id=179 data-nosnippet>179</a>) -&gt; usize {
-<a href=#180 id=180 data-nosnippet>180</a>    absent(catalog, held, aside, <span class="bool-val">false</span>)
-<a href=#181 id=181 data-nosnippet>181</a>        .iter()
-<a href=#182 id=182 data-nosnippet>182</a>        .filter(|record| record.artist_id == artist_id)
-<a href=#183 id=183 data-nosnippet>183</a>        .count()
-<a href=#184 id=184 data-nosnippet>184</a>}
-<a href=#185 id=185 data-nosnippet>185</a>
-<a href=#186 id=186 data-nosnippet>186</a><span class="attr">#[cfg(test)]
-<a href=#187 id=187 data-nosnippet>187</a>#[path = <span class="string">"missing_tests.rs"</span>]
-<a href=#188 id=188 data-nosnippet>188</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#153 id=153 data-nosnippet>153</a>            <span class="kw">let </span>held_back = (!why.is_empty()).then(|| why.join(<span class="string">", "</span>));
+<a href=#154 id=154 data-nosnippet>154</a>            <span class="kw">if </span>held_back.is_some() &amp;&amp; !everything {
+<a href=#155 id=155 data-nosnippet>155</a>                <span class="kw">continue</span>;
+<a href=#156 id=156 data-nosnippet>156</a>            }
+<a href=#157 id=157 data-nosnippet>157</a>
+<a href=#158 id=158 data-nosnippet>158</a>            <span class="kw">let </span>have = ids.contains(known.mbid.as_str())
+<a href=#159 id=159 data-nosnippet>159</a>                || titles.contains(<span class="kw-2">&amp;</span>text::normalize(<span class="kw-2">&amp;</span>known.title));
+<a href=#160 id=160 data-nosnippet>160</a>            <span class="kw">if </span>!have {
+<a href=#161 id=161 data-nosnippet>161</a>                out.push(Absent {
+<a href=#162 id=162 data-nosnippet>162</a>                    artist: artist.name.clone(),
+<a href=#163 id=163 data-nosnippet>163</a>                    held_back,
+<a href=#164 id=164 data-nosnippet>164</a>                    set_aside: put_aside,
+<a href=#165 id=165 data-nosnippet>165</a>                    artist_id,
+<a href=#166 id=166 data-nosnippet>166</a>                    known,
+<a href=#167 id=167 data-nosnippet>167</a>                });
+<a href=#168 id=168 data-nosnippet>168</a>            }
+<a href=#169 id=169 data-nosnippet>169</a>        }
+<a href=#170 id=170 data-nosnippet>170</a>    }
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="comment">// Oldest first within an artist, so a discography reads as one.
+<a href=#172 id=172 data-nosnippet>172</a>    </span>out.sort_by(|a, b| {
+<a href=#173 id=173 data-nosnippet>173</a>        a.artist
+<a href=#174 id=174 data-nosnippet>174</a>            .cmp(<span class="kw-2">&amp;</span>b.artist)
+<a href=#175 id=175 data-nosnippet>175</a>            .then_with(|| a.known.first_released.cmp(<span class="kw-2">&amp;</span>b.known.first_released))
+<a href=#176 id=176 data-nosnippet>176</a>    });
+<a href=#177 id=177 data-nosnippet>177</a>    out
+<a href=#178 id=178 data-nosnippet>178</a>}
+<a href=#179 id=179 data-nosnippet>179</a>
+<a href=#180 id=180 data-nosnippet>180</a><span class="doccomment">/// How many records one artist has that this shelf does not.
+<a href=#181 id=181 data-nosnippet>181</a>///
+<a href=#182 id=182 data-nosnippet>182</a>/// For a page to say so at the moment somebody is looking at that artist —
+<a href=#183 id=183 data-nosnippet>183</a>/// which is the moment they wonder. `aede missing` was in the help, in the
+<a href=#184 id=184 data-nosnippet>184</a>/// README and in the manual, and still could not be found, because it was
+<a href=#185 id=185 data-nosnippet>185</a>/// named nowhere near the question it answers. The same fault `aede extract`
+<a href=#186 id=186 data-nosnippet>186</a>/// had, and the same fix.
+<a href=#187 id=187 data-nosnippet>187</a>///
+<a href=#188 id=188 data-nosnippet>188</a>/// Derived like everything else here: nothing is stored, so the number falls
+<a href=#189 id=189 data-nosnippet>189</a>/// the day an album is added.
+<a href=#190 id=190 data-nosnippet>190</a></span><span class="kw">pub fn </span>absent_for(
+<a href=#191 id=191 data-nosnippet>191</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
+<a href=#192 id=192 data-nosnippet>192</a>    held: <span class="kw-2">&amp;</span>sources::Sources,
+<a href=#193 id=193 data-nosnippet>193</a>    aside: <span class="kw-2">&amp;</span>[<span class="kw">crate</span>::user::SetAside],
+<a href=#194 id=194 data-nosnippet>194</a>    artist_id: <span class="kw">crate</span>::model::Id,
+<a href=#195 id=195 data-nosnippet>195</a>) -&gt; usize {
+<a href=#196 id=196 data-nosnippet>196</a>    absent(catalog, held, aside, <span class="bool-val">false</span>)
+<a href=#197 id=197 data-nosnippet>197</a>        .iter()
+<a href=#198 id=198 data-nosnippet>198</a>        .filter(|record| record.artist_id == artist_id)
+<a href=#199 id=199 data-nosnippet>199</a>        .count()
+<a href=#200 id=200 data-nosnippet>200</a>}
+<a href=#201 id=201 data-nosnippet>201</a>
+<a href=#202 id=202 data-nosnippet>202</a><span class="attr">#[cfg(test)]
+<a href=#203 id=203 data-nosnippet>203</a>#[path = <span class="string">"missing_tests.rs"</span>]
+<a href=#204 id=204 data-nosnippet>204</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

@@ -248,7 +248,7 @@
 <a href=#248 id=248 data-nosnippet>248</a><span class="kw">async fn </span>watch_catalog_until(
 <a href=#249 id=249 data-nosnippet>249</a>    path: PathBuf,
 <a href=#250 id=250 data-nosnippet>250</a>    state: ApiState,
-<a href=#251 id=251 data-nosnippet>251</a>    <span class="kw-2">mut </span>shutdown: broadcast::Receiver&lt;()&gt;,
+<a href=#251 id=251 data-nosnippet>251</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
 <a href=#252 id=252 data-nosnippet>252</a>) {
 <a href=#253 id=253 data-nosnippet>253</a>    <span class="kw">let </span><span class="kw-2">mut </span>known = <span class="kw-2">*</span>state.loaded_stamp.read().<span class="kw">await</span>;
 <a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">let </span><span class="kw-2">mut </span>reported_failure: <span class="prelude-ty">Option</span>&lt;<span class="prelude-ty">Option</span>&lt;(SystemTime, u64)&gt;&gt; = <span class="prelude-val">None</span>;
@@ -418,7 +418,7 @@
 <a href=#418 id=418 data-nosnippet>418</a>    acceptor: <span class="prelude-ty">Option</span>&lt;tokio_rustls::TlsAcceptor&gt;,
 <a href=#419 id=419 data-nosnippet>419</a>    application: Router,
 <a href=#420 id=420 data-nosnippet>420</a>    state: <span class="kw-2">&amp;</span>ApiState,
-<a href=#421 id=421 data-nosnippet>421</a>    <span class="kw-2">mut </span>shutdown: broadcast::Receiver&lt;()&gt;,
+<a href=#421 id=421 data-nosnippet>421</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
 <a href=#422 id=422 data-nosnippet>422</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), std::io::Error&gt; {
 <a href=#423 id=423 data-nosnippet>423</a>    <span class="comment">// Capture this before accepting. A WebSocket upgrade leaves the HTTP task,
 <a href=#424 id=424 data-nosnippet>424</a>    // but retains its permit in `ConnectionStream`; shutdown below waits until
@@ -479,7 +479,7 @@
 <a href=#479 id=479 data-nosnippet>479</a>    permit: tokio::sync::OwnedSemaphorePermit,
 <a href=#480 id=480 data-nosnippet>480</a>    acceptor: <span class="prelude-ty">Option</span>&lt;tokio_rustls::TlsAcceptor&gt;,
 <a href=#481 id=481 data-nosnippet>481</a>    application: Router,
-<a href=#482 id=482 data-nosnippet>482</a>    <span class="kw-2">mut </span>shutdown: broadcast::Receiver&lt;()&gt;,
+<a href=#482 id=482 data-nosnippet>482</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
 <a href=#483 id=483 data-nosnippet>483</a>) {
 <a href=#484 id=484 data-nosnippet>484</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(acceptor) = acceptor {
 <a href=#485 id=485 data-nosnippet>485</a>        <span class="kw">let </span>stream = <span class="macro">tokio::select!</span> {
@@ -510,7 +510,7 @@
 <a href=#510 id=510 data-nosnippet>510</a><span class="kw">async fn </span>serve_http_connection&lt;S&gt;(
 <a href=#511 id=511 data-nosnippet>511</a>    stream: ConnectionStream&lt;S&gt;,
 <a href=#512 id=512 data-nosnippet>512</a>    application: Router,
-<a href=#513 id=513 data-nosnippet>513</a>    <span class="kw-2">mut </span>shutdown: broadcast::Receiver&lt;()&gt;,
+<a href=#513 id=513 data-nosnippet>513</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
 <a href=#514 id=514 data-nosnippet>514</a>    remote: bool,
 <a href=#515 id=515 data-nosnippet>515</a>) <span class="kw">where
 <a href=#516 id=516 data-nosnippet>516</a>    </span>S: AsyncRead + AsyncWrite + Unpin + Send + <span class="lifetime">'static</span>,
@@ -755,7 +755,7 @@
 <a href=#755 id=755 data-nosnippet>755</a>        .build()<span class="question-mark">?</span>;
 <a href=#756 id=756 data-nosnippet>756</a>    <span class="kw">let </span>result = runtime.block_on(<span class="kw">async move </span>{
 <a href=#757 id=757 data-nosnippet>757</a>        <span class="kw">let </span>(events, <span class="kw">_</span>) = broadcast::channel(<span class="number">32</span>);
-<a href=#758 id=758 data-nosnippet>758</a>        <span class="kw">let </span>(shutdown, <span class="kw">_</span>) = broadcast::channel(<span class="number">1</span>);
+<a href=#758 id=758 data-nosnippet>758</a>        <span class="kw">let </span>shutdown = <span class="kw">crate</span>::shutdown::Sender::default();
 <a href=#759 id=759 data-nosnippet>759</a>        <span class="kw">let </span>admin = <span class="prelude-val">Some</span>(Admin {
 <a href=#760 id=760 data-nosnippet>760</a>            token: <span class="kw">if </span>remote {
 <a href=#761 id=761 data-nosnippet>761</a>                String::new()

@@ -72,11 +72,11 @@
 <a href=#72 id=72 data-nosnippet>72</a>                <span class="prelude-val">None
 <a href=#73 id=73 data-nosnippet>73</a>            </span>}
 <a href=#74 id=74 data-nosnippet>74</a>        });
-<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">let </span>folder = <span class="kw">crate</span>::artwork::artist_folder(catalog, artist.id, data_dir);
+<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">let </span>folders = <span class="kw">crate</span>::artwork::artist_folders(catalog, sources, artist.id, data_dir);
 <a href=#76 id=76 data-nosnippet>76</a>    <span class="kw">let </span>media = |kind| {
-<a href=#77 id=77 data-nosnippet>77</a>        folder
-<a href=#78 id=78 data-nosnippet>78</a>            .as_ref()
-<a href=#79 id=79 data-nosnippet>79</a>            .is_some_and(|folder| <span class="kw">crate</span>::artwork::beside(folder.clone(), kind).is_some())
+<a href=#77 id=77 data-nosnippet>77</a>        folders
+<a href=#78 id=78 data-nosnippet>78</a>            .iter()
+<a href=#79 id=79 data-nosnippet>79</a>            .any(|folder| <span class="kw">crate</span>::artwork::beside(folder.clone(), kind).is_some())
 <a href=#80 id=80 data-nosnippet>80</a>    };
 <a href=#81 id=81 data-nosnippet>81</a>    <span class="kw">let </span>relations:Vec&lt;<span class="kw">_</span>&gt;=catalog.neighbours_of_artist(artist.id).into_iter().map(|(other,weight,kind)|<span class="macro">json!</span>({<span class="string">"reference"</span>:reference(catalog,EntityKind::Artist,other.id),<span class="string">"name"</span>:other.name,<span class="string">"weight"</span>:weight,<span class="string">"kind"</span>:kind,<span class="string">"source"</span>:<span class="string">"tags"</span>})).collect();
 <a href=#82 id=82 data-nosnippet>82</a>    <span class="prelude-val">Ok</span>(

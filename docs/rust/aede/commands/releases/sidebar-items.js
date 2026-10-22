@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["names","run","targets"],"struct":["Target"]};
+window.SIDEBAR_ITEMS = {"fn":["edition_lookup","names","run","targets"],"struct":["Target"]};
