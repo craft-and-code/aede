@@ -320,3 +320,80 @@ fn malformed_status_and_cancelled_playback_are_never_successful_completion() {
         assert!(routing_id(&json!(value)).is_err());
     }
 }
+
+#[path = "cast_poll_test_support.rs"]
+mod poll_fixtures;
+
+#[tokio::test]
+async fn delayed_prior_occurrence_poll_replies_do_not_abort_owned_cast_playback() {
+    let (result, observed) =
+        poll_fixtures::exercise(poll_fixtures::StatusCase::DelayedPreviousPoll).await;
+    assert_eq!(
+        observed.loads,
+        ["http://127.0.0.1/cap/0", "http://127.0.0.1/cap/1"]
+    );
+    assert_eq!(observed.polls.len(), 1);
+    assert_eq!(observed.polls[0].0, 1);
+    assert_eq!(observed.injected_after_confirmation, Some(2));
+    assert!(observed.stops.is_empty(), "{observed:?}");
+    assert!(
+        result.is_ok(),
+        "a delayed own poll reply is stale: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn cast_current_poll_replies_still_reject_foreign_session_or_content() {
+    for case in [
+        poll_fixtures::StatusCase::CurrentPollForeignSession,
+        poll_fixtures::StatusCase::CurrentPollForeignContent,
+    ] {
+        let (result, observed) = poll_fixtures::exercise(case).await;
+        assert_eq!(observed.polls.len(), 1, "{case:?}; {observed:?}");
+        assert_eq!(observed.injected_after_confirmation, Some(1));
+        assert!(observed.stops.is_empty(), "{case:?}; {observed:?}");
+        assert!(
+            result
+                .unwrap_err()
+                .contains("another controller changed the Cast media"),
+            "{case:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cast_unsolicited_or_unknown_status_still_rejects_foreign_session_or_content() {
+    for case in [
+        poll_fixtures::StatusCase::UnsolicitedForeignSession,
+        poll_fixtures::StatusCase::UnsolicitedForeignContent,
+        poll_fixtures::StatusCase::UnknownRequestForeignSession,
+        poll_fixtures::StatusCase::UnknownRequestForeignContent,
+    ] {
+        let (result, observed) = poll_fixtures::exercise(case).await;
+        assert!(observed.polls.is_empty(), "{case:?}; {observed:?}");
+        assert_eq!(observed.injected_after_confirmation, Some(1));
+        assert!(observed.stops.is_empty(), "{case:?}; {observed:?}");
+        assert!(
+            result
+                .unwrap_err()
+                .contains("another controller changed the Cast media"),
+            "{case:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cast_broadcast_takeover_cannot_hide_behind_a_retired_own_poll_id() {
+    let (result, observed) =
+        poll_fixtures::exercise(poll_fixtures::StatusCase::BroadcastWithRetiredPoll).await;
+    assert_eq!(observed.loads.len(), 2);
+    assert_eq!(observed.polls.len(), 1);
+    assert_eq!(observed.polls[0].0, 1);
+    assert_eq!(observed.injected_after_confirmation, Some(2));
+    assert!(observed.stops.is_empty(), "{observed:?}");
+    assert!(
+        result
+            .unwrap_err()
+            .contains("another controller changed the Cast media session")
+    );
+}

@@ -312,6 +312,9 @@ impl Controller {
             json!({"type":"CONNECT", "origin":{}}),
         )
         .await?;
+        // Only polls allocate IDs between LOADs, so one range per occurrence
+        // retains correlation without growing with playback duration.
+        let mut retired_polls: Vec<(u32, u32)> = Vec::new();
         for (track, url) in tracks.iter().zip(urls) {
             self.session = None;
             self.owns_application = true;
@@ -341,14 +344,17 @@ impl Controller {
             let mut finished = playback_state(first)?;
             let mut next_poll = Instant::now() + Duration::from_secs(2);
             let mut last_status = Instant::now();
+            let mut polls = None;
             while !finished {
                 if Instant::now() >= next_poll {
-                    self.request(
-                        &transport,
-                        MEDIA,
-                        json!({"type":"GET_STATUS", "mediaSessionId":session}),
-                    )
-                    .await?;
+                    let id = self
+                        .request(
+                            &transport,
+                            MEDIA,
+                            json!({"type":"GET_STATUS", "mediaSessionId":session}),
+                        )
+                        .await?;
+                    polls.get_or_insert((id, id)).1 = id;
                     next_poll = Instant::now() + Duration::from_secs(2);
                 }
                 let message = match self
@@ -371,6 +377,17 @@ impl Controller {
                     }
                     continue;
                 }
+                // Broadcasts can carry another sender's colliding request ID;
+                // only unicast replies identify our retired occurrence polls.
+                if message.destination == self.sender
+                    && message.payload["requestId"].as_u64().is_some_and(|id| {
+                        retired_polls.iter().any(|(first, last)| {
+                            (u64::from(*first)..=u64::from(*last)).contains(&id)
+                        })
+                    })
+                {
+                    continue;
+                }
                 if message.payload["type"] != "MEDIA_STATUS" {
                     return Err("Cast receiver reported a media error".into());
                 }
@@ -385,6 +402,9 @@ impl Controller {
                 }
                 last_status = Instant::now();
                 finished = playback_state(status)?;
+            }
+            if let Some(polls) = polls {
+                retired_polls.push(polls);
             }
         }
         self.owns_application = false;
