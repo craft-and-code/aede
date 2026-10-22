@@ -1,5 +1,10 @@
 //! Progressive local Symphonia decoding, extracted from FlacCompagnon's preview path.
-use std::{fmt, fs::File, path::Path};
+use std::{
+    fmt,
+    fs::{self, File},
+    panic::{AssertUnwindSafe, catch_unwind},
+    path::Path,
+};
 use symphonia::core::{
     audio::SampleBuffer,
     codecs::{Decoder, DecoderOptions},
@@ -9,6 +14,10 @@ use symphonia::core::{
     meta::MetadataOptions,
     probe::Hint,
 };
+
+#[path = "decode_source.rs"]
+mod source;
+pub use source::{FlacAudioSource, FlacProbe};
 
 /// A local decode failure, independent of any application's analysis errors.
 #[derive(Debug)]
@@ -27,6 +36,7 @@ pub struct PcmStreamDecoder {
     track_id: u32,
     scratch: Option<SampleBuffer<f32>>,
     capacity: u64,
+    failed: bool,
     /// Source frames per second.
     pub sample_rate: u32,
     /// Interleaved samples per frame.
@@ -37,6 +47,13 @@ pub struct PcmStreamDecoder {
 impl PcmStreamDecoder {
     /// Open a local regular file and probe its default audio track with gapless trimming.
     pub fn open(path: &Path) -> Result<Self, DecodeError> {
+        // Opening a FIFO can wait for a writer before descriptor metadata is available.
+        if !fs::metadata(path)
+            .map_err(|e| DecodeError(e.to_string()))?
+            .is_file()
+        {
+            return Err(DecodeError("audio source is not a regular file".into()));
+        }
         let file = File::open(path).map_err(|e| DecodeError(e.to_string()))?;
         if !file
             .metadata()
@@ -49,17 +66,20 @@ impl PcmStreamDecoder {
         if let Some(extension) = path.extension().and_then(|s| s.to_str()) {
             hint.with_extension(extension);
         }
-        let probed = symphonia::default::get_probe()
-            .format(
+        let input = source::prepare(file)?;
+        let probed = catch_unwind(AssertUnwindSafe(|| {
+            source::probe().format(
                 &hint,
-                MediaSourceStream::new(Box::new(file), Default::default()),
+                MediaSourceStream::new(input, Default::default()),
                 &FormatOptions {
                     enable_gapless: true,
                     ..Default::default()
                 },
                 &MetadataOptions::default(),
             )
-            .map_err(|e| DecodeError(format!("probe failed: {e}")))?;
+        }))
+        .map_err(|_| DecodeError("audio probe panicked".into()))?
+        .map_err(|e| DecodeError(format!("probe failed: {e}")))?;
         let format = probed.format;
         let track = format
             .default_track()
@@ -77,15 +97,18 @@ impl PcmStreamDecoder {
             .ok_or_else(|| DecodeError("missing or unsupported channels".into()))?;
         let channel_mask = track.codec_params.channels.map(|v| v.bits());
         let track_id = track.id;
-        let decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())
-            .map_err(|e| DecodeError(format!("no decoder: {e}")))?;
+        let decoder = catch_unwind(AssertUnwindSafe(|| {
+            symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())
+        }))
+        .map_err(|_| DecodeError("audio decoder construction panicked".into()))?
+        .map_err(|e| DecodeError(format!("no decoder: {e}")))?;
         Ok(Self {
             format,
             decoder,
             track_id,
             scratch: None,
             capacity: 0,
+            failed: false,
             sample_rate,
             channels,
             channel_mask,
@@ -102,9 +125,23 @@ impl PcmStreamDecoder {
         &mut self,
         mut current: impl FnMut() -> Result<(), DecodeError>,
     ) -> Result<Option<Vec<f32>>, DecodeError> {
+        if self.failed {
+            return Err(DecodeError(
+                "audio decoder cannot continue after a panic".into(),
+            ));
+        }
         loop {
             current()?;
-            let packet = match self.format.next_packet() {
+            // A panicked reader or codec may have mutated its internal state. Retire it
+            // permanently rather than retrying or publishing a misleading EOF.
+            let packet = match catch_unwind(AssertUnwindSafe(|| self.format.next_packet())) {
+                Ok(result) => result,
+                Err(_) => {
+                    self.failed = true;
+                    return Err(DecodeError("audio packet reader panicked".into()));
+                }
+            };
+            let packet = match packet {
                 Ok(packet) => packet,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     return Ok(None);
@@ -115,7 +152,19 @@ impl PcmStreamDecoder {
             if packet.track_id() != self.track_id {
                 continue;
             }
-            match self.decoder.decode(&packet) {
+            let decoder = self.decoder.as_mut();
+            let decoded = match catch_unwind(AssertUnwindSafe(move || {
+                // Consume the borrowed codec so its decoded buffer can leave this closure.
+                let active_decoder = decoder;
+                active_decoder.decode(&packet)
+            })) {
+                Ok(result) => result,
+                Err(_) => {
+                    self.failed = true;
+                    return Err(DecodeError("audio codec panicked".into()));
+                }
+            };
+            match decoded {
                 Ok(decoded) => {
                     current()?;
                     if decoded.spec().rate != self.sample_rate

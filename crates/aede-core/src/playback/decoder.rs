@@ -14,10 +14,6 @@ use std::thread::JoinHandle;
 use aede_audio::decode::PcmStreamDecoder;
 use aede_dsp::ChannelLayout;
 use flaccompagnon_core::AnalysisError;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 mod flac;
 mod flac_source;
@@ -150,6 +146,9 @@ impl FileDecoder {
     }
 
     fn open_with_fallback(path: &Path, fallback: bool) -> Result<Self, Error> {
+        // Refuse special files before the first reader can block while opening them.
+        crate::copy::validate_source(path)
+            .map_err(|error| Error::Decode(AnalysisError::Decode(error)))?;
         let (inner, sample_rate, channels) = if let Some(native) = vorbis::VorbisStream::open(path)?
         {
             let sample_rate = native.sample_rate;
@@ -198,9 +197,17 @@ impl FileDecoder {
             (2, _) => ChannelLayout::STEREO,
             (_, Source::Vorbis(native)) => native.layout,
             (_, Source::Flac(native)) => native.layout,
-            (_, Source::Native(_)) => {
-                ChannelLayout::from_mask(probe_channel_mask(path, sample_rate, channels)?)
-                    .map_err(|_| Error::InvalidFormat)?
+            (_, Source::Native(native)) => {
+                // Reuse the mask from the same protected probe as the decoded format.
+                let mask = native.channel_mask.ok_or_else(|| {
+                    Error::ChannelLayout("no channel mask in the stream header".into())
+                })?;
+                if mask.count_ones() != u32::from(channels) {
+                    return Err(Error::ChannelLayout(
+                        "channel mask disagrees with the decoder".into(),
+                    ));
+                }
+                ChannelLayout::from_mask(mask).map_err(|_| Error::InvalidFormat)?
             }
             (_, Source::Ffmpeg(_)) => ChannelLayout::Unknown(channels),
         };
@@ -331,41 +338,6 @@ impl FileDecoder {
         }
         Ok(true)
     }
-}
-
-fn probe_channel_mask(path: &Path, sample_rate: u32, channels: u16) -> Result<u32, Error> {
-    let file =
-        std::fs::File::open(path).map_err(|error| Error::ChannelLayout(error.to_string()))?;
-    let source = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(extension) = path.extension().and_then(|extension| extension.to_str()) {
-        hint.with_extension(extension);
-    }
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            source,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|error| Error::ChannelLayout(error.to_string()))?;
-    let track = probed
-        .format
-        .default_track()
-        .ok_or_else(|| Error::ChannelLayout("no default audio track".into()))?;
-    let mask = track
-        .codec_params
-        .channels
-        .ok_or_else(|| Error::ChannelLayout("no channel mask in the stream header".into()))?
-        .bits();
-    if mask.count_ones() != u32::from(channels)
-        || track.codec_params.sample_rate != Some(sample_rate)
-    {
-        return Err(Error::ChannelLayout(
-            "channel mask or sample rate disagrees with the decoder".into(),
-        ));
-    }
-    Ok(mask)
 }
 
 /// FFmpeg handles Opus, AAC and ALAC when the native decoder cannot open them.

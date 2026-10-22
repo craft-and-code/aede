@@ -26,3 +26,28 @@ the silence playback regression therefore reuses it without a duplicate fixture.
 `playback-ogg-flac.oga` was generated with reference `flac 1.5.0 --ogg` from
 [`track.flac`](../../fixtures/track.flac), without padding or seek tables. It also passed reference `--test`
 and exercises the Ogg FLAC mapping separately from native FLAC framing.
+
+## Six-channel reference
+
+`playback-5_1.flac` contains the complete 120 frames of the existing
+[`surround-5_1.wav`](../../channel_fixtures/surround-5_1.wav), at 48,000 Hz with
+six signed 16-bit channels ordered FL, FR, FC, LFE, BL, BR (mask `0x3f`). It was
+generated once with FFmpeg 9.0.2 on 2026-10-22, from the repository root:
+
+```sh
+ffmpeg -hide_banner -loglevel error -nostdin \
+  -i crates/aede-core/tests/channel_fixtures/surround-5_1.wav \
+  -map 0:a:0 -map_metadata -1 -c:a flac -compression_level 8 \
+  -metadata_header_padding 0 -f flac \
+  crates/aede-core/tests/playback_fixtures/flac/playback-5_1.flac
+```
+
+Independent FFmpeg signed `s16le` decodes of the WAV and FLAC matched all 1,440
+PCM bytes, with MD5 `c0fd1ad6121fdfbbe1f3cc99e372283e`; both encoded sources
+remained unchanged. The retained decoder tests use the checked-in FLAC and
+existing WAV directly and require no encoder at runtime.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| `surround-5_1.wav` | 1508 | `abc9ee2421a0940e07d7e5661157595c11c554aa65402148c7d09a16b4185d5c` |
+| `playback-5_1.flac` | 311 | `1b64ea2142e49bb567d74cc62729cf9571075fb4eed0d55b2e741b6cf33764e3` |

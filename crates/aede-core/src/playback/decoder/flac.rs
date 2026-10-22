@@ -5,7 +5,6 @@
 //! before conversion to float, with FLAC's signed little-endian interleaving.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
@@ -15,10 +14,7 @@ use symphonia::core::audio::{AudioBufferRef, SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{CODEC_TYPE_FLAC, Decoder, DecoderOptions};
 use symphonia::core::conv::ConvertibleSample;
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::{FormatOptions, FormatReader};
-use symphonia::core::io::{MediaSource, MediaSourceStream};
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::formats::FormatReader;
 
 use super::{Error, FlacMd5Status};
 
@@ -52,46 +48,16 @@ impl<S: ConvertibleSample> FlacDecoder<S> {
 
     fn open_inner(path: &Path) -> Result<Option<Self>, Error> {
         let file = File::open(path).map_err(decode_error)?;
-        Self::open_file_inner(file, path.extension().and_then(|value| value.to_str()))
+        Self::open_file_inner(file)
     }
 
-    fn open_file_inner(mut file: File, extension: Option<&str>) -> Result<Option<Self>, Error> {
-        let mut magic = [0; 4];
-        match file.read_exact(&mut magic) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            Err(error) => return Err(decode_error(error)),
-        }
-        let native_container = &magic == b"fLaC" || &magic[..3] == b"ID3";
-        if !native_container && &magic != b"OggS" {
+    fn open_file_inner(file: File) -> Result<Option<Self>, Error> {
+        let Some(probed) =
+            super::flac_source::FlacAudioSource::probe(file).map_err(decode_error)?
+        else {
             return Ok(None);
-        }
-        file.seek(SeekFrom::Start(0)).map_err(decode_error)?;
-        let input: Box<dyn MediaSource> = if native_container {
-            match super::flac_source::FlacAudioSource::new(file)? {
-                Some(source) => Box::new(source),
-                None => return Ok(None),
-            }
-        } else {
-            Box::new(file)
         };
-        let source = MediaSourceStream::new(input, Default::default());
-        let mut hint = Hint::new();
-        if let Some(extension) = extension {
-            hint.with_extension(extension);
-        }
-        let probed = match symphonia::default::get_probe().format(
-            &hint,
-            source,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        ) {
-            Ok(probed) => probed,
-            // The bounded source already established native FLAC, including
-            // after ID3. Never retry that recognized source without verification.
-            Err(error) if native_container => return Err(decode_error(error)),
-            Err(_) => return Ok(None),
-        };
+        let native_container = probed.native_container;
         let track = probed.format.default_track().ok_or(Error::InvalidFormat)?;
         if track.codec_params.codec != CODEC_TYPE_FLAC {
             return Ok(None);
@@ -307,7 +273,7 @@ impl<S: ConvertibleSample> FlacDecoder<S> {
 impl IntegerFlacStream {
     /// Reuse native FLAC validation on the same descriptor used for admission.
     pub(super) fn open_integer(file: File) -> Result<Self, Error> {
-        let stream = catch_unwind(AssertUnwindSafe(|| Self::open_file_inner(file, None)))
+        let stream = catch_unwind(AssertUnwindSafe(|| Self::open_file_inner(file)))
             .unwrap_or_else(|_| Err(decode_error("FLAC decoder rejected a malformed header")))?;
         let mut stream = stream.ok_or(Error::UnsupportedIntegerSource(
             "integer playback requires native FLAC or PCM WAV",
