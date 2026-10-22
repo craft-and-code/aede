@@ -80,7 +80,7 @@ pub(super) async fn admin_scan(
                     error_message(StatusCode::INTERNAL_SERVER_ERROR, "store_error", error)
                 })?
                 .ok_or_else(unavailable)?;
-            Ok((catalog, stamp(&path)))
+            Ok((catalog, storage_stamp(&path)))
         })();
         match outcome {
             Ok((catalog, saved_stamp)) => Ok((_guard, scan_guard, catalog, saved_stamp)),

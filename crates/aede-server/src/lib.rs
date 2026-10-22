@@ -125,9 +125,9 @@ use events::*;
 use models::*;
 use query::*;
 use routing::*;
+use runtime::{refresh_catalog, storage_stamp};
 #[cfg(test)]
-use runtime::run_http;
-use runtime::{refresh_catalog, stamp};
+use runtime::{run_http, stamp};
 pub use runtime::{serve, serve_with_desktop_tls, serve_with_options, serve_with_owner_lease};
 use security::*;
 use state::*;

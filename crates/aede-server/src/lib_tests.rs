@@ -952,7 +952,10 @@ fn replacing_or_removing_the_catalog_updates_the_snapshot_and_announces_it() {
             &path,
         )
         .unwrap();
-        let mut known = Some((SystemTime::UNIX_EPOCH, 0));
+        let mut known = Some(runtime::StoreStamp {
+            catalog: (SystemTime::UNIX_EPOCH, 0),
+            conclusions: None,
+        });
         let mut reported_failure = None;
         let held = StoreLock::acquire(&dir).unwrap();
         refresh_catalog(&path, &state, &mut known, &mut reported_failure).await;
@@ -977,7 +980,10 @@ fn replacing_or_removing_the_catalog_updates_the_snapshot_and_announces_it() {
             state.catalog.read().await.as_ref().unwrap().scanned_at,
             1_700_000_001
         );
-        let mut second_watcher = Some((SystemTime::UNIX_EPOCH, 0));
+        let mut second_watcher = Some(runtime::StoreStamp {
+            catalog: (SystemTime::UNIX_EPOCH, 0),
+            conclusions: None,
+        });
         refresh_catalog(&path, &state, &mut second_watcher, &mut reported_failure).await;
         assert_eq!(second_watcher, known);
         assert!(receiver.try_recv().is_err(), "one change has one event");

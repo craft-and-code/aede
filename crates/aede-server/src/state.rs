@@ -34,7 +34,7 @@ pub(super) struct ApiState {
     pub(super) parental: Arc<crate::parental::ViewState>,
     pub(super) parental_scope: Option<crate::parental::Scope>,
     pub(super) parental_pcm: Option<Arc<crate::parental::pcm::Session>>,
-    pub(super) loaded_stamp: Arc<RwLock<Option<(SystemTime, u64)>>>,
+    pub(super) loaded_stamp: Arc<RwLock<Option<runtime::StoreStamp>>>,
     pub(super) reload_gate: Arc<Mutex<()>>,
     pub(super) events: broadcast::Sender<CatalogEvent>,
     pub(super) shutdown: crate::shutdown::Sender,

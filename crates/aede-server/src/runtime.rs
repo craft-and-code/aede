@@ -142,11 +142,25 @@ pub(super) fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
     Some((metadata.modified().ok()?, metadata.len()))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct StoreStamp {
+    pub(super) catalog: (SystemTime, u64),
+    pub(super) conclusions: Option<(SystemTime, u64)>,
+}
+
+pub(super) fn storage_stamp(path: &Path) -> Option<StoreStamp> {
+    let data_dir = path.parent().unwrap_or(Path::new("."));
+    Some(StoreStamp {
+        catalog: stamp(path)?,
+        conclusions: stamp(&aede_core::conclusions::conclusions_path(data_dir)),
+    })
+}
+
 pub(super) enum Reload {
     Busy,
     Unchanged,
     Loaded(
-        Option<(SystemTime, u64)>,
+        Option<StoreStamp>,
         Box<Result<Option<Catalog>, store::StoreError>>,
     ),
     LockFailed(std::io::Error),
@@ -154,11 +168,11 @@ pub(super) enum Reload {
 
 pub(super) fn report_reload_failure(
     path: &Path,
-    reported_failure: &mut Option<Option<(SystemTime, u64)>>,
+    reported_failure: &mut Option<Option<StoreStamp>>,
     events: &broadcast::Sender<CatalogEvent>,
     message: impl std::fmt::Display,
 ) {
-    let current = stamp(path);
+    let current = storage_stamp(path);
     if *reported_failure != Some(current) {
         let message = message.to_string();
         eprintln!("API catalog reload failed: {message}");
@@ -174,15 +188,15 @@ pub(super) fn report_reload_failure(
 pub(super) async fn refresh_catalog(
     path: &Path,
     state: &ApiState,
-    known: &mut Option<(SystemTime, u64)>,
-    reported_failure: &mut Option<Option<(SystemTime, u64)>>,
+    known: &mut Option<StoreStamp>,
+    reported_failure: &mut Option<Option<StoreStamp>>,
 ) {
     let _gate = state.reload_gate.lock().await;
-    if stamp(path) == *known {
+    if storage_stamp(path) == *known {
         return;
     }
     let loaded_stamp = *state.loaded_stamp.read().await;
-    if stamp(path) == loaded_stamp {
+    if storage_stamp(path) == loaded_stamp {
         *known = loaded_stamp;
         return;
     }
@@ -195,7 +209,7 @@ pub(super) async fn refresh_catalog(
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Reload::Busy,
             Err(error) => return Reload::LockFailed(error),
         };
-        let current = stamp(&to_load);
+        let current = storage_stamp(&to_load);
         if current == previous {
             return Reload::Unchanged;
         }
@@ -251,7 +265,7 @@ async fn watch_catalog_until(
     mut shutdown: crate::shutdown::Receiver,
 ) {
     let mut known = *state.loaded_stamp.read().await;
-    let mut reported_failure: Option<Option<(SystemTime, u64)>> = None;
+    let mut reported_failure = None;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
@@ -742,7 +756,7 @@ fn serve_with_owner_transport(
     let path = store::catalog_path(data_dir);
     let (catalog, loaded_stamp) = {
         let _guard = StoreLock::acquire(data_dir)?;
-        (store::load(&path)?, stamp(&path))
+        (store::load(&path)?, storage_stamp(&path))
     };
     let catalog = catalog.ok_or_else(|| {
         format!(

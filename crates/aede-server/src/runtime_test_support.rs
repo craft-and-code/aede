@@ -29,7 +29,7 @@ pub(super) async fn start_http(
     // Match normal startup: the fixture's snapshot was already loaded and
     // saved. An unknown stamp would make the watcher take the writer lock for
     // an unnecessary reload and race with the first synchronous scan.
-    *state.loaded_stamp.write().await = runtime::stamp(&catalog_path);
+    *state.loaded_stamp.write().await = runtime::storage_stamp(&catalog_path);
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();

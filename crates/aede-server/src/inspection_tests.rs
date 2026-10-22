@@ -317,6 +317,109 @@ fn inspection_doctor_reloads_conclusions_and_reports_source_errors_without_priva
 }
 
 #[test]
+fn a_conclusions_only_restore_updates_track_details_without_restarting_the_server() {
+    use aede_core::analysis::FileAnalysis;
+    use aede_core::backup::{self, Backup, Part};
+    use aede_core::conclusions::{self, Conclusions};
+    use tower::ServiceExt;
+
+    let fixture = Fixture::new();
+    crate::test_support::test_runtime().block_on(async {
+        let path = store::catalog_path(&fixture.dir);
+        let mut catalog = store::load(&path).unwrap().unwrap();
+        let file = &catalog.files[0];
+        catalog.analyses.push(FileAnalysis {
+            path: file.path.clone(),
+            source: "flaccompagnon".into(),
+            source_version: 1,
+            size_bytes: file.size,
+            modified_unix: file.mtime,
+            result_at_ns: 100,
+            summary: Some("before restore".into()),
+            ..Default::default()
+        });
+        let conclusions_path = conclusions::conclusions_path(&fixture.dir);
+        {
+            let _guard = StoreLock::acquire(&fixture.dir).unwrap();
+            conclusions::save(&Conclusions::from_catalog(&catalog), &conclusions_path).unwrap();
+        }
+        let mut known = None;
+        let mut failure = None;
+        refresh_catalog(&path, &fixture.state, &mut known, &mut failure).await;
+        let catalog_bytes = std::fs::read(&path).unwrap();
+        let catalog_stamp = stamp(&path);
+        assert!(catalog_stamp.is_some());
+        assert_eq!(known.map(|stamp| stamp.catalog), catalog_stamp);
+
+        catalog.analyses[0].summary = Some("after restore".into());
+        catalog.analyses[0].result_at_ns = 200;
+        let archive = fixture.dir.join("conclusions-backup.json");
+        backup::write(
+            &Backup {
+                made_at: 1,
+                made_by: "regression-test".into(),
+                catalog: Part::Empty,
+                conclusions: Part::Held(Conclusions::from_catalog(&catalog)),
+                user: Part::Empty,
+                sources: Part::Empty,
+                accounts: Part::Empty,
+                parental: Part::Empty,
+            },
+            &archive,
+        )
+        .unwrap();
+        let held = backup::read(&archive).unwrap();
+        assert!(matches!(held.catalog, Part::Empty));
+
+        let address: SocketAddr = "127.0.0.1:31000".parse().unwrap();
+        let app = router(fixture.state.clone(), address);
+        let reference = EntityRef::of(&catalog, EntityKind::Track, catalog.tracks[0].id)
+            .unwrap()
+            .to_token();
+        let uri = format!("/api/v1/entities?ref={}", encoded(&reference));
+        let mut observed = Vec::new();
+        for restoring in [false, true] {
+            if restoring {
+                let _guard = StoreLock::acquire(&fixture.dir).unwrap();
+                // Apply the same independent publication as CLI restore;
+                // the archive contains no catalog to replace.
+                conclusions::save(held.conclusions.held().unwrap(), &conclusions_path).unwrap();
+            }
+            refresh_catalog(&path, &fixture.state, &mut known, &mut failure).await;
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(&uri)
+                        .header(header::HOST, address.to_string())
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+            observed.push(serde_json::from_slice::<serde_json::Value>(&body).unwrap());
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), catalog_bytes);
+        assert_eq!(stamp(&path), catalog_stamp);
+        assert_eq!(
+            store::load(&path).unwrap().unwrap().analyses[0]
+                .summary
+                .as_deref(),
+            Some("after restore"),
+            "the restored conclusion is present on disk"
+        );
+        assert_eq!(observed[0]["analyses"][0]["summary"], "before restore");
+        assert_eq!(
+            observed[1]["analyses"][0]["summary"], "after restore",
+            "the same running API must expose the restored conclusion: {}",
+            observed[1]
+        );
+    });
+}
+
+#[test]
 fn inspection_routes_reject_unknown_duplicate_and_unsupported_parameters() {
     with_server(|address, _| {
         for path in [
