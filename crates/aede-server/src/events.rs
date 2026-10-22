@@ -114,7 +114,7 @@ pub(super) async fn event_stream(
     // The first snapshot can wait behind a catalog writer. Keep the same
     // revocation/shutdown boundary here as for every subsequent notification.
     let initial = async {
-        if !auth::socket_live(&state, &identity).await {
+        if !notification_live(&state, &identity).await {
             return None;
         }
         let catalog = state.catalog.read();
@@ -122,12 +122,12 @@ pub(super) async fn event_stream(
         let scanned_at = loop {
             tokio::select! {
                 _ = authorization.tick() => {
-                    if !auth::socket_live(&state, &identity).await { return None; }
+                    if !notification_live(&state, &identity).await { return None; }
                 }
                 catalog = &mut catalog => break catalog.as_ref().map(|c| c.scanned_at),
             }
         };
-        if !auth::socket_live(&state, &identity).await {
+        if !notification_live(&state, &identity).await {
             return None;
         }
         Some(CatalogEvent::Snapshot { scanned_at })
@@ -143,13 +143,13 @@ pub(super) async fn event_stream(
             loop {
                 tokio::select! {
                     _ = authorization.tick() => {
-                        if !auth::socket_live(&state, &identity).await {
+                        if !notification_live(&state, &identity).await {
                             return None;
                         }
                     }
                     event = receiver.recv() => match event {
                         Ok(event) => {
-                            if !auth::socket_live(&state, &identity).await { return None; }
+                            if !notification_live(&state, &identity).await { return None; }
                             if include_tasks || matches!(event, CatalogEvent::CatalogChanged { .. }) {
                                 return Some(event);
                             }
@@ -169,8 +169,32 @@ pub(super) async fn event_stream(
     }
 }
 
-// Catalog and credential waits cannot prevent connection retirement. Detached
-// blocking credential reads retain their own admission permits until they finish.
+async fn notification_live(state: &ApiState, identity: &auth::SocketIdentity) -> bool {
+    if state.parental_scope.is_none() {
+        return auth::socket_live(state, identity).await;
+    }
+    // Queue bounded notification bursts instead of treating healthy policy-read
+    // contention as revocation. Detached reads retain their permit until exit.
+    let permit = match tokio::time::timeout(
+        Duration::from_secs(2),
+        state.parental.read_slots.clone().acquire_owned(),
+    )
+    .await
+    {
+        Ok(Ok(permit)) => permit,
+        _ => return false,
+    };
+    auth::socket_live_with(state, identity, move |for_check| {
+        let _permit = &permit;
+        // Catalog publications are the purpose of this stream; only a
+        // changed or unavailable policy invalidates its captured scope.
+        parental::confirm(for_check).is_ok()
+    })
+    .await
+}
+
+// Catalog, credential and policy waits cannot prevent connection retirement.
+// Detached blocking reads retain their own admission permits until they finish.
 async fn await_notification(
     socket: &mut WebSocket,
     shutdown: &mut crate::shutdown::Receiver,
@@ -188,7 +212,7 @@ async fn await_notification(
                 if event.is_none() {
                     let _ = send_message(socket, Message::Close(Some(CloseFrame {
                         code: close_code::POLICY,
-                        reason: "authentication expired or was revoked".into(),
+                        reason: "notification access could not be verified".into(),
                     }))).await;
                 }
                 return event;

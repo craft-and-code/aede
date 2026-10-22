@@ -397,6 +397,15 @@ pub(super) async fn enforce_accounts(
 
 /// Revalidate a WebSocket without treating server notifications as user activity.
 pub(super) async fn socket_live(state: &ApiState, identity: &SocketIdentity) -> bool {
+    socket_live_with(state, identity, |_| true).await
+}
+
+/// Keep additional admission and the credential read in one worker.
+pub(super) async fn socket_live_with(
+    state: &ApiState,
+    identity: &SocketIdentity,
+    check: impl Fn(&ApiState) -> bool + Send + 'static,
+) -> bool {
     // These waits are bounded by the 64 already-admitted sockets. Let ordinary
     // notification bursts queue instead of disconnecting healthy sessions.
     let permit = match tokio::time::timeout(
@@ -411,19 +420,23 @@ pub(super) async fn socket_live(state: &ApiState, identity: &SocketIdentity) -> 
     let to_read = state.clone();
     let accounts = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        load_accounts(&to_read)
+        // Borrow the check so its captured admission guards stay with this
+        // job, even if the socket retires while it waits in the pool.
+        check(&to_read).then(|| load_accounts(&to_read))
     })
     .await;
+    let Ok(Some(accounts)) = accounts else {
+        return false;
+    };
     match accounts {
-        Ok(Ok(None)) => identity.session.is_none(),
-        Ok(Ok(Some(accounts))) => {
+        Ok(None) => identity.session.is_none(),
+        Ok(Some(accounts)) => {
             identity.administrative
                 || identity.session.as_ref().is_some_and(|captured| {
                     principal(state, &accounts, &captured.token, false, Instant::now()).is_ok()
                 })
         }
         Err(_) => false,
-        Ok(Err(_)) => false,
     }
 }
 
