@@ -2,6 +2,8 @@
 
 The CI workflow is already versioned in `.github/workflows/ci.yml`. Use Rust 1.89, the declared minimum version, when reproducing its checks; a newer compiler can accept syntax that CI rejects.
 
+The source branch is `main`. The separate `gh-pages` branch contains only the generated website and must not be merged into the source tree. CI, security checks and site publication follow `main`; documentation source/edit links use that branch too.
+
 ## Run the checks locally
 
 With rustup installed, on macOS or Linux:

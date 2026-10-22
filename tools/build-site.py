@@ -20,7 +20,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = "https://github.com/craft-and-code/aede"
-REPOSITORY_BRANCH = "master"
+REPOSITORY_BRANCH = "main"
 BASE_URL = "https://craft-and-code.github.io/aede/"
 TOPICS = {
     "desktop": ("server", "Desktop server application", "Application serveur desktop"),

@@ -114,7 +114,7 @@ class LinkTests(unittest.TestCase):
 
     def test_engineering_links_refer_to_repository_sources(self):
         href = builder.rewrite_link('design/architecture.md#graph', 'docs/library.md', 'docs/fr/manual/library.html', 'fr', self.pages)
-        self.assertEqual('https://github.com/craft-and-code/aede/blob/master/docs/design/architecture.md#graph', href)
+        self.assertEqual('https://github.com/craft-and-code/aede/blob/main/docs/design/architecture.md#graph', href)
 
     def test_source_edit_links_use_the_published_branch_and_selected_language(self):
         page = {'slug':'manual/first-steps', 'section':'manual', 'title':{'en':'First steps','fr':'Premiers pas'}, 'description':{'en':'Start using Aède','fr':'Commencer avec Aède'}, 'source':{'en':'docs/manual/first-steps.md','fr':'docs/fr/manual/first-steps.md'}}
@@ -122,7 +122,7 @@ class LinkTests(unittest.TestCase):
         for language, source in page['source'].items():
             with self.subTest(language=language):
                 rendered = builder.document_shell(page, language, content, [page])
-                self.assertIn(f'href="https://github.com/craft-and-code/aede/edit/master/{source}"', rendered)
+                self.assertIn(f'href="https://github.com/craft-and-code/aede/edit/main/{source}"', rendered)
 
     def test_documentation_has_one_switch_to_the_corresponding_translated_page(self):
         contents = {

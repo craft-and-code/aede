@@ -54,7 +54,7 @@ The first Markdown H1 supplies the article title fragment; manifest metadata sup
 
 Language choices are explicit on documentation pages, point to the same guide in the other language, and save the shared `aede-language` preference. Navigation uses ordinary page links; scripts enhance the page but are not required to read it.
 
-Repository references use the published `master` branch, declared once as `REPOSITORY_BRANCH` in the publisher. The Markdown source link opens GitHub's editor for the page's selected language; unpublished local source changes become available there when pushed to that branch.
+Repository references use the published `main` branch, declared once as `REPOSITORY_BRANCH` in the publisher. The Markdown source link opens GitHub's editor for the page's selected language; unpublished local source changes become available there when pushed to that branch.
 
 ## Compatibility logos
 
