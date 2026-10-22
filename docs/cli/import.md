@@ -20,9 +20,12 @@ Ordinary mode: JSON reports or report directories walked recursively. List/pendi
 
 ## Options for this command
 
+Deleting selected analyses requires confirmation, including with `--pending` or `--source`. Before asking, the command shows the effective data directory, filters and counts of attached/waiting analyses. A scan cannot recreate these measurements; retain the original reports or a backup. Cancellation preserves the stores. If nothing matches, no confirmation or store rewrite occurs. See [script migration](options.md#forgetting-data-and-migrating-scripts).
+
 | Option | Meaning |
 | --- | --- |
 | `--forget` | Remove stored data/decisions in this command’s scope. It does not delete audio or retag files. |
+| `--yes` | Confirm deletion with `--forget` without a prompt. Required for unattended deletion; refused without `--forget`. |
 | `--pending` | Restrict imported analyses to results waiting for a matching scanned file. With --forget, remove only those waiting results. |
 | `--list` | List the individual stored records or decisions instead of the normal summary/operation. |
 | `--source NAME` | Filter by the stored source/tool name. Use the names printed by the corresponding listing. |

@@ -153,7 +153,7 @@ fn work_pages_preserve_accepted_match_scores_and_each_sources_provenance() {
             sources::ReviewDecision::Accepted
         );
 
-        write(&["sources", "--forget", "--source=manual"]);
+        write(&["sources", "--forget", "--source=manual", "--yes"]);
         write(&["review", &format!("--reject={review}")]);
         let rejected = read(&["work", WORK], canonical);
         if canonical {

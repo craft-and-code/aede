@@ -703,7 +703,13 @@ pub fn delegate_command(
         let mut bytes = vec![0_u8; size];
         stream.read_exact(&mut bytes)?;
         match header[0] {
-            b'O' => io::stdout().write_all(&bytes)?,
+            b'O' => {
+                // Confirmation prompts have no newline; the child has already
+                // flushed them, so the forwarding client must do the same.
+                let mut stdout = io::stdout().lock();
+                stdout.write_all(&bytes)?;
+                stdout.flush()?;
+            }
             b'E' => io::stderr().write_all(&bytes)?,
             b'T' if size == 8 => {
                 let mut id = [0_u8; 8];

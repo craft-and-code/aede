@@ -38,9 +38,25 @@ Output: choose one of CSV, JSON or M3U where supported. `--output`/`-o` writes a
 
 Export destinations are checked before a command changes personal data. Active Aède stores and writer locks, existing audio files, symbolic links and non-regular targets are refused. An ordinary report is replaced atomically after its full content is written; missing report folders may be created. Human terminal output escapes control instructions in notes, paths and metadata. JSON/CSV exports preserve original values; treat CSV text as untrusted data when opening it in a spreadsheet.
 
-Confirmation: `--yes` exists only for reset, history, fetch, backup and restore. It skips that command’s actual confirmation; it is not a universal “ignore errors” option. Without a terminal, a needed confirmation refuses unless deliberately accepted.
+Confirmation: `--yes` exists for reset, history, fetch, backup, restore, and the `--forget` modes of import/sources. It skips that command’s actual confirmation; it is not a universal “ignore errors” option. Without a terminal, a needed confirmation refuses unless deliberately accepted.
 
 Work reuse: `--full` belongs to scan/check/spectrum/fetch/fingerprint with different meanings; analyze uses `--force`. Never infer behavior from the name alone.
+
+## Forgetting data and migrating scripts
+
+`import --forget` and `sources --forget` show the selected data directory, filters and removal counts before asking for `yes`. Selection and publication share the command's writer lock, including delegated execution. A negative/empty answer or EOF cancels with code 0 and no store changes. Without a terminal, a nonempty removal refuses with code 1 and an stderr diagnostic unless `--yes` is present. Piping `yes` into stdin does not provide this consent. A disconnected delegated client cannot confirm. An empty selection succeeds without a prompt or store rewrite.
+
+`--yes` is valid only with `--forget` on these two commands. It retains every source/folder/pending filter and all input, permission and storage validation. `sources` may remove reviews and credit exclusions even if no fetched records remain; imported measurements may have no surviving source report. Keep a complete backup when recovery matters. Audio, tags and original report files are not removed by either mode.
+
+This changes the scripting contract. Earlier builds deleted the selected data without additional confirmation and rejected `--yes` on import/sources. Deploy the supporting binary and updated scripts together, or pin each script to a supported binary. Do not retry a failed deletion automatically without `--yes`; an arbitrary failure is not a version-capability signal.
+
+```sh
+# Unattended deletion with this consent policy:
+aede import --forget --pending --data /srv/aede/data --yes
+aede sources --forget --source musicbrainz --data /srv/aede/data --yes
+```
+
+Check command exit status in unattended runs. A no-op can legitimately return 0; inspect the counts if work must have been performed. Interactive cancellation also returns 0, matching reset. This policy applies to import/source deletion; other uses such as `missing --forget` retain their own documented behavior.
 
 ## Complete recognized-option matrix
 
@@ -73,7 +89,7 @@ This inventory follows the current dispatcher and handlers. It lists accepted co
 | `--label NAME` | [albums](albums.md) |
 | `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md), [scan](scan.md) |
 | `--no-color` | Shared (see above) |
-| `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md) |
+| `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md), [import](import.md) / [sources](sources.md) with `--forget` |
 | `--forget` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md) |
 | `--pending` | [import](import.md) |
 | `--list` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md), [fingerprint](fingerprint.md) |

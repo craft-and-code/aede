@@ -20,10 +20,13 @@ Aucun argument positionnel sauf un nom facultatif avec --template.
 
 ## Options de cette commande
 
+Le retrait exige une confirmation même s’il ne reste que des décisions de revue/exclusion sans preuve en cache. Le récapitulatif indique le répertoire effectif, la source et les nombres distincts d’enregistrements, de revues et d’exclusions de crédits. Une récupération réseau ne reconstitue pas les décisions personnelles ni les données de sources saisies manuellement. Une annulation préserve les données ; un magasin vide ne demande aucune confirmation ni réécriture. Voir la [migration des scripts](options.md#forgetting-data-and-migrating-scripts).
+
 | Option | Effet |
 | --- | --- |
 | `--output FILE / -o FILE` | Écrire l’export dans FICHIER plutôt que dans le terminal. Une sélection exige --csv, --json ou --m3u ; les exports propres à une commande suivent leurs règles. |
 | `--forget` | Retirer les données/décisions mémorisées dans cette portée. Aucun fichier audio n’est supprimé ni retagué. |
+| `--yes` | Confirmer le retrait avec `--forget` sans question. Nécessaire pour un retrait automatisé ; refusé sans `--forget`. |
 | `--list` | Lister les enregistrements ou décisions mémorisés au lieu du résumé/de l’opération habituelle. |
 | `--source NAME` | Filtrer --list/--forget ou choisir la source de --template. Refusé avec le résumé, l’export ou l’import. |
 | `--export` | Exporter le document mémorisé propre à cette commande. Ce n’est pas le même résultat qu’une liste affichée en CSV/JSON. |

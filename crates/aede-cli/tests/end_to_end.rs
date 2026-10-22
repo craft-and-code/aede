@@ -4713,7 +4713,7 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
     assert!(out.contains("matches that"), "output: {out}");
 
     // --- Forgetting ---------------------------------------------------------
-    let (out, _, ok) = sandbox.run(&["import", "--forget"]);
+    let (out, _, ok) = sandbox.run(&["import", "--forget", "--yes"]);
     assert!(ok, "output: {out}");
     // And it names the file it just wrote. "311 removed" over a report that
     // still shows them is a contradiction nobody can investigate without
@@ -4728,7 +4728,7 @@ fn another_tools_analysis_can_be_taken_in_and_given_back() {
 
     // Emptied means emptied: a second run finds nothing left to remove, which
     // is the assertion that a summary printed without a save would fail.
-    let (out, _, ok) = sandbox.run(&["import", "--forget"]);
+    let (out, _, ok) = sandbox.run(&["import", "--forget", "--yes"]);
     assert!(ok, "output: {out}");
     assert!(out.contains("0 analysis removed"), "output: {out}");
 
@@ -4924,7 +4924,7 @@ fn a_pending_analysis_can_be_named_and_then_dropped_on_its_own() {
     assert!(ok, "output: {out}");
     assert!(out.contains("0 analysis removed"), "output: {out}");
 
-    let (out, _, ok) = sandbox.run(&["import", "--forget", "--pending"]);
+    let (out, _, ok) = sandbox.run(&["import", "--forget", "--pending", "--yes"]);
     assert!(ok, "output: {out}");
     assert!(out.contains("1 analysis removed"), "output: {out}");
 
@@ -6641,7 +6641,7 @@ fn a_fetched_value_is_taken_in_shown_and_dropped_without_any_network() {
     );
 
     // Attributed means removable, by naming the source.
-    let (out, err, ok) = sandbox.run(&["sources", "--forget", "--source", "musicbrainz"]);
+    let (out, err, ok) = sandbox.run(&["sources", "--forget", "--source", "musicbrainz", "--yes"]);
     assert!(ok, "stdout: {out}\nstderr: {err}");
     assert!(out.contains("2 records removed, 0 left"), "output: {out}");
 

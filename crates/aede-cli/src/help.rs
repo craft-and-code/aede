@@ -99,11 +99,11 @@ pub(crate) fn command_page(command: &str) -> CommandPage {
         },
         "import" => CommandPage {
             usage: "aede import <report…>",
-            summary: "Import acoustic analyses from FlacCompagnon.",
+            summary: "Import acoustic analyses from FlacCompagnon. --forget asks before deleting retained measurements; scripts require --forget --yes.",
         },
         "sources" => CommandPage {
             usage: "aede sources",
-            summary: "Inspect, export, import, or remove externally sourced data.",
+            summary: "Inspect, export, import, or remove externally sourced data. --forget asks before deleting records and decisions; scripts require --forget --yes.",
         },
         "review" => CommandPage {
             usage: "aede review [name] [--interactive] | aede review --accept=<ID> | --reject=<ID> | --undo=<ID>",
@@ -342,6 +342,7 @@ pub fn print_index() {
                        document with the keys and nothing filled in, --import
                        <file> takes one back, --export writes out what is held
                        (both through --output, or to the terminal)
+                       Forget asks for confirmation; scripts use --forget --yes
   review               Pending approximate matches and identity conflicts.
                        --accept=<ID> trusts one for graph navigation and
                        queries; --reject=<ID> keeps it as evidence only;
@@ -520,6 +521,7 @@ pub fn print_index() {
                        folders whose analyses match no file yet, --forget
                        removes analyses; --forget --pending [folder…] drops
                        only what is waiting, and keeps what did attach
+                       Forget asks for confirmation; scripts use --forget --yes
   reset                Remove the catalog, after confirmation (--yes skips it)
   backup <file>        Everything Aède knows in one document: the catalog,
                        what you said and what sources said. The catalog can

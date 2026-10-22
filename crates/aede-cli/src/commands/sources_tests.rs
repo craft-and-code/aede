@@ -551,7 +551,7 @@ fn forgetting_a_source_nobody_stored_is_an_error_and_removes_nothing() {
     assert_eq!(after.records.len(), 1, "nothing was removed on the way out");
 
     // And forgetting the one that is there empties it.
-    forget(&args(&dir, &["--forget"]), &path).expect("forgotten");
+    forget(&args(&dir, &["--forget", "--yes"]), &path).expect("forgotten");
     let empty = sources::load(&path).expect("readable").expect("a layer");
     assert!(empty.records.is_empty());
     let _ = std::fs::remove_dir_all(&dir);

@@ -81,9 +81,9 @@ fn decisions_without_cached_records_can_be_exported_and_forgotten() {
         assert_eq!(exported.reviews, held.reviews);
         assert_eq!(exported.credit_exclusions, held.credit_exclusions);
         let arguments = if selected {
-            vec!["sources", "--forget", "--source=musicbrainz"]
+            vec!["sources", "--forget", "--source=musicbrainz", "--yes"]
         } else {
-            vec!["sources", "--forget"]
+            vec!["sources", "--forget", "--yes"]
         };
         let output = library.run(&arguments);
         assert!(

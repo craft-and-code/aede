@@ -20,10 +20,13 @@ No positional arguments except an optional name with --template.
 
 ## Options for this command
 
+Forgetting requires confirmation even when only review/exclusion decisions remain without cached records. The summary names the effective data directory, source and separate counts of records, reviews and credit exclusions. A new fetch cannot reconstruct personal decisions or manually authored source records. Cancellation preserves the store; an empty store needs no confirmation or rewrite. See [script migration](options.md#forgetting-data-and-migrating-scripts).
+
 | Option | Meaning |
 | --- | --- |
 | `--output FILE / -o FILE` | Write an export to FILE instead of standard output. A selection needs --csv, --json or --m3u; command-specific exports have their own rules. |
 | `--forget` | Remove stored data/decisions in this command’s scope. It does not delete audio or retag files. |
+| `--yes` | Confirm deletion with `--forget` without a prompt. Required for unattended deletion; refused without `--forget`. |
 | `--list` | List the individual stored records or decisions instead of the normal summary/operation. |
 | `--source NAME` | Filter --list/--forget, or choose the source for --template. Refused with the summary, export, or import. |
 | `--export` | Export the command’s stored document. This is not the same as CSV/JSON presentation of a listing. |

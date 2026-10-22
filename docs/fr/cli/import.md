@@ -20,9 +20,12 @@ Mode normal : rapports JSON ou dossiers parcourus récursivement. Liste/attente/
 
 ## Options de cette commande
 
+Le retrait des analyses sélectionnées exige une confirmation, même avec `--pending` ou `--source`. La commande présente le répertoire de données effectif, les filtres et les nombres d’analyses rattachées/en attente. Un scan ne recrée pas ces mesures ; conserver les rapports d’origine ou une sauvegarde. Une annulation préserve les données. Si rien ne correspond, aucune confirmation ni réécriture n’a lieu. Voir la [migration des scripts](options.md#forgetting-data-and-migrating-scripts).
+
 | Option | Effet |
 | --- | --- |
 | `--forget` | Retirer les données/décisions mémorisées dans cette portée. Aucun fichier audio n’est supprimé ni retagué. |
+| `--yes` | Confirmer le retrait avec `--forget` sans question. Nécessaire pour un retrait automatisé ; refusé sans `--forget`. |
 | `--pending` | Limiter les analyses importées à celles en attente d’un fichier scanné correspondant. Avec --forget, retirer seulement ces résultats. |
 | `--list` | Lister les enregistrements ou décisions mémorisés au lieu du résumé/de l’opération habituelle. |
 | `--source NAME` | Filtrer selon le nom de source/d’outil mémorisé. Employer les noms affichés dans la liste correspondante. |

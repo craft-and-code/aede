@@ -108,6 +108,7 @@ fn import_and_forget_refuse_listing_options_before_changing_stores() {
     }
     import(&arguments(&[
         "--forget",
+        "--yes",
         "--pending",
         "--source=flaccompagnon",
     ]))

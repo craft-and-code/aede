@@ -28,6 +28,9 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn import(args: &Args) -> Res {
+    if args.has("yes") && !args.has("forget") {
+        return Err("--yes requires --forget for import".into());
+    }
     if args.has("forget") && args.has("list") {
         return Err("--forget and --list ask for different import operations".into());
     }
@@ -434,18 +437,57 @@ fn forget(catalog: &mut Catalog, catalog_file: &Path, args: &Args) -> Res {
         .into());
     }
 
-    let before = catalog.analyses.len();
     // Collected before the retain: a record only knows it is pending by
     // comparison with the files the catalog holds right now, and that
     // comparison cannot be made from inside a closure that is, at the same
     // time, mutating the very list being compared against.
     let known: std::collections::BTreeSet<String> =
         catalog.files.iter().map(|f| f.path.clone()).collect();
-    catalog.analyses.retain(|a| {
-        !(selected(a, source, &folders) && (!pending_only || !known.contains(&a.path)))
-    });
-    let removed = before - catalog.analyses.len();
-    store::save(catalog, catalog_file)?;
+    let to_remove = |a: &FileAnalysis| {
+        selected(a, source, &folders) && (!pending_only || !known.contains(&a.path))
+    };
+    let removed = catalog.analyses.iter().filter(|a| to_remove(a)).count();
+    if removed > 0 {
+        let attached = catalog
+            .analyses
+            .iter()
+            .filter(|a| to_remove(a) && known.contains(&a.path))
+            .count();
+        println!("{}", ui::section("Forget imported analyses"));
+        println!(
+            "  data: {}",
+            ui::literal(&super::canonical(&data_dir(args)).display().to_string())
+        );
+        println!("  source: {}", ui::literal(source.unwrap_or("all sources")));
+        if !folders.is_empty() {
+            println!("  folders: {}", ui::literal(&folders.join(", ")));
+        }
+        println!(
+            "  scope: {}",
+            if pending_only {
+                "waiting analyses only"
+            } else {
+                "attached and waiting analyses"
+            }
+        );
+        let mut table = Table::plain(2).align(1, Align::Right);
+        table.push(vec!["Analyses to remove".into(), removed.to_string()]);
+        table.push(vec!["Attached to files".into(), attached.to_string()]);
+        table.push(vec![
+            "Waiting for files".into(),
+            (removed - attached).to_string(),
+        ]);
+        print!("{}", table.render());
+        println!(
+            "  A scan cannot recreate these measurements. Keep the source reports or a backup."
+        );
+        if !super::confirmed(args, "remove the selected imported analyses")? {
+            println!("  {}", ui::green("nothing was removed"));
+            return Ok(());
+        }
+        catalog.analyses.retain(|a| !to_remove(a));
+        store::save(catalog, catalog_file)?;
+    }
     println!("{}", ui::section("Import"));
     println!(
         "  {} removed, {} left",
@@ -459,7 +501,10 @@ fn forget(catalog: &mut Catalog, catalog_file: &Path, args: &Args) -> Res {
     // `$AEDE_HOME` both move this file, and the second is easy to forget.
     println!(
         "{}",
-        ui::dim(&format!("  catalog: {}", catalog_file.display()))
+        ui::dim(&format!(
+            "  catalog: {}",
+            ui::literal(&catalog_file.display().to_string())
+        ))
     );
     Ok(())
 }

@@ -47,6 +47,8 @@ aede import --forget --pending            # retirer seulement les mesures en att
 aede import --forget --pending "/Volumes/OldDrive" # seulement sous ce dossier
 ```
 
+Un retrait non vide demande confirmation. Les scripts exigent `--forget --yes` ; un ancien binaire peut refuser cette combinaison. Voir le [consentement et la migration des scripts](cli/options.md#forgetting-data-and-migrating-scripts).
+
 L’import d’un dossier parcourt ses sous-dossiers récursivement. `--forget` efface les mesures d’Aède, sans supprimer ni rapport JSON d’origine ni musique.
 
 <div id="the-order-does-not-matter" data-legacy-anchor></div>

@@ -52,9 +52,11 @@ aede import --list                        # everything held, and what became of 
 aede import --pending                     # which folders have no matching file yet
 aede import --forget                      # remove them all
 aede import --forget --source=flaccompagnon
-aede import --forget --pending            # remove only what will never attach
+aede import --forget --pending            # remove only waiting analyses
 aede import --forget --pending "/Volumes/OldDrive"   # …and only under that folder
 ```
+
+Removal asks for confirmation when records match. Scripts require `--forget --yes`; an earlier binary may reject that combination. See [consent and script migration](cli/options.md#forgetting-data-and-migrating-scripts).
 
 A folder is walked **recursively**, because Aède understands that you keep your reports the same way you curate your albums: filed elegantly by artist and release.
 

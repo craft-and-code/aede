@@ -24,6 +24,9 @@ use crate::args::Args;
 use crate::ui::{self, Align, Table};
 
 pub fn sources(args: &Args) -> Res {
+    if args.has("yes") && !args.has("forget") {
+        return Err("--yes requires --forget for sources".into());
+    }
     let operations: Vec<&str> = ["import", "template", "export", "forget", "list"]
         .into_iter()
         .filter(|option| args.has(option))
@@ -484,7 +487,9 @@ fn template(args: &Args) -> Res {
 fn forget(args: &Args, path: &std::path::Path) -> Res {
     let mut held = sources::load_all(path)?.unwrap_or_default();
     let before = held.records.len();
-    let decisions_before = held.reviews.len() + held.credit_exclusions.len();
+    let reviews_before = held.reviews.len();
+    let exclusions_before = held.credit_exclusions.len();
+    let decisions_before = reviews_before + exclusions_before;
     if before == 0 && decisions_before == 0 {
         println!("{}", ui::section("Sources"));
         println!("  {}", ui::dim("there was nothing to forget"));
@@ -510,6 +515,34 @@ fn forget(args: &Args, path: &std::path::Path) -> Res {
         }
     };
 
+    println!("{}", ui::section("Forget sourced data"));
+    println!(
+        "  data: {}",
+        ui::literal(&super::canonical(&data_dir(args)).display().to_string())
+    );
+    println!("  store: {}", ui::literal(&path.display().to_string()));
+    println!(
+        "  source: {}",
+        ui::literal(args.value("source").unwrap_or("all sources"))
+    );
+    let mut table = Table::plain(2).align(1, Align::Right);
+    table.push(vec!["Records to remove".into(), removed.to_string()]);
+    table.push(vec![
+        "Reviews to remove".into(),
+        (reviews_before - held.reviews.len()).to_string(),
+    ]);
+    table.push(vec![
+        "Credit exclusions to remove".into(),
+        (exclusions_before - held.credit_exclusions.len()).to_string(),
+    ]);
+    print!("{}", table.render());
+    println!(
+        "  A new fetch cannot recreate personal decisions or manually authored source records. Keep a backup."
+    );
+    if !super::confirmed(args, "remove the selected source records and decisions")? {
+        println!("  {}", ui::green("nothing was removed"));
+        return Ok(());
+    }
     sources::save(&held, path)?;
     println!(
         "{} {} removed, {} left",

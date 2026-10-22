@@ -694,7 +694,9 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
     ("tracks", &["export"], "switch to one row per track"),
     (
         "yes",
-        &["reset", "history", "fetch", "backup", "restore"],
+        &[
+            "reset", "history", "fetch", "backup", "restore", "import", "sources",
+        ],
         "skip the confirmation",
     ),
     (

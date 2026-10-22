@@ -304,6 +304,8 @@ Destructive commands must:
 
 Never assume that lack of input means "yes".
 
+Retained-analysis and source purges (`import --forget`, `sources --forget`) require separate consent even with source/pending filters or decision-only data. Resolve the selection and its counts under the same writer lock used for publication, explain the effective data directory and non-rebuildable data, then use the shared confirmation helper. An empty selection must not prompt or rewrite stores. `--yes` is accepted only with these commands' `--forget` mode; it does not bypass validation. See the [consent and script migration contract](../cli/options.md#forgetting-data-and-migrating-scripts), including delegated execution and compatibility with older binaries.
+
 ---
 
 ## 16. Tests

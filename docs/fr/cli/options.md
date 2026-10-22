@@ -38,9 +38,27 @@ Sortie : choisir CSV, JSON ou M3U si proposé. `--output`/`-o` écrit un vérita
 
 La destination d’export est contrôlée avant toute modification des données personnelles. Les stores actifs et verrous d’Aède, fichiers audio existants, liens symboliques et cibles non ordinaires sont refusés. Un rapport ordinaire est remplacé atomiquement après écriture complète ; ses dossiers manquants peuvent être créés. L’affichage humain échappe les instructions de contrôle des notes, chemins et métadonnées. Les exports JSON/CSV gardent les valeurs originales ; traiter le texte CSV comme une donnée non fiable à l’ouverture dans un tableur.
 
-Confirmation : `--yes` existe seulement pour reset, history, fetch, backup, restore. Il accepte leur confirmation réelle, sans ignorer les erreurs. Sans terminal, une confirmation nécessaire refuse sauf acceptation volontaire.
+Confirmation : `--yes` existe pour reset, history, fetch, backup, restore et les modes `--forget` d’import/sources. Il accepte leur confirmation réelle, sans ignorer les erreurs. Sans terminal, une confirmation nécessaire refuse sauf acceptation volontaire.
 
 Réutilisation : `--full` concerne scan/check/spectrum/fetch/fingerprint avec des effets différents ; analyze utilise `--force`. Ne pas déduire l’effet du nom seul.
+
+<div id="forgetting-data-and-migrating-scripts" data-legacy-anchor></div>
+
+## Suppressions et migration des scripts
+
+`import --forget` et `sources --forget` présentent le répertoire de données, les filtres et les nombres à retirer avant de demander `yes`. La sélection et la publication partagent le verrou d’écriture, y compris en délégation. Une réponse négative/vide ou EOF annule avec le code 0 sans modifier les données. Sans terminal, un retrait non vide refuse avec le code 1 et un diagnostic sur stderr, sauf présence de `--yes`. Envoyer `yes` par un pipe ne constitue pas ce consentement. La déconnexion d’un client délégué ne confirme rien. Une sélection vide réussit sans question ni réécriture.
+
+Sur ces deux commandes, `--yes` exige `--forget`. Il conserve les filtres source/dossier/attente et les validations d’entrée, de permissions et de stockage. `sources` peut retirer des revues et exclusions de crédits même sans preuve en cache ; des mesures importées peuvent ne plus avoir de rapport d’origine. Conserver une sauvegarde complète si une récupération est nécessaire. Aucun de ces modes ne supprime musique, tags ou rapports d’origine.
+
+Ce changement modifie le contrat des scripts. Les anciennes versions supprimaient les données sélectionnées sans confirmation supplémentaire et refusaient `--yes` sur import/sources. Déployer ensemble le binaire compatible et les scripts adaptés, ou fixer explicitement le binaire attendu par chaque script. Ne jamais réessayer automatiquement sans `--yes` après un échec : une erreur quelconque n’indique pas la compatibilité d’une version.
+
+```sh
+# Retrait automatisé avec cette politique de consentement :
+aede import --forget --pending --data /srv/aede/data --yes
+aede sources --forget --source musicbrainz --data /srv/aede/data --yes
+```
+
+Vérifier le code de sortie dans les scripts. Une opération sans effet peut légitimement sortir à 0 ; examiner les nombres si un retrait devait avoir lieu. Une annulation interactive retourne aussi 0, comme reset. Cette politique concerne les suppressions import/sources ; les autres usages comme `missing --forget` gardent leur comportement documenté.
 
 ## Matrice complète des options reconnues
 
@@ -73,7 +91,7 @@ Cette liste suit répartition et traitements actuels. Elle décrit la portée ac
 | `--label NAME` | [albums](albums.md) |
 | `--json / -j` | [analyze](analyze.md), [stats](stats.md), [doctor](doctor.md), [credits](credits.md), [relations](relations.md), [query](query.md), [collection](collection.md), [favourites](favourites.md), [notes](notes.md), [artists](artists.md), [countries](countries.md), [albums](albums.md), [genres](genres.md), [genre](genre.md), [labels](labels.md), [label](label.md), [years](years.md), [artist](artist.md), [album](album.md), [track](track.md), [search](search.md), [export](export.md), [scan](scan.md) |
 | `--no-color` | Partagée (voir ci-dessus) |
-| `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md) |
+| `--yes` | [reset](reset.md), [backup](backup.md), [restore](restore.md), [fetch](fetch.md), [history](history.md), [import](import.md) / [sources](sources.md) avec `--forget` |
 | `--forget` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md) |
 | `--pending` | [import](import.md) |
 | `--list` | [import](import.md), [sources](sources.md), [missing](missing.md), [merge](merge.md), [fingerprint](fingerprint.md) |
