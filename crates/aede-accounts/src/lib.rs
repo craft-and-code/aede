@@ -432,16 +432,31 @@ fn valid_hash(hash: &str) -> bool {
     let Ok(parsed) = PasswordHash::new(hash) else {
         return false;
     };
+    // Argon2 checks memory relative to its lanes before bounding the lane count.
+    // Refuse a supplied non-policy value before that arithmetic on stored input.
+    if parsed
+        .params
+        .get("p")
+        .is_some_and(|lanes| lanes.decimal().ok() != Some(1))
+    {
+        return false;
+    }
     let Ok(params) = Params::try_from(&parsed) else {
         return false;
     };
+    let mut salt_bytes = [0_u8; 16];
     parsed.algorithm.as_str() == "argon2id"
         && parsed.version == Some(19)
         && params.m_cost() == MEMORY_KIB
         && params.t_cost() == 2
         && params.p_cost() == 1
         && parsed.hash.is_some_and(|hash| hash.len() == 32)
-        && parsed.salt.is_some_and(|salt| salt.len() == 22)
+        && parsed.salt.is_some_and(|salt| {
+            salt.len() == 22
+                && salt
+                    .decode_b64(&mut salt_bytes)
+                    .is_ok_and(|decoded| decoded.len() == 16)
+        })
         && parsed.params.iter().count() == 3
 }
 
@@ -532,3 +547,7 @@ mod tests;
 #[cfg(test)]
 #[path = "accounts_test_support.rs"]
 mod test_support;
+
+#[cfg(test)]
+#[path = "verifier_validation_tests.rs"]
+mod verifier_validation_tests;

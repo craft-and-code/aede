@@ -121,3 +121,179 @@ fn credential_reads_refuse_a_replacement_or_permission_change_during_open() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn excessive_argon2_lanes_in_account_files_are_refused_without_panicking_or_writing() {
+    let dir = std::env::temp_dir().join(format!("aede_accounts_lanes_{}", random_token().unwrap()));
+    let path = accounts_path(&dir);
+    let mut data = accounts();
+    data.create("listener", PASSWORD, Role::User, 11).unwrap();
+    data.create_api_key("operator", "desktop", 20).unwrap();
+    let (_, token) = data.create_api_key("listener", "player", 21).unwrap();
+    save(&data, &path).unwrap();
+    let unrelated = crate::user::user_path(&dir);
+    crate::user::save(&crate::user::UserData::default(), &unrelated).unwrap();
+    let unrelated_bytes = std::fs::read(&unrelated).unwrap();
+    let document = to_json(&data);
+    let mut outcomes = Vec::new();
+
+    for (table, field) in [("account", "password_hash"), ("api_keys", "secret_hash")] {
+        let mut corrupt = document.clone();
+        let mut rows = corrupt.get(table).unwrap().as_arr().unwrap().to_vec();
+        let hash = rows.last().unwrap().get(field).unwrap().as_str().unwrap();
+        let hash = hash.replace("p=1$", "p=4294967295$");
+        rows.last_mut().unwrap().set(field, hash.into());
+        corrupt.set(table, Json::Arr(rows));
+        let corrupt_bytes = corrupt.to_string_compact().into_bytes();
+        std::fs::write(&path, &corrupt_bytes).unwrap();
+
+        let result = std::panic::catch_unwind(|| load(&path));
+        outcomes.push((
+            table,
+            matches!(result, Ok(Err(StoreError::AccountsInvalid(_)))),
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), corrupt_bytes);
+        assert_eq!(std::fs::read(&unrelated).unwrap(), unrelated_bytes);
+    }
+
+    save(&data, &path).unwrap();
+    let loaded = load(&path).unwrap().unwrap();
+    assert_eq!(loaded, data);
+    assert!(loaded.authenticate("listener", PASSWORD).is_some());
+    assert!(loaded.authenticate_api_key(&token).is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(outcomes.iter().all(|(_, refused)| *refused), "{outcomes:?}");
+}
+
+#[test]
+fn undecodable_salts_in_account_files_are_refused_without_writing() {
+    let dir = std::env::temp_dir().join(format!("aede_accounts_salts_{}", random_token().unwrap()));
+    let path = accounts_path(&dir);
+    let mut data = accounts();
+    data.create("listener", PASSWORD, Role::User, 11).unwrap();
+    data.create_api_key("operator", "desktop", 20).unwrap();
+    let (_, token) = data.create_api_key("listener", "player", 21).unwrap();
+    save(&data, &path).unwrap();
+    let unrelated = crate::user::user_path(&dir);
+    crate::user::save(&crate::user::UserData::default(), &unrelated).unwrap();
+    let unrelated_bytes = std::fs::read(&unrelated).unwrap();
+    let document = to_json(&data);
+    let mut outcomes = Vec::new();
+
+    for (table, field) in [("account", "password_hash"), ("api_keys", "secret_hash")] {
+        for salt in [
+            "YWFhYWFhYWFhYWFhYWFhY.",
+            "YWFhYWFhYWFhYWFhYWFhY-",
+            "YWFhYWFhYWFhYWFhYWFhYR",
+        ] {
+            let mut corrupt = document.clone();
+            let mut rows = corrupt.get(table).unwrap().as_arr().unwrap().to_vec();
+            let hash = rows.last().unwrap().get(field).unwrap().as_str().unwrap();
+            let mut parts = hash.split('$').collect::<Vec<_>>();
+            parts[4] = salt;
+            let hash = parts.join("$");
+            rows.last_mut().unwrap().set(field, hash.into());
+            corrupt.set(table, Json::Arr(rows));
+            let corrupt_bytes = corrupt.to_string_compact().into_bytes();
+            std::fs::write(&path, &corrupt_bytes).unwrap();
+
+            let result = std::panic::catch_unwind(|| load(&path));
+            outcomes.push((
+                table,
+                salt,
+                matches!(result, Ok(Err(StoreError::AccountsInvalid(_)))),
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), corrupt_bytes);
+            assert_eq!(std::fs::read(&unrelated).unwrap(), unrelated_bytes);
+        }
+    }
+
+    save(&data, &path).unwrap();
+    let loaded = load(&path).unwrap().unwrap();
+    assert_eq!(loaded, data);
+    assert!(loaded.authenticate("listener", PASSWORD).is_some());
+    assert!(loaded.authenticate_api_key(&token).is_some());
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(
+        outcomes.iter().all(|(_, _, refused)| *refused),
+        "{outcomes:?}"
+    );
+}
+
+#[test]
+fn corrupt_backup_credentials_leave_personal_data_recoverable_and_source_bytes_intact() {
+    use crate::backup::{Backup, Part};
+
+    let dir =
+        std::env::temp_dir().join(format!("aede_accounts_backup_{}", random_token().unwrap()));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("backup.json");
+    let mut data = accounts();
+    data.create_api_key("operator", "desktop", 20).unwrap();
+    let user = crate::user::UserData {
+        set_aside: vec![crate::user::SetAside {
+            owner: LOCAL_OWNER.into(),
+            release_group: "saved-release".into(),
+            title: "A saved release".into(),
+            created_at: 12,
+        }],
+        ..Default::default()
+    };
+    let backup = Backup {
+        made_at: 30,
+        made_by: "test".into(),
+        catalog: Part::Empty,
+        conclusions: Part::Empty,
+        user: Part::Held(user),
+        sources: Part::Empty,
+        accounts: Part::Held(data.clone()),
+        parental: Part::Empty,
+    };
+    crate::backup::write(&backup, &path).unwrap();
+    assert_eq!(
+        crate::backup::read(&path).unwrap().accounts.held(),
+        Some(&data)
+    );
+    let document = crate::backup::to_json(&backup);
+    let user_document = document.get("user").unwrap().clone();
+    let mut outcomes = Vec::new();
+
+    for (table, field, hash) in [
+        (
+            "account",
+            "password_hash",
+            "$argon2id$v=19$m=19456,t=2,p=4294967295$YWFhYWFhYWFhYWFhYWFhYQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ),
+        (
+            "api_keys",
+            "secret_hash",
+            "$argon2id$v=19$m=19456,t=2,p=1$YWFhYWFhYWFhYWFhYWFhYR$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ),
+    ] {
+        let mut corrupt = document.clone();
+        let mut credentials = corrupt.get("accounts").unwrap().clone();
+        let mut rows = credentials.get(table).unwrap().as_arr().unwrap().to_vec();
+        rows[0].set(field, hash.into());
+        credentials.set(table, Json::Arr(rows));
+        corrupt.set("accounts", credentials);
+        let corrupt_bytes = corrupt.to_string_pretty().into_bytes();
+        std::fs::write(&path, &corrupt_bytes).unwrap();
+
+        let result = std::panic::catch_unwind(|| crate::backup::read(&path));
+        let recoverable = match result {
+            Ok(Ok(restored)) => {
+                assert_eq!(
+                    crate::user::to_json(restored.user.held().unwrap()),
+                    user_document
+                );
+                matches!(restored.accounts, Part::Unreadable(_))
+            }
+            _ => false,
+        };
+        outcomes.push((table, recoverable));
+        assert_eq!(std::fs::read(&path).unwrap(), corrupt_bytes);
+    }
+
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(outcomes.iter().all(|(_, refused)| *refused), "{outcomes:?}");
+}
