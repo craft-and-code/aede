@@ -19,30 +19,62 @@ pub fn extract(
         return Err("source outside native mono/stereo acoustic profile".into());
     }
     track.set_output_rate(RATE).map_err(|e| e.to_string())?;
-    let mut extractor = Extractor::new(usize::from(format.channels()))?;
+    let origin = Instant::now();
+    extract_source(
+        &mut track,
+        usize::from(format.channels()),
+        checkpoint,
+        || origin.elapsed(),
+    )
+}
+
+trait Source {
+    fn read_samples(&mut self) -> Result<Option<&[f32]>, String>;
+}
+impl Source for PcmTrack {
+    fn read_samples(&mut self) -> Result<Option<&[f32]>, String> {
+        self.read_block::<std::convert::Infallible>(|_| Ok(()))
+            .map(|block| block.map(|block| block.samples))
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn check_budget(active: Duration) -> Result<(), String> {
+    if active > Duration::from_secs(180) {
+        Err("acoustic active computation budget exceeded".into())
+    } else {
+        Ok(())
+    }
+}
+
+// Keep budget accounting on the same path for native decoding and controlled clocks.
+fn extract_source(
+    track: &mut impl Source,
+    channels: usize,
+    mut checkpoint: impl FnMut() -> Result<(), String>,
+    mut now: impl FnMut() -> Duration,
+) -> Result<Features, String> {
+    let mut extractor = Extractor::new(channels)?;
     let mut active = Duration::ZERO;
     loop {
         checkpoint()?;
-        let step = Instant::now();
-        let block = track
-            .read_block::<std::convert::Infallible>(|_| Ok(()))
-            .map_err(|e| e.to_string())?;
-        active += step.elapsed();
-        let Some(block) = block else {
+        let step = now();
+        let samples = track.read_samples()?;
+        active += now().saturating_sub(step);
+        check_budget(active)?;
+        let Some(samples) = samples else {
             break;
         };
         let mut parked = Duration::ZERO;
-        let step = Instant::now();
-        extractor.push(block.samples, || {
-            let before = Instant::now();
+        let step = now();
+        extractor.push(samples, || {
+            let before = now();
             let result = checkpoint();
-            parked += before.elapsed();
+            parked += now().saturating_sub(before);
             result
         })?;
-        active += step.elapsed().saturating_sub(parked);
-        if active > Duration::from_secs(180) {
-            return Err("acoustic active computation budget exceeded".into());
-        }
+        active += now().saturating_sub(step).saturating_sub(parked);
+        check_budget(active)?;
     }
     checkpoint()?;
     extractor.finish()
@@ -50,3 +82,7 @@ pub fn extract(
 #[cfg(test)]
 #[path = "audio_features_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "audio_features_budget_tests.rs"]
+mod budget_tests;
