@@ -640,3 +640,125 @@ fn another_address_cannot_take_over_the_selected_player() {
         assert!(server.await.unwrap().is_ok());
     });
 }
+
+#[path = "slimproto_queue_test_support.rs"]
+mod queue_fixtures;
+
+#[test]
+fn all_admitted_slimproto_queue_lengths_complete_causal_five_message_progress() {
+    check(async {
+        let capabilities = Capabilities::parse(&hello(b"flc,MaxSampleRate=48000")).unwrap();
+        let mut refused = Vec::new();
+        for count in 1..=64 {
+            let mut duplicate = track("flac", "flac", "audio/flac");
+            duplicate.properties.duration_ms = Some(1);
+            let tracks = vec![duplicate; count];
+            let prepared = tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| {
+                    start_payload(
+                        track,
+                        &format!("http://127.0.0.1:8123/private-token/{index}"),
+                        &capabilities,
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            let (sender, mut packets) = mpsc::channel(8);
+            let mut writer = queue_fixtures::QueueWriter::with_progress(sender);
+            let (_shutdown, mut signal) = watch::channel(false);
+            let started = Instant::now();
+            let result = play_queue(
+                &mut writer,
+                &mut packets,
+                &tracks,
+                &prepared,
+                None,
+                &mut signal,
+                Limits::default(),
+            )
+            .await;
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "queue {count} exceeded the burst window"
+            );
+            let starts = writer.starts();
+            for (index, payload) in starts.iter().enumerate() {
+                assert_eq!(&payload[..7], b"s1f????");
+                assert_eq!(
+                    &payload[24..],
+                    format!("GET /private-token/{index} HTTP/1.0\r\nHost: 127.0.0.1:8123\r\nConnection: close\r\n\r\n").as_bytes(),
+                    "queue {count} changed occurrence order"
+                );
+            }
+            match result {
+                Ok(()) => assert_eq!(starts.len(), count, "queue {count} lost an occurrence"),
+                Err(error) => refused.push((count, starts.len(), error)),
+            }
+        }
+        assert!(
+            refused.is_empty(),
+            "valid finite queues were refused: {refused:?}"
+        );
+    });
+}
+
+#[test]
+fn slimproto_floods_without_completed_output_still_hit_a_control_packet_bound() {
+    check(async {
+        for repeated_phases in [false, true] {
+            let tracks = [track("flac", "flac", "audio/flac")];
+            let capabilities = Capabilities::parse(&hello(b"flc")).unwrap();
+            let prepared = [start_payload(
+                &tracks[0],
+                "http://127.0.0.1:8123/private-token/0",
+                &capabilities,
+            )
+            .unwrap()];
+            let (sender, mut packets) = mpsc::channel(1024);
+            for index in 0..1024 {
+                let packet = if repeated_phases {
+                    match index % 5 {
+                        0 => queue_fixtures::successful_http(),
+                        1 => stat(b"STMs", 100),
+                        2 => Packet {
+                            opcode: *b"DSCO",
+                            payload: vec![0],
+                        },
+                        3 => stat(b"STMd", 100),
+                        _ => stat(b"STMu", 100),
+                    }
+                } else {
+                    queue_fixtures::successful_http()
+                };
+                sender.try_send(Ok(packet)).unwrap();
+            }
+            let (_shutdown, mut signal) = watch::channel(false);
+            let mut writer = queue_fixtures::QueueWriter::default();
+            let result = timeout(
+                Duration::from_secs(1),
+                play_queue(
+                    &mut writer,
+                    &mut packets,
+                    &tracks,
+                    &prepared,
+                    None,
+                    &mut signal,
+                    Limits::default(),
+                ),
+            )
+            .await;
+            let error = result
+                .expect("no-progress flood was not bounded")
+                .unwrap_err();
+            assert!(error.contains("too many control packets"), "{error}");
+            assert_eq!(
+                writer.starts().len(),
+                1,
+                "a flood advanced the finite queue"
+            );
+            drop(sender);
+        }
+    });
+}

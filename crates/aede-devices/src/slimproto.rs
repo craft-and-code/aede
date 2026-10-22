@@ -443,8 +443,6 @@ async fn play_queue(
     let mut heartbeat = interval(limits.heartbeat);
     // The first interval tick is immediate; strm s itself starts the heartbeat.
     heartbeat.tick().await;
-    let mut burst_start = Instant::now();
-    let mut burst = 0;
     for (track, request) in tracks.iter().zip(prepared) {
         if *shutdown.borrow_and_update() {
             return Ok(());
@@ -455,6 +453,10 @@ async fn play_queue(
         let deadline = Instant::now()
             .checked_add(budget)
             .ok_or_else(|| "SlimProto track duration is too large".to_string())?;
+        // Drained occurrences are bounded queue progress and must not consume
+        // the next occurrence's control-packet budget.
+        let mut burst_start = Instant::now();
+        let mut burst = 0;
         send_frame(writer, b"strm", request, limits).await?;
         let mut started = false;
         let mut decoded = false;
