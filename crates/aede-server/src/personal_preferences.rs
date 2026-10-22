@@ -6,7 +6,32 @@ struct EmptyQuery {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Patch {
+    #[serde(deserialize_with = "unique_values")]
     values: BTreeMap<String, serde_json::Value>,
+}
+fn unique_values<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, serde_json::Value>, D::Error> {
+    struct Values;
+    impl<'de> serde::de::Visitor<'de> for Values {
+        type Value = BTreeMap<String, serde_json::Value>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("application preferences with unique keys")
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            mut input: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut values = BTreeMap::new();
+            while let Some((key, value)) = input.next_entry::<String, serde_json::Value>()? {
+                if values.insert(key, value).is_some() {
+                    return Err(serde::de::Error::custom("duplicate application preference"));
+                }
+            }
+            Ok(values)
+        }
+    }
+    deserializer.deserialize_map(Values)
 }
 #[derive(Serialize)]
 struct View {

@@ -1,4 +1,73 @@
 use super::*;
+
+#[test]
+fn duplicate_preference_keys_are_refused_without_mutating_any_owner() {
+    assert_ambiguous_preferences_are_refused(
+        r#"{"values":{"phemios.setting":true,"phemios.setting":false}}"#,
+    );
+}
+
+#[test]
+fn escaped_equivalent_preference_keys_are_refused_without_mutating_any_owner() {
+    assert_ambiguous_preferences_are_refused(
+        r#"{"values":{"phemios.setting":true,"phemios.\u0073etting":false}}"#,
+    );
+}
+
+fn assert_ambiguous_preferences_are_refused(body: &str) {
+    use crate::accounts_test_support::{Fixture, http, login};
+    use crate::test_support::{start_server, test_runtime};
+    test_runtime().block_on(async {
+        let fixture = Fixture::new();
+        let (address, server) = start_server(fixture.0.clone()).await;
+        let alice = login(address, "alice");
+        let bob = login(address, "bob");
+        let route = "/api/me/v1/preferences";
+        for (token, body) in [
+            (
+                &alice,
+                r#"{"values":{"phemios.setting":true,"phemios.retained":{"language":"en"}}}"#,
+            ),
+            (&bob, r#"{"values":{"phemios.setting":"other owner"}}"#),
+        ] {
+            assert_eq!(http(address, "PATCH", route, Some(token), body).0, 200);
+        }
+        let alice_before = http(address, "GET", route, Some(&alice), "").1;
+        let bob_before = http(address, "GET", route, Some(&bob), "").1;
+        let path = user::user_path(&fixture.0.data_dir);
+        let before = std::fs::read(&path).unwrap();
+        let (status, response, _) = http(address, "PATCH", route, Some(&alice), body);
+        assert_eq!(status, 400, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_body");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            http(address, "GET", route, Some(&alice), "").1,
+            alice_before
+        );
+        assert_eq!(http(address, "GET", route, Some(&bob), "").1, bob_before);
+
+        let (status, own, _) = http(
+            address,
+            "PATCH",
+            route,
+            Some(&alice),
+            r#"{"values":{"phemios.setting":false,"phemios.list":[1,null,"value"]}}"#,
+        );
+        assert_eq!(status, 200, "{own}");
+        assert_eq!(own["values"]["phemios.setting"], false);
+        assert_eq!(
+            own["values"]["phemios.list"],
+            serde_json::json!([1, null, "value"])
+        );
+        assert_eq!(
+            own["values"]["phemios.retained"],
+            serde_json::json!({"language":"en"})
+        );
+        assert_eq!(http(address, "GET", route, Some(&bob), "").1, bob_before);
+        server.abort();
+    });
+}
+
 #[test]
 fn preferences_patch_is_owner_private_and_preserves_other_fields_without_catalog() {
     let mut state = crate::test_support::sample_state();
