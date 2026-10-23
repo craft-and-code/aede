@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "network_audio_test_support.rs"]
+mod fixtures;
+
 #[test]
 fn shutdown_during_network_source_preparation_cannot_admit_playback() {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -270,7 +273,7 @@ fn queued_network_authentication_cannot_delay_shutdown_or_lease_expiry() {
                 7,
                 cancelled.clone(),
                 options,
-                vec![source.path],
+                vec![fixtures::selected(source.path)],
                 fixture.0.shutdown.subscribe(),
             ));
             poll_pending_supervision(supervision.as_mut()).await;
@@ -356,7 +359,7 @@ fn shutdown_before_network_supervision_first_poll_cancels_accepted_playback() {
             7,
             cancelled.clone(),
             options,
-            vec![source.path],
+            vec![fixtures::selected(source.path)],
             fixture.0.shutdown.subscribe(),
         );
         fixture.0.shutdown.send(()).unwrap();

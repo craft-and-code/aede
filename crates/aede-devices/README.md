@@ -39,7 +39,7 @@ media listener when finished. An async API integration must provide a deliberate
 worker/lifecycle/cancellation design rather than call them on a Tokio worker.
 The separate `aede-server` integration exposes named-administrator UPnP/OpenHome/Cast/SlimProto
 profiles through [`network-audio` routes](../../docs/server/devices.md#phémios-upnp-api-profile),
-using `cast_controlled` with an owner-managed cancellation flag. A persistent
+using `SelectedSource::from_expected` and `cast_selected_controlled` with an owner-managed cancellation flag. Admission compares the expected source size and precise modification time with one metadata capture; preparation and transfer retain that capture, including Unix file identity. A changed original is refused even if the controller has not yet started. Path-only `cast` and `cast_controlled` instead capture identity at their own file admission. A persistent
 shared registry and richer authenticated protocol controls remain future work.
 
 Only specific private, link-local or loopback IPv4 addresses are accepted.

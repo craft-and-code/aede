@@ -28,6 +28,7 @@ pub mod original;
 mod slimproto;
 mod upnp;
 
+pub use media::SelectedSource;
 pub use upnp::DeviceDescription;
 
 /// The device's control language, independent of the audio file format.
@@ -199,7 +200,7 @@ pub fn inspect_cast_certificate(bind: Ipv4Addr, device: &str) -> Result<String, 
 /// PCM consumption acknowledgement. A request to stop is sent on Ctrl-C;
 /// a powered-off or disconnected device cannot acknowledge that request.
 pub fn cast(options: CastOptions, paths: Vec<PathBuf>) -> Result<(), String> {
-    cast_inner(options, paths, None)
+    cast_inner(options, || media::prepare(paths), None)
 }
 
 /// Play an explicitly selected queue until completion or owner-requested cancellation.
@@ -212,16 +213,36 @@ pub fn cast_controlled(
     if cancelled.load(std::sync::atomic::Ordering::Acquire) {
         return Err("device playback cancelled before admission".into());
     }
-    cast_inner(options, paths, Some(cancelled))
+    cast_inner(options, || media::prepare(paths), Some(cancelled))
+}
+
+/// Play originals against their already admitted identities until completion or cancellation.
+///
+/// Unlike path-only selection, preparation retains the identity checked by
+/// [`SelectedSource::from_expected`]. A changed source is refused before any
+/// media listener or device controller starts. The owner supplies cancellation.
+pub fn cast_selected_controlled(
+    options: CastOptions,
+    sources: Vec<SelectedSource>,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<(), String> {
+    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        return Err("device playback cancelled before admission".into());
+    }
+    cast_inner(
+        options,
+        || media::prepare_selected(sources),
+        Some(cancelled),
+    )
 }
 
 fn cast_inner(
     options: CastOptions,
-    paths: Vec<PathBuf>,
+    prepare: impl FnOnce() -> Result<Vec<media::Source>, String>,
     cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<(), String> {
     let peer = options.validate()?;
-    let sources = media::prepare(paths)?;
+    let sources = prepare()?;
     let tracks = sources
         .iter()
         .map(|source| source.track.clone())

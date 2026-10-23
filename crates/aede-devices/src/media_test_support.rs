@@ -31,6 +31,11 @@ impl Fixture {
     pub fn sources(&self) -> Vec<Source> {
         prepare(vec![self.path.clone()]).unwrap()
     }
+    pub fn selected(&self) -> SelectedSource {
+        let metadata = fs::metadata(&self.path).unwrap();
+        let expected = aede_core::user::PlaybackSource::from_metadata(&metadata).unwrap();
+        SelectedSource::from_expected(self.path.clone(), &expected).unwrap()
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {

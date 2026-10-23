@@ -5,6 +5,156 @@ mod fixtures;
 use fixtures::{Fixture, get};
 
 #[test]
+fn selected_original_admission_checks_expected_size_and_precise_modification_time() {
+    let fixture = Fixture::new();
+    let metadata = fs::metadata(&fixture.path).unwrap();
+    let expected = aede_core::user::PlaybackSource::from_metadata(&metadata).unwrap();
+    assert!(SelectedSource::from_expected(fixture.path.clone(), &expected).is_ok());
+    for changed in [
+        aede_core::user::PlaybackSource {
+            size: expected.size + 1,
+            ..expected.clone()
+        },
+        aede_core::user::PlaybackSource {
+            mtime: expected.mtime + 1,
+            ..expected.clone()
+        },
+        aede_core::user::PlaybackSource {
+            mtime_ns: expected.mtime_ns.map(|value| (value + 1) % 1_000_000_000),
+            ..expected.clone()
+        },
+    ] {
+        assert!(SelectedSource::from_expected(fixture.path.clone(), &changed).is_err());
+    }
+}
+
+#[test]
+fn path_only_selection_captures_its_own_current_original() {
+    let fixture = Fixture::new();
+    let selected = fixture.selected();
+    let original = fs::read(&fixture.path).unwrap();
+    File::open(&fixture.path)
+        .unwrap()
+        .set_modified(selected.metadata.modified().unwrap() + Duration::from_secs(1))
+        .unwrap();
+    assert!(prepare_selected(vec![selected]).is_err());
+    let sources = prepare(vec![fixture.path.clone()]).unwrap();
+    let mut current = Vec::new();
+    sources[0]
+        .open()
+        .unwrap()
+        .read_to_end(&mut current)
+        .unwrap();
+    assert_eq!(current, original);
+}
+
+#[test]
+fn selected_original_keeps_occurrences_and_refuses_relative_traversing_or_special_paths() {
+    let fixture = Fixture::new();
+    let selected = fixture.selected();
+    assert!(prepare_selected(Vec::new()).is_err());
+    assert!(prepare_selected(vec![selected.clone(); 65]).is_err());
+    let sources = prepare_selected(vec![selected.clone(), selected]).unwrap();
+    assert_eq!(sources.len(), 2);
+    for source in &sources {
+        assert_eq!(source.track.path, fixture.path);
+        assert!(source.open().is_ok());
+    }
+    let expected =
+        aede_core::user::PlaybackSource::from_metadata(&fs::metadata(&fixture.path).unwrap())
+            .unwrap();
+    for path in [
+        PathBuf::from("relative.flac"),
+        fixture
+            .folder
+            .join("nested")
+            .join("..")
+            .join("Example.flac"),
+        fixture.folder.clone(),
+    ] {
+        assert!(SelectedSource::from_expected(path, &expected).is_err());
+    }
+}
+
+#[test]
+fn every_controlled_profile_refuses_an_original_changed_after_admission() {
+    let fixture = Fixture::new();
+    let selected = fixture.selected();
+    fs::write(&fixture.path, b"changed original").unwrap();
+    for protocol in [
+        crate::DeviceProtocol::Upnp,
+        crate::DeviceProtocol::Openhome,
+        crate::DeviceProtocol::Googlecast,
+        crate::DeviceProtocol::Slimproto,
+    ] {
+        let options = crate::CastOptions {
+            bind: Ipv4Addr::LOCALHOST,
+            protocol,
+            device: if matches!(
+                protocol,
+                crate::DeviceProtocol::Upnp | crate::DeviceProtocol::Openhome
+            ) {
+                "http://127.0.0.1:1/description.xml".into()
+            } else {
+                "127.0.0.1".into()
+            },
+            port: None,
+            replace: false,
+            volume: None,
+            certificate_sha256: (protocol == crate::DeviceProtocol::Googlecast)
+                .then(|| "00".repeat(32)),
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let error = crate::cast_selected_controlled(
+            options.clone(),
+            vec![selected.clone()],
+            cancelled.clone(),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("changed before preparation"),
+            "{protocol:?}: {error}"
+        );
+        cancelled.store(true, Ordering::Release);
+        let error = crate::cast_selected_controlled(options, vec![selected.clone()], cancelled)
+            .unwrap_err();
+        assert!(
+            error.contains("cancelled before admission"),
+            "{protocol:?}: {error}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn selected_original_refuses_final_links_and_same_timestamp_file_replacement() {
+    let fixture = Fixture::new();
+    let expected =
+        aede_core::user::PlaybackSource::from_metadata(&fs::metadata(&fixture.path).unwrap())
+            .unwrap();
+    let direct_link = fixture.folder.join("linked.flac");
+    std::os::unix::fs::symlink(&fixture.path, &direct_link).unwrap();
+    let folder_link = fixture.folder.join("linked-folder");
+    std::os::unix::fs::symlink(&fixture.folder, &folder_link).unwrap();
+    assert!(SelectedSource::from_expected(direct_link, &expected).is_err());
+    let alias = SelectedSource::from_expected(folder_link.join("Example.flac"), &expected).unwrap();
+    assert_eq!(
+        prepare_selected(vec![alias]).unwrap()[0].track.path,
+        fixture.path
+    );
+    let selected = fixture.selected();
+    let replacement = fixture.folder.join("replacement.flac");
+    fs::copy(&fixture.path, &replacement).unwrap();
+    File::open(&replacement)
+        .unwrap()
+        .set_modified(selected.metadata.modified().unwrap())
+        .unwrap();
+    fs::rename(replacement, &fixture.path).unwrap();
+    assert!(expected.matches_metadata(&fs::metadata(&fixture.path).unwrap()));
+    assert!(prepare_selected(vec![selected]).is_err());
+}
+
+#[test]
 fn temporary_media_authorizes_only_canonical_selection_requests() {
     let request = parse_request(
         b"GET /secret/0 HTTP/1.1\r\nHost: localhost\r\nRange: bytes=1-3\r\n\r\n",

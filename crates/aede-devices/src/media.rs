@@ -28,10 +28,48 @@ pub(super) struct Source {
     metadata: Metadata,
 }
 
-fn validate_path(path: &Path) -> Result<Metadata, String> {
+/// An original admitted against caller-supplied size and modification-time evidence.
+///
+/// The same metadata capture both checks that evidence and retains the precise
+/// file identity for preparation and transfer. It does not snapshot file bytes.
+#[derive(Clone, Debug)]
+pub struct SelectedSource {
+    path: PathBuf,
+    metadata: Metadata,
+}
+
+impl SelectedSource {
+    /// Admit an absolute regular file against its expected identity.
+    ///
+    /// A final symbolic link is refused; parent aliases are resolved before
+    /// retaining the canonical path. Supply nanosecond precision when available.
+    /// Preparation and transfers retain this capture, including Unix file identity.
+    pub fn from_expected(
+        path: PathBuf,
+        expected: &aede_core::user::PlaybackSource,
+    ) -> Result<Self, String> {
+        validate_absolute_path(&path)?;
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if !expected.matches_metadata(&metadata) {
+            return Err("device media source changed before admission".into());
+        }
+        let path = fs::canonicalize(path).map_err(|error| error.to_string())?;
+        if !same_source(&metadata, &validate_path(&path)?) {
+            return Err("device media source changed while resolving its path".into());
+        }
+        Ok(Self { path, metadata })
+    }
+}
+
+fn validate_absolute_path(path: &Path) -> Result<(), String> {
     if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
         return Err("device media needs a canonical absolute source path".into());
     }
+    Ok(())
+}
+
+fn validate_path(path: &Path) -> Result<Metadata, String> {
+    validate_absolute_path(path)?;
     let mut prefix = PathBuf::new();
     for part in path.components() {
         prefix.push(part);
@@ -188,17 +226,36 @@ impl Source {
 }
 
 pub(super) fn prepare(paths: Vec<PathBuf>) -> Result<Vec<Source>, String> {
-    if paths.is_empty() || paths.len() > MAX_TRACKS {
-        return Err("device playback needs between 1 and 64 selection occurrences".into());
-    }
-    paths
+    check_selection_length(paths.len())?;
+    let sources = paths
         .into_iter()
         .map(|path| {
             let path = fs::canonicalize(path).map_err(|error| error.to_string())?;
+            let metadata = validate_path(&path)?;
+            Ok(SelectedSource { path, metadata })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    prepare_selected(sources)
+}
+
+fn check_selection_length(length: usize) -> Result<(), String> {
+    if length == 0 || length > MAX_TRACKS {
+        return Err("device playback needs between 1 and 64 selection occurrences".into());
+    }
+    Ok(())
+}
+
+pub(super) fn prepare_selected(sources: Vec<SelectedSource>) -> Result<Vec<Source>, String> {
+    check_selection_length(sources.len())?;
+    sources
+        .into_iter()
+        .map(|SelectedSource { path, metadata }| {
             if path.to_str().is_none() {
                 return Err("device media requires UTF-8 source paths".into());
             }
-            let metadata = validate_path(&path)?;
+            if !same_source(&metadata, &validate_path(&path)?) {
+                return Err("device media source changed before preparation".into());
+            }
             let mut file = open_regular(&path)?;
             if !same_source(
                 &metadata,

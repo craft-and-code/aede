@@ -261,12 +261,17 @@ async fn play(
             .collect::<Result<Vec<_>, _>>()?
     };
     // Source validation performs filesystem IO off the async executor.
-    let paths = tokio::task::spawn_blocking(move || {
+    let sources = tokio::task::spawn_blocking(move || {
         sources
             .iter()
             .map(|source| {
-                super::playback_api::validate_source(source).map_err(|_| "track source changed")?;
-                Ok(source.path.clone())
+                let expected = aede_core::user::PlaybackSource {
+                    size: source.file.size,
+                    mtime: source.file.mtime,
+                    mtime_ns: Some(source.mtime_subseconds),
+                };
+                aede_devices::SelectedSource::from_expected(source.path.clone(), &expected)
+                    .map_err(|_| "track source changed")
             })
             .collect::<Result<Vec<_>, &str>>()
     })
@@ -308,7 +313,7 @@ async fn play(
         id,
         cancelled,
         options,
-        paths,
+        sources,
         shutdown,
     ));
     Ok(Json(serde_json::json!({"id":id,"status":"running"})))
@@ -319,7 +324,7 @@ fn supervise(
     id: u64,
     cancelled: Arc<AtomicBool>,
     options: aede_devices::CastOptions,
-    paths: Vec<PathBuf>,
+    sources: Vec<aede_devices::SelectedSource>,
     mut shutdown: crate::shutdown::Receiver,
 ) -> impl Future<Output = ()> + Send {
     // Keep the receiver captured before source preparation, including signals
@@ -335,7 +340,7 @@ fn supervise(
         }
         let flag = cancelled.clone();
         let mut worker = tokio::task::spawn_blocking(move || {
-            aede_devices::cast_controlled(options, paths, flag)
+            aede_devices::cast_selected_controlled(options, sources, flag)
         });
         let identity = auth::SocketIdentity {
             session: Some(principal),
@@ -402,3 +407,7 @@ async fn stop(
 #[cfg(test)]
 #[path = "network_audio_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "network_audio_identity_tests.rs"]
+mod identity_tests;
