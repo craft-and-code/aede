@@ -48,6 +48,9 @@ const AUTH_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
 const AUTH_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 const HISTORY_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const WORKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_CLOSE_MESSAGES: usize = 64;
+const MAX_CLOSE_BYTES: usize = 4 * MAX_CONTROL_MESSAGE_BYTES;
 
 /// Registers the account-scoped remote playback transport.
 pub(super) fn routes() -> Router<ApiState> {
@@ -842,24 +845,83 @@ async fn send_json(socket: &mut WebSocket, value: impl Serialize) -> Result<(), 
     events::send_message(socket, Message::Text(payload)).await
 }
 
-async fn send_failure(socket: &mut WebSocket, failure: StreamFailure) {
-    let _ = send_json(
-        socket,
-        ErrorFrame {
-            kind: "error",
-            code: failure.code,
-            message: failure.message,
-        },
-    )
-    .await;
-    let _ = events::send_message(
-        socket,
-        Message::Close(Some(CloseFrame {
-            code: close_code::POLICY,
-            reason: "playback stream stopped".into(),
-        })),
-    )
-    .await;
+async fn send_failure(
+    socket: &mut WebSocket,
+    failure: StreamFailure,
+    shutdown: &mut crate::shutdown::Receiver,
+) {
+    let payload = match serde_json::to_string(&ErrorFrame {
+        kind: "error",
+        code: failure.code,
+        message: failure.message,
+    }) {
+        Ok(payload) => payload,
+        Err(_) => {
+            eprintln!("API playback failure encoding failed: {}", failure.code);
+            return;
+        }
+    };
+    for (stage, message) in [
+        ("error", Message::Text(payload)),
+        (
+            "close",
+            Message::Close(Some(CloseFrame {
+                code: close_code::POLICY,
+                reason: "playback stream stopped".into(),
+            })),
+        ),
+    ] {
+        let reason = match tokio::time::timeout(WEBSOCKET_SEND_TIMEOUT, socket.send(message)).await
+        {
+            Ok(Ok(())) => continue,
+            Ok(Err(_)) => "transport failed",
+            Err(_) => "send deadline",
+        };
+        eprintln!(
+            "API playback {stage} notification failed: {} ({reason})",
+            failure.code
+        );
+        return;
+    }
+    // Do not drop TCP with client ACKs still in flight. They are transport
+    // cleanup only: the consumed-frame snapshot and history are already sealed.
+    if let Err(reason) = finish_failure_close(socket, shutdown, CLOSE_TIMEOUT).await {
+        eprintln!(
+            "API playback close handshake stopped: {} ({reason})",
+            failure.code
+        );
+    }
+}
+
+async fn finish_failure_close(
+    socket: &mut WebSocket,
+    shutdown: &mut crate::shutdown::Receiver,
+    timeout: Duration,
+) -> Result<(), &'static str> {
+    let closing = tokio::time::timeout(timeout, async {
+        let mut bytes = 0_usize;
+        for _ in 0..MAX_CLOSE_MESSAGES {
+            let size = match socket.recv().await {
+                Some(Ok(Message::Close(_))) => return Ok(()),
+                Some(Ok(Message::Text(text))) => text.len(),
+                Some(Ok(Message::Binary(bytes) | Message::Ping(bytes) | Message::Pong(bytes))) => {
+                    bytes.len()
+                }
+                Some(Err(_)) => return Err("transport failed"),
+                None => return Err("peer disconnected before close reply"),
+            };
+            bytes = bytes.saturating_add(size);
+            if bytes > MAX_CLOSE_BYTES {
+                return Err("close input byte limit");
+            }
+        }
+        Err("close input message limit")
+    });
+    tokio::select! {
+        biased;
+        _ = shutdown.recv() => Err("server shutdown"),
+        result = closing => result.unwrap_or(Err("close reply deadline")),
+    }
 }
 
 async fn send_close(socket: &mut WebSocket) {
@@ -1695,13 +1757,13 @@ async fn playback_stream(
     let start = match receive_start(&mut socket, &state, &captured, &mut shutdown).await {
         Ok(start) => start,
         Err(Some(failure)) => {
-            send_failure(&mut socket, failure).await;
+            send_failure(&mut socket, failure, &mut shutdown).await;
             return;
         }
         Err(None) => return,
     };
     if let Err(failure) = authorized(&state, &captured, false, &mut shutdown).await {
-        send_failure(&mut socket, failure).await;
+        send_failure(&mut socket, failure, &mut shutdown).await;
         return;
     }
     if start.interactive {
@@ -1711,7 +1773,7 @@ async fn playback_stream(
     let (sources, catalog) = match current_sources(&state, &start.references).await {
         Ok(sources) => sources,
         Err(failure) => {
-            send_failure(&mut socket, failure).await;
+            send_failure(&mut socket, failure, &mut shutdown).await;
             return;
         }
     };
@@ -1797,17 +1859,18 @@ async fn playback_stream(
                     }
                 }
                 if outcome.failed {
-                    send_failure(&mut socket, StreamFailure::HISTORY_SOURCE).await;
+                    send_failure(&mut socket, StreamFailure::HISTORY_SOURCE, &mut shutdown).await;
                 } else {
                     send_close(&mut socket).await;
                 }
             }
-            Err(failure) => send_failure(&mut socket, failure).await,
+            Err(failure) => send_failure(&mut socket, failure, &mut shutdown).await,
         }
     } else if end.notify {
         send_failure(
             &mut socket,
             end.failure.unwrap_or(StreamFailure::STREAM_FAILED),
+            &mut shutdown,
         )
         .await;
     }
@@ -1830,3 +1893,7 @@ mod queue_tests;
 #[cfg(test)]
 #[path = "playback_md5_tests.rs"]
 mod md5_tests;
+
+#[cfg(test)]
+#[path = "playback_close_tests.rs"]
+mod close_tests;

@@ -179,6 +179,8 @@ Four playback slots bound active decoding and associated history work. Additiona
 
 Account/policy confirmation has a two-second wait limit and remains interruptible by server shutdown, including during start, format transitions, controls and reset acknowledgement. An unavailable confirmation refuses further audio. Pending blocking reads keep their worker admission until they finish; producer and private-store cleanup keep their independent lifetime limits.
 
+After an error and its `Close` frame have been sent, the server waits at most one second for the peer close reply, interruptible immediately by server shutdown. Cleanup stops after 64 messages or when received payload exceeds 16 KiB; each message remains subject to the existing 4 KiB limit. These in-flight messages never add their ACKs to listening history or start more audio. The original consumed-frame snapshot stays sealed. Notification send failures, close deadlines and transport/input-limit failures produce fixed server diagnostics without tokens, file paths or client payloads. A broken or stalled peer still cannot be guaranteed delivery of the final error.
+
 After upgrade, failures send `{"type":"error","code":"…","message":"…"}` when the socket remains writable, then close. Inspect `code`; human messages may change:
 
 | Code | Meaning |

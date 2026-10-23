@@ -495,7 +495,7 @@ pub(super) async fn run(
         Some(profile) => match ProfileLease::acquire(&state, &captured.owner, profile) {
             Ok(lease) => Some(lease),
             Err(failure) => {
-                send_failure(&mut socket, failure).await;
+                send_failure(&mut socket, failure, &mut shutdown).await;
                 return;
             }
         },
@@ -504,7 +504,7 @@ pub(super) async fn run(
     let mut snapshot = match initial_state(&state, &captured, &start).await {
         Ok(initial) => initial,
         Err(failure) => {
-            send_failure(&mut socket, failure).await;
+            send_failure(&mut socket, failure, &mut shutdown).await;
             return;
         }
     };
@@ -791,7 +791,7 @@ pub(super) async fn run(
         }
     }
     if let Some(failure) = failure {
-        send_failure(&mut socket, failure).await;
+        send_failure(&mut socket, failure, &mut shutdown).await;
     } else {
         let _=send_json(&mut socket,serde_json::json!({"type":"saved","profile":start.profile,"revision":snapshot.revision,"completed":completed})).await;
         send_close(&mut socket).await;
