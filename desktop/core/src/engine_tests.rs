@@ -208,3 +208,6 @@ mod selection;
 #[cfg(unix)]
 #[path = "engine_lifecycle_tests.rs"]
 mod lifecycle;
+
+#[path = "maintenance_engine_tests.rs"]
+mod maintenance;

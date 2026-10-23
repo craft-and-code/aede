@@ -28,7 +28,7 @@ impl Server {
         let identity = config.identity.as_ref().ok_or("Identité locale absente.")?;
         let mut command = Command::new(binary);
         command
-            .arg(format!("--data={}", root.join("engine").display()))
+            .arg(format!("--data={}", config.data_directory(root).display()))
             .args(["serve", &format!("--port={}", config.port)])
             .env("AEDE_DESKTOP_LEASE", "1")
             .env("NO_COLOR", "1")

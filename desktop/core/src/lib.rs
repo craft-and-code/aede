@@ -4,6 +4,7 @@ mod configuration;
 mod diagnostics;
 mod http;
 mod logs;
+mod maintenance;
 mod process;
 use configuration::{read, save};
 pub use diagnostics::Diagnostics;
@@ -79,6 +80,10 @@ impl Host {
                 .push("warn", "Le processus serveur s’est arrêté.".into());
         }
         let configuration = read(&self.root)?;
+        let data_directory = configuration
+            .data_directory(&self.root)
+            .display()
+            .to_string();
         Ok(Status {
             running: self.process.is_some(),
             address: self.process.as_ref().map(|server| server.address.clone()),
@@ -92,7 +97,7 @@ impl Host {
                 })
                 .collect(),
             username: self.username(),
-            data_directory: self.root.join("engine").display().to_string(),
+            data_directory,
         })
     }
     /// Persist selected roots/port atomically. No scan occurs until explicitly requested.
@@ -122,6 +127,7 @@ impl Host {
             return self.status();
         }
         let mut configuration = read(&self.root)?;
+        self.finish_password_change(&mut configuration)?;
         if configuration.identity.is_none() {
             configuration.identity = Some(configuration::Identity::generate()?);
             save(&self.root, &configuration)?;
@@ -172,7 +178,11 @@ impl Host {
     }
     /// Reveal only the generated installation administrator password, on explicit user request.
     pub fn password(&self) -> Result<String, String> {
-        read(&self.root)?
+        let config = read(&self.root)?;
+        if config.pending_password.is_some() {
+            return Err("Renouvellement du mot de passe en attente. Réessayez ou démarrez le serveur pour le terminer.".into());
+        }
+        config
             .identity
             .map(|value| value.password)
             .ok_or_else(|| "Démarrez le serveur pour créer ses accès.".into())

@@ -140,3 +140,6 @@ mod selection;
 
 #[path = "legacy_selection_tests.rs"]
 mod legacy_selection;
+
+#[path = "maintenance_tests.rs"]
+mod maintenance;

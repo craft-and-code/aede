@@ -77,3 +77,9 @@ export const copyPassword = () => call<void>("host_copy_password");
 export const copyUsername = () => call<void>("host_copy_username");
 /** Export sanitized native journals through a save dialog; the webview chooses no file path. */
 export const exportLogs = () => call<string | null>("host_export_logs");
+/** Open only the native-owned profile directory, without accepting a webview path. */
+export const openDataDirectory = () => call<void>("host_open_data");
+/** Native confirmation precedes credential renewal; false means cancellation. */
+export const regeneratePassword = () => call<boolean>("host_regenerate_password");
+/** Preserve the old store and archive its configuration; null means cancellation. */
+export const newServer = () => call<string | null>("host_new_server");

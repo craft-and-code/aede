@@ -16,6 +16,8 @@ const paths = {
   list: "M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
   lock: "M5 10h14v11H5V10ZM8 10V6a4 4 0 0 1 8 0v4",
+  folder: "M3 7V4h7l2 3h9v14H3V7Z",
+  key: "M8 15a5 5 0 1 1 4-8l9 9v4h-4v-3h-3l-3-3M7 7h.01",
 };
 /** Shared 18 px glyphs match Phémios action geometry. */
 export function Icon(props: { name: keyof typeof paths }) {

@@ -13,6 +13,10 @@ pub(crate) struct Configuration {
     pub(crate) port: u16,
     pub(crate) roots: Vec<String>,
     pub(crate) identity: Option<Identity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) data_profile: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -29,11 +33,41 @@ impl Default for Configuration {
             port: 8787,
             roots: Vec::new(),
             identity: None,
+            pending_password: None,
+            data_profile: None,
         }
     }
 }
 impl Configuration {
+    pub(crate) fn empty_profile(port: u16, id: String) -> Self {
+        Self {
+            port,
+            data_profile: Some(id),
+            ..Self::default()
+        }
+    }
+    pub(crate) fn data_directory(&self, root: &Path) -> PathBuf {
+        root.join(
+            self.data_profile
+                .as_ref()
+                .map_or_else(|| "engine".into(), |id| format!("engine-{id}")),
+        )
+    }
     pub(crate) fn validate(&self) -> Result<(), String> {
+        let valid_id =
+            |value: &String| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit());
+        if self
+            .pending_password
+            .as_ref()
+            .is_some_and(|value| !valid_id(value))
+            || self
+                .data_profile
+                .as_ref()
+                .is_some_and(|value| !valid_id(value))
+            || self.pending_password.is_some() && self.identity.is_none()
+        {
+            return Err("Profil de maintenance invalide ; conservé sans modification.".into());
+        }
         if self.version != 1
             || self.port == 0
             || self.roots.len() > 64
@@ -77,7 +111,7 @@ impl Identity {
         })
     }
 }
-fn random() -> Result<String, String> {
+pub(crate) fn random() -> Result<String, String> {
     let mut bytes = [0; 32];
     getrandom::fill(&mut bytes).map_err(|_| "Générateur sécurisé indisponible.")?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
@@ -160,7 +194,7 @@ pub(crate) fn save(root: &Path, config: &Configuration) -> Result<(), String> {
     result.map_err(|_| "Publication du profil impossible.".into())
 }
 
-fn prepare_root(root: &Path) -> Result<(), String> {
+pub(crate) fn prepare_root(root: &Path) -> Result<(), String> {
     if !root.exists() {
         let mut builder = fs::DirBuilder::new();
         builder.recursive(true);

@@ -2,6 +2,8 @@
 
 Local HTTPS server console for Phémios, with Serveur, Statut and bounded Journaux views. Folders can be edited live; only the listening port requires a stopped server. See the [English guide](../docs/desktop.md) or [French guide](../docs/fr/desktop.md) for operation, private profile storage, certificate import and platform limitations.
 
+Header navigation keeps those three views accessible. Native maintenance opens only the App-owned data directory, renews the generated administrator password while stopped, or explicitly selects an empty store while retaining previous data and archiving its configuration. Credentials and reset confirmation remain native; no general JSON editor or arbitrary filesystem command is exposed to the webview.
+
 ## Stack and layout
 
 - `src/`: SolidJS, strict TypeScript, static CSS and one typed IPC boundary.

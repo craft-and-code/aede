@@ -9,6 +9,7 @@ use std::{
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
+mod maintenance;
 struct Server(Arc<Mutex<Host>>);
 fn bridge(version: u32) -> Result<(), String> {
     if version == 1 {
@@ -281,7 +282,10 @@ pub fn run() -> Result<(), tauri::Error> {
             host_copy_address,
             host_copy_password,
             host_copy_username,
-            host_export_logs
+            host_export_logs,
+            maintenance::host_open_data,
+            maintenance::host_regenerate_password,
+            maintenance::host_new_server
         ])
         .run(tauri::generate_context!())
 }

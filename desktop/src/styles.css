@@ -151,9 +151,10 @@ button.primary:hover:not(:disabled) {
   color: var(--muted);
   font-size: 13px;
 }
-.app-header small {
+.app-header .view-tabs {
   margin-left: auto;
-  color: var(--muted);
+  margin-bottom: 0;
+  flex-shrink: 0;
 }
 main {
   width: 100%;
@@ -447,12 +448,24 @@ footer > small:last-child {
     padding: 0 24px;
     gap: 18px;
   }
+  .app-header > span {
+    display: none;
+  }
 }
 
 .view-tabs {
   display: flex;
   gap: var(--gap);
   margin-bottom: 20px;
+}
+.maintenance-panel {
+  margin-top: 20px;
+}
+.maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  margin: 16px 0;
 }
 .view-tabs button[aria-pressed="true"] {
   background: var(--accent);

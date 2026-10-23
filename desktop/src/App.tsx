@@ -16,6 +16,9 @@ import {
   hostTask,
   hostPassword,
   exportConnection,
+  openDataDirectory,
+  regeneratePassword,
+  newServer,
   native,
   type HostStatus,
 } from "./platform";
@@ -106,9 +109,6 @@ export function App() {
       <header class="app-header">
         <img src="/wordmark.svg" alt="Aède" />
         <span>Serveur de votre bibliothèque musicale</span>
-        <small>{status()?.version ?? "—"}</small>
-      </header>
-      <main>
         <nav class="view-tabs" aria-label="Console Aède">
           <button
             type="button"
@@ -131,6 +131,8 @@ export function App() {
             Journaux
           </button>
         </nav>
+      </header>
+      <main>
         <Show when={page() === "status"}>
           <StatusView status={status()} />
         </Show>
@@ -351,6 +353,65 @@ export function App() {
               </small>
             </section>
           </div>
+          <section class="panel maintenance-panel">
+            <h2>Données et accès</h2>
+            <p class="hint">
+              Le dossier contient le profil privé server.json et les sous-dossiers des données JSON.
+              Le mot de passe est propre à cette installation, pas commun à tous les utilisateurs.
+            </p>
+            <div class="maintenance-actions">
+              <Action
+                icon="folder"
+                disabled={!native() || !!busy()}
+                onClick={() => void run("data", openDataDirectory)}
+              >
+                Ouvrir le dossier des données
+              </Action>
+              <Action
+                icon="key"
+                busy={busy() === "renew"}
+                disabled={!native() || !status() || !!busy() || status()?.running || active()}
+                onClick={() =>
+                  void run("renew", async () => {
+                    setSecret("");
+                    if (await regeneratePassword()) {
+                      apply(await hostStatus());
+                      setMessage(
+                        "Nouveau mot de passe généré. Démarrez le serveur pour le copier puis mettez à jour Phémios. Le JSON de connexion reste valable.",
+                      );
+                    }
+                  })
+                }
+              >
+                Générer un nouveau mot de passe
+              </Action>
+              <Action
+                icon="plus"
+                busy={busy() === "new-server"}
+                disabled={!native() || !status() || !!busy() || status()?.running || active()}
+                onClick={() =>
+                  void run("new-server", async () => {
+                    setSecret("");
+                    const archive = await newServer();
+                    if (archive) {
+                      apply(await hostStatus());
+                      tasks.clear();
+                      setMessage(
+                        `Profil vide prêt. Configuration précédente archivée : ${archive}. Anciennes données conservées. Démarrez le serveur puis exportez sa nouvelle connexion.`,
+                      );
+                    }
+                  })
+                }
+              >
+                Nouveau serveur vide
+              </Action>
+            </div>
+            <p class="hint">
+              Arrêtez le serveur pour modifier ses accès ou repartir d’une base vide. Une
+              confirmation sera demandée. Les anciens catalogues, comptes et annotations restent
+              conservés ; aucun fichier musical n’est supprimé.
+            </p>
+          </section>
           <Show when={task()}>
             <section class="panel task-panel">
               <div class="section-heading">
