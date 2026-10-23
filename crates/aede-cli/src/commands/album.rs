@@ -207,7 +207,7 @@ fn print_album(
     if !genres.is_empty() {
         println!("  {}", ui::dim(&genres.join(", ")));
     }
-    println!("  {}", ui::dim(&release.folder));
+    println!("  {}", ui::dim(&ui::literal(&release.folder)));
     if let Some(group_id) = release.release_group_id
         && let Some(group) = catalog.release_group(group_id)
     {
@@ -231,10 +231,10 @@ fn print_album(
                     .unwrap_or_default();
                 println!(
                     "  {}",
-                    ui::dim(&format!(
+                    ui::dim(&ui::literal(&format!(
                         "another edition: {}{year} · {}",
                         edition.title, edition.folder
-                    ))
+                    )))
                 );
             }
         }
@@ -265,7 +265,7 @@ fn print_album(
         for other in catalog.related_releases(release.id, kind) {
             if let Some(other) = catalog.release(other) {
                 navigation.entity(catalog, "Related edition", EntityKind::Release, other.id);
-                let line = format!("  {wording} {}", other.folder);
+                let line = ui::literal(&format!("  {wording} {}", other.folder));
                 println!(
                     "{}",
                     if kind == DUPLICATE {

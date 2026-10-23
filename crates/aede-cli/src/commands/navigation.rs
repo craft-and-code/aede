@@ -66,7 +66,7 @@ impl Navigation {
         let mut table = Table::new(&["Relation", "Command"]).limit(0, 30);
         let total = self.rows.len();
         for (relation, command) in self.rows.into_iter().take(LIMIT) {
-            table.push(vec![relation, command]);
+            table.push(vec![ui::literal(&relation), ui::literal(&command)]);
         }
         let mut output = format!("{}\n{}", ui::section("Continue"), table.render());
         if total > LIMIT {

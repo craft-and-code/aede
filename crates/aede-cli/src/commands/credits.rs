@@ -262,7 +262,7 @@ fn show_album(
     let tally = counts(rows.iter().map(|row| row.status));
     let edition = editions.get(release.id as usize);
     println!("{}", ui::section(&release.title));
-    println!("  {}", ui::dim(&release.folder));
+    println!("  {}", ui::dim(&ui::literal(&release.folder)));
     println!(
         "  {} recordings · {} credited · {} queried empty · {} waiting · {} untrusted · {} without ID",
         tally.total(),
@@ -297,7 +297,7 @@ fn show_album(
                 .and_then(|path| Path::new(path).file_name())
                 .map_or_else(
                     || "—".to_string(),
-                    |name| name.to_string_lossy().into_owned(),
+                    |name| ui::literal(&name.to_string_lossy()),
                 ),
         ]);
     }
@@ -308,7 +308,7 @@ fn show_album(
             "  {}",
             ui::dim(&format!(
                 "Fetch waiting recording or edition credits: aede fetch --credits {}",
-                shell_arg(&release.folder)
+                ui::literal(&shell_arg(&release.folder))
             ))
         );
     }

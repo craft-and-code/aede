@@ -4,6 +4,10 @@
 #[allow(dead_code)]
 mod support;
 
+#[cfg(unix)]
+#[path = "cli_validation_support/mod.rs"]
+mod terminal_paths;
+
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -640,4 +644,52 @@ fn recursive_import_reports_unreadable_folders_before_publishing_and_retries_rea
     assert_eq!(imported.files.len(), library.catalog.files.len());
     assert_eq!(imported.roots, library.catalog.roots);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[cfg(unix)]
+#[test]
+fn album_preserves_literal_folder_styles_without_color() {
+    terminal_paths::assert_literal_folder("album", false);
+}
+
+#[cfg(unix)]
+#[test]
+fn credits_preserves_literal_folder_styles_without_color() {
+    terminal_paths::assert_literal_folder("credits", false);
+}
+
+#[cfg(unix)]
+#[test]
+fn album_preserves_literal_folder_styles_on_a_real_terminal() {
+    terminal_paths::assert_literal_folder("album", true);
+}
+
+#[cfg(unix)]
+#[test]
+fn credits_preserves_literal_folder_styles_on_a_real_terminal() {
+    terminal_paths::assert_literal_folder("credits", true);
+}
+
+#[cfg(unix)]
+#[test]
+fn album_navigation_preserves_literal_path_without_color() {
+    terminal_paths::assert_literal_navigation(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn album_navigation_preserves_literal_path_on_a_real_terminal() {
+    terminal_paths::assert_literal_navigation(true);
+}
+
+#[cfg(unix)]
+#[test]
+fn credits_waiting_hint_preserves_literal_path_without_color() {
+    terminal_paths::assert_literal_waiting_hint(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn credits_waiting_hint_preserves_literal_path_on_a_real_terminal() {
+    terminal_paths::assert_literal_waiting_hint(true);
 }
