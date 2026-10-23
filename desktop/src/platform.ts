@@ -14,8 +14,8 @@ export interface HostStatus {
 export interface Task {
   task_id: number;
   status: string;
-  result?: { stdout?: string; stderr?: string; exit_code?: number };
-  error?: string;
+  result?: { stdout?: string; stderr?: string; exit_code?: number } | null;
+  error?: { code: string; message: string } | null;
 }
 /** One versioned IPC boundary; the webview has no direct filesystem or server access. */
 async function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {

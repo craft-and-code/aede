@@ -2,8 +2,10 @@ import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid
 import { Action, Icon } from "./Controls";
 import { CopyButton } from "./CopyButton";
 import { StatusView, LogsView } from "./Monitoring";
-import { appendRoots, parsePort, taskActive } from "./policy";
+import { appendRoots, parsePort } from "./policy";
 import { createLibraryActions } from "./library-actions";
+import { createTaskController } from "./task-controller";
+import { taskOutput } from "./task-display";
 import {
   hostStatus,
   hostStart,
@@ -16,7 +18,6 @@ import {
   exportConnection,
   native,
   type HostStatus,
-  type Task,
 } from "./platform";
 /** Minimal server console; catalog, accounts and scans remain Aède engine operations. */
 export function App() {
@@ -27,8 +28,12 @@ export function App() {
   const [error, setError] = createSignal("");
   const [message, setMessage] = createSignal("");
   const [secret, setSecret] = createSignal("");
-  const [task, setTask] = createSignal<Task>();
-  const active = () => taskActive(task()?.status ?? "");
+  const tasks = createTaskController({
+    read: hostTask,
+    publishError: setError,
+    publishMessage: setMessage,
+  });
+  const { task, active } = tasks;
   const roots = () => status()?.roots.map((row) => row.path) ?? [];
   let alive = true;
   let revision = 0;
@@ -47,7 +52,7 @@ export function App() {
     start: hostStart,
     scan: hostScan,
     publish: apply,
-    publishTask: setTask,
+    publishTask: tasks.publish,
   });
   async function run(name: string, action: () => Promise<unknown>) {
     if (busy()) return;
@@ -90,39 +95,6 @@ export function App() {
       }
     }, 5000);
     onCleanup(() => clearInterval(timer));
-  });
-  createEffect(() => {
-    const id = task()?.task_id;
-    if (!id || !active()) return;
-    let cancelled = false,
-      pending = false;
-    const timer = setInterval(async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const next = await hostTask(id);
-        if (!cancelled && alive) {
-          setTask(next);
-          if (!taskActive(next.status))
-            setMessage(
-              next.status === "completed"
-                ? "Scan terminé. Le catalogue est disponible pour Phémios."
-                : "La tâche s’est arrêtée. Consultez son résultat ci-dessous.",
-            );
-        }
-      } catch (reason) {
-        if (!cancelled && alive) {
-          setError(String(reason));
-          setTask((previous) => (previous ? { ...previous, status: "unavailable" } : undefined));
-        }
-      } finally {
-        pending = false;
-      }
-    }, 1000);
-    onCleanup(() => {
-      cancelled = true;
-      clearInterval(timer);
-    });
   });
   createEffect(() => {
     if (!message()) return;
@@ -218,7 +190,7 @@ export function App() {
                 onClick={() =>
                   void run("stop", async () => {
                     apply(await hostStop());
-                    setTask(undefined);
+                    tasks.clear();
                   })
                 }
               >
@@ -293,7 +265,7 @@ export function App() {
                   icon="scan"
                   busy={busy() === "scan" || active()}
                   disabled={!!busy() || !status()?.running || !roots().length || active()}
-                  onClick={() => void run("scan", async () => setTask(await hostScan()))}
+                  onClick={() => void run("scan", async () => tasks.publish(await hostScan()))}
                 >
                   Scanner les dossiers
                 </Action>
@@ -301,9 +273,7 @@ export function App() {
                   <Action
                     icon="stop"
                     disabled={!!busy() || task()?.status === "cancel_requested"}
-                    onClick={() =>
-                      void run("cancel", async () => setTask(await hostTask(task()!.task_id, true)))
-                    }
+                    onClick={() => void run("cancel", tasks.cancel)}
                   >
                     Arrêter le scan
                   </Action>
@@ -387,11 +357,8 @@ export function App() {
                 <h2>Scan #{task()?.task_id}</h2>
                 <span class="muted">{active() ? "En cours…" : task()?.status}</span>
               </div>
-              <Show when={task()?.result}>
-                <pre>
-                  {task()?.result?.stdout}
-                  {task()?.result?.stderr}
-                </pre>
+              <Show when={taskOutput(task()) !== undefined}>
+                <pre>{taskOutput(task())}</pre>
               </Show>
             </section>
           </Show>
