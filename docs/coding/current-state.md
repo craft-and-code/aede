@@ -2,7 +2,7 @@
 
 ## Project status
 
-Aède 0.6.1 is the local-first music engine and CLI, with a separate Tauri server App. FlacCompagnon core is pinned to published v0.9.6. The [roadmap](../design/roadmap.md) remains authoritative: M0 catalogue/storage and M1 enrichment are implemented; M2 API/persistence is implemented with deployment capacity acceptance pending; M3 playback is software-hardened with physical/platform acceptance pending; M4 has initial network-device profiles.
+Aède 0.7.0 is the local-first music engine and CLI, with a separate Tauri server App. FlacCompagnon core is pinned to published v0.9.6. The [roadmap](../design/roadmap.md) remains authoritative: M0 catalogue/storage and M1 enrichment are implemented; M2 API/persistence is implemented with deployment capacity acceptance pending; M3 playback is software-hardened with physical/platform acceptance pending; M4 has initial network-device profiles.
 
 The catalogue is graph-based and common to installation accounts. Personal annotations, ratings, favourites, tags, collections, histories, preferences, checkpoints and achievements remain owner-private. Accounts use stable identity, role/session checks and independent protected storage. Parental policies retain exclusive supervisor locks, civil-time windows and bounded listening leases. Guest use remains unrestricted by design. See [accounts](../design/accounts.md), [isolation](account-isolation.md) and [parental controls](../server/parental.md).
 
