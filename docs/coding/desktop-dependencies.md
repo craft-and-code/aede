@@ -1,6 +1,6 @@
 # Desktop dependency findings
 
-The [RustSec audit policy and 2026-10-23 baseline](dependency-audit.md) additionally cover `cargo-audit` and the independent `desktop/deny.toml` configuration. They keep the GTK findings below blocking. The initially yanked Windows `clipboard-win 5.4.1` dependency has been updated to 5.4.3; the fresh database also flags Tokio 1.53.2 for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html), which remains unresolved and blocking. The exact OSV compatibility-warning rules described here remain unchanged.
+The [RustSec audit policy and 2026-10-23 baseline](dependency-audit.md) additionally cover `cargo-audit` and the independent `desktop/deny.toml` configuration. They keep the GTK findings below blocking. The initially yanked Windows `clipboard-win 5.4.1` dependency has been updated to 5.4.3, and Tokio is now 1.53.3 in both lockfiles, resolving the version match for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html). The exact OSV compatibility-warning rules described here remain unchanged.
 
 The desktop lockfile is audited independently of the CLI:
 

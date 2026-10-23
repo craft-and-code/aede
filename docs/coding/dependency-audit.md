@@ -94,9 +94,26 @@ The Tokio advisory concerns Unix `AsyncFd` constructor I/O safety, including a p
 
 License and source checks still pass. The thirteen engine and thirty-one App declaration/duplicate warnings, plus both engine `unresolved-workspace-dependency` internal diagnostics, remain visible. Both audit reports still have zero entries in the separate `vulnerabilities` category; the unsoundness findings above remain security concerns and block `cargo-deny`. Before/after reports are retained separately under `target/dependency-audit-2026-10-23/`.
 
-### Remaining remediation plan
+## Approved Tokio update: 2026-10-23
 
-The original plan below is retained without suppressions. The fresh Tokio finding adds a priority review: assess a focused update to a corrected compatible 1.53.x release in each workspace, review the precise lockfile diff and any direct/transitive use of the affected Unix API, then run the root/desktop gates and before/after audits. Native Unix validation remains necessary. No Tokio dependency change is included here.
+The subsequent focused correction updates `tokio 1.53.1 -> 1.53.3` in the engine lockfile and `1.53.2 -> 1.53.3` in the independent App lockfile. Only Tokio's version and checksum change; Cargo accepts both lockfiles with `--locked --offline`. Manifests, enabled features, other package resolutions and both advisory policies remain unchanged. The registry lists 1.53.3 as non-yanked with Rust 1.71 as its minimum, below both project toolchain baselines. The earlier investigation used `--dry-run` in each workspace before approval.
+
+The [1.53.3 release](https://github.com/tokio-rs/tokio/releases/tag/tokio-1.53.3) adds `AsyncFd::register`/`register_with_interest` and deprecates the older constructors; it does not remove those older APIs. RustSec treats this release as patched, but upgrading cannot make continued misuse of the deprecated constructors safe. No `AsyncFd` references were found in authored engine/App sources or the available source/target files of 622 distinct non-Tokio packages from the two resolved metadata graphs. This textual source review is not a complete reachability proof for generated code, aliases or unexamined platform behavior. No application API migration or new `unsafe` code was needed.
+
+Both auditors were rerun against RustSec revision `84d943a6deeb8cc6c6f632531aaf4f1c62275239` (1,351 advisories). Neither lockfile now matches RUSTSEC-2026-0386. The original audit and post-clipboard reports remain separate from the `*-after-tokio` evidence files under `target/dependency-audit-2026-10-23/`.
+
+| Workspace | `cargo audit` after Tokio update | `cargo deny` after Tokio update |
+| --- | --- | --- |
+| CLI/engine | Exit 0; `paste 1.0.15` unmaintained warning remains | Exit 1; one advisory error |
+| Desktop App | Exit 0; `proc-macro-error 1.0.4` unmaintained and `glib 0.18.5` unsound warnings remain | Exit 1; two advisory errors |
+
+The thirteen engine and thirty-one App declaration/duplicate warnings and both engine internal workspace-dependency diagnostics remain visible. License and source checks pass. No new advisory ignore or target exclusion was introduced; these workspace audits must not be described as entirely clean.
+
+Both complete gates passed on macOS with Tokio 1.53.3. The engine passed 2,927 Rust tests across 52 suites with none failed or ignored, required FFmpeg regressions, helper/site/release/terminal checks, Clippy, Rustdoc and the optimized CLI build. The independent App gate passed 76 Rust tests, 38 Vitest cases and 2 Node cases, frontend/component documentation, version coherence, Clippy, Rustdoc and its native build; it rebuilt and verified the embedded CLI before running real temporary-profile HTTPS tests. Storybook's existing Node deprecation and bundle-size warning remain visible. An initial root test compilation stopped because the disk was full; generated incremental caches and obsolete server build artifacts were removed, then both complete gates succeeded with `CARGO_INCREMENTAL=0`. No sources or test cases were removed. Native Linux/Windows validation remains pending in the existing CI matrix; no remote run was triggered here.
+
+## Remaining remediation plan
+
+The original GLib, macro-maintenance and declaration/tool plan below is retained without suppressions. Tokio is resolved by the explicit version update above, subject to the recorded source-review and native-platform limits.
 
 1. **GLib unsoundness:** prioritize actual Linux remediation. No newer 0.18.x patch is present in the fresh registry index. The upstream [VariantStrIter correction](https://github.com/gtk-rs/gtk-rs-core/pull/1343) exists, but GLib >=0.20 cannot simply satisfy GTK3's 0.18 dependency. First check whether a supported Tauri/GTK stack can include a corrected compatible release; otherwise assess a minimal, traceable backport with an affected-iterator regression and native Linux tests. A local backport needs its own source/patch evidence and must not be presented as a clean upstream-version audit. Keep the original advisory visible until the exact resolution is established.
 2. **`paste` through Lofty:** the fresh index shows that Lofty 0.25.2, 0.25.3 and 0.25.4 still require `paste ^1.0.15`; upgrading Lofty alone to one of those versions does not remove the notice. Prepare an upstream-compatible replacement/removal of that macro dependency, or evaluate a narrowly reviewed fork if no maintained release is available. Preserve tag-reading behavior, format fixtures, the Rust 1.89 baseline and the root gate before adopting it. No blanket transitive override is proposed.
@@ -107,4 +124,4 @@ Each adopted correction should have a focused dependency diff, regression eviden
 
 ## Coverage limits
 
-Matching a package to an advisory does not establish exploitability; absence of a match does not establish safety. RustSec matching and source approval do not review FlacCompagnon's Git code, the locally patched ALSA code, external native/system libraries, bundled JavaScript, npm dependencies or audio files. The separate npm/OSV checks and source/native-platform review remain necessary. Only the explicitly approved `clipboard-win` lockfile update was applied; no automatic blanket fix or new advisory exemption was introduced.
+Matching a package to an advisory does not establish exploitability; absence of a match does not establish safety. RustSec matching and source approval do not review FlacCompagnon's Git code, the locally patched ALSA code, external native/system libraries, bundled JavaScript, npm dependencies or audio files. The separate npm/OSV checks and source/native-platform review remain necessary. Only the explicitly approved `clipboard-win` and Tokio lockfile updates were applied; no automatic blanket fix or new advisory exemption was introduced.
