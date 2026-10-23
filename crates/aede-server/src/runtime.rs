@@ -696,7 +696,7 @@ pub fn serve_with_owner_lease(
         on_command,
         on_job,
         on_ready,
-        (owner_closed, None),
+        (owner_closed, None, None),
     )
 }
 
@@ -725,7 +725,61 @@ pub fn serve_with_desktop_tls(
         on_command,
         on_job,
         on_ready,
-        (Some(owner_closed), Some(identity)),
+        (Some(owner_closed), Some(identity), None),
+    )
+}
+
+/// Explicit two-phase shutdown control for a parent-owned engine.
+///
+/// Dropping the parent's stdin still requests only graceful draining. Forced
+/// cancellation is a separate operation that never accepts process identifiers.
+#[derive(Default)]
+pub struct DesktopControl {
+    closed: Arc<std::sync::atomic::AtomicBool>,
+    forced: std::sync::atomic::AtomicBool,
+}
+
+impl DesktopControl {
+    /// Stop admission and drain accepted work.
+    pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    /// Stop admission and cancel every worker owned by this engine.
+    pub fn force_stop(&self) {
+        self.shutdown();
+        self.forced.store(true, Ordering::Release);
+    }
+}
+
+/// Serve a desktop engine with explicit drain/force control and optional TLS.
+/// Existing lease-only adapters retain their graceful EOF contract.
+pub fn serve_with_desktop_control(
+    data_dir: &Path,
+    options: ServerOptions,
+    admin_token: Option<String>,
+    on_scan: impl Fn(&mut (dyn FnMut(Progress) + Send)) -> Result<(), String> + Send + Sync + 'static,
+    on_command: impl Fn(&[String], &str) -> bool + Send + Sync + 'static,
+    on_job: impl Fn(JobRequest, Arc<std::sync::atomic::AtomicBool>) -> Result<JobOutput, String>
+    + Send
+    + Sync
+    + 'static,
+    on_ready: impl FnOnce(SocketAddr),
+    owned: (Arc<DesktopControl>, Option<super::tls::DesktopTls>),
+) -> Result<(), Box<dyn Error>> {
+    let (control, identity) = owned;
+    if options.tls.is_some() || !options.bind.ip().is_loopback() {
+        return Err("desktop control requires a loopback address without file-based TLS".into());
+    }
+    serve_with_owner_transport(
+        data_dir,
+        options,
+        admin_token,
+        on_scan,
+        on_command,
+        on_job,
+        on_ready,
+        (Some(control.closed.clone()), identity, Some(control)),
     )
 }
 
@@ -743,9 +797,10 @@ fn serve_with_owner_transport(
     owned: (
         Option<Arc<std::sync::atomic::AtomicBool>>,
         Option<super::tls::DesktopTls>,
+        Option<Arc<DesktopControl>>,
     ),
 ) -> Result<(), Box<dyn Error>> {
-    let (owner_closed, desktop_tls) = owned;
+    let (owner_closed, desktop_tls, control) = owned;
     #[cfg(not(unix))]
     let _ = on_command;
     #[cfg(unix)]
@@ -822,6 +877,21 @@ fn serve_with_owner_transport(
             Some(identity) => Some(identity.listener(address)?),
             None => tls,
         };
+        let force_monitor = control.map(|control| {
+            let state = state.clone();
+            tokio::spawn(async move {
+                loop {
+                    if control.forced.load(Ordering::Acquire) {
+                        #[cfg(unix)]
+                        state.tasks.force_stop();
+                        if let Err(error) = state.jobs.force_stop() {
+                            eprintln!("Aède could not cancel owned jobs: {}", error.message);
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+        });
         on_ready(address);
         match tls {
             Some(tls) => {
@@ -855,6 +925,9 @@ fn serve_with_owner_transport(
                 )
                 .await?;
             }
+        }
+        if let Some(monitor) = force_monitor {
+            monitor.abort();
         }
         Ok(())
     });

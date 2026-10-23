@@ -2,10 +2,7 @@
 use aede_core::{accounts, clock, json, model, store, store_lock::StoreLock};
 use std::io::{BufRead, Read};
 use std::path::Path;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 
 fn bootstrap(data: &Path, input: &str) -> Result<Option<aede_server::DesktopTls>, String> {
     let request = json::parse(input).map_err(|_| "invalid desktop bootstrap")?;
@@ -77,7 +74,13 @@ fn bootstrap(data: &Path, input: &str) -> Result<Option<aede_server::DesktopTls>
 
 pub(super) fn prepare(
     data: &Path,
-) -> Result<(Arc<AtomicBool>, Option<aede_server::DesktopTls>), String> {
+) -> Result<
+    (
+        Arc<aede_server::DesktopControl>,
+        Option<aede_server::DesktopTls>,
+    ),
+    String,
+> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
@@ -91,19 +94,41 @@ pub(super) fn prepare(
         data,
         std::str::from_utf8(&bytes).map_err(|_| "desktop bootstrap is not UTF-8")?,
     )?;
-    let closed = Arc::new(AtomicBool::new(false));
-    let flag = closed.clone();
+    let control = Arc::new(aede_server::DesktopControl::default());
+    let monitor = control.clone();
     std::thread::spawn(move || {
-        let mut buffer = [0; 256];
-        loop {
-            match std::io::stdin().read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {}
+        if let Err(error) = read_control(std::io::stdin().lock(), |force| {
+            if force {
+                monitor.force_stop();
+            } else {
+                monitor.shutdown();
             }
+        }) {
+            eprintln!("Aède desktop control failed: {error}");
+            monitor.shutdown();
         }
-        flag.store(true, Ordering::Release);
     });
-    Ok((closed, tls))
+    Ok((control, tls))
+}
+
+fn read_control(mut input: impl BufRead, mut apply: impl FnMut(bool)) -> Result<(), String> {
+    loop {
+        let mut line = Vec::new();
+        input
+            .by_ref()
+            .take(129)
+            .read_until(b'\n', &mut line)
+            .map_err(|_| "desktop control input failed")?;
+        if line.is_empty() {
+            apply(false);
+            return Ok(());
+        }
+        match line.as_slice() {
+            b"{\"desktopCommand\":\"shutdown\"}\n" => apply(false),
+            b"{\"desktopCommand\":\"force-stop\"}\n" => apply(true),
+            _ => return Err("invalid or oversized desktop control command".into()),
+        }
+    }
 }
 
 #[cfg(test)]

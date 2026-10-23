@@ -100,7 +100,9 @@ pub fn serve(args: &Args) -> Res {
         if desktop_ready {
             let protocol = if desktop_https { 2 } else { 1 };
             let scheme = if desktop_https { "https" } else { "http" };
-            println!("{{\"desktopProtocol\":{protocol},\"address\":\"{scheme}://{address}\"}}");
+            println!(
+                "{{\"desktopProtocol\":{protocol},\"desktopControl\":1,\"address\":\"{scheme}://{address}\"}}"
+            );
             return;
         }
         if let Some(authority) = tls_authority {
@@ -114,18 +116,8 @@ pub fn serve(args: &Args) -> Res {
             println!("Server route guide: crates/aede-server/README.md");
         }
     };
-    match owner_lease {
-        Some((closed, Some(tls))) => aede_server::serve_with_desktop_tls(
-            &data_dir,
-            options,
-            scan,
-            crate::delegation::allowed,
-            job,
-            ready,
-            closed,
-            tls,
-        ),
-        lease => aede_server::serve_with_owner_lease(
+    let result = match owner_lease {
+        Some((control, tls)) => aede_server::serve_with_desktop_control(
             &data_dir,
             options,
             admin_token,
@@ -133,9 +125,23 @@ pub fn serve(args: &Args) -> Res {
             crate::delegation::allowed,
             job,
             ready,
-            lease.map(|(closed, _)| closed),
+            (control, tls),
         ),
+        None => aede_server::serve_with_options(
+            &data_dir,
+            options,
+            admin_token,
+            scan,
+            crate::delegation::allowed,
+            job,
+            ready,
+        ),
+    };
+    if desktop_ready && result.is_ok() {
+        // Sent only after every accepted command/job and the runtime have drained.
+        println!("{{\"desktopStopped\":1}}");
     }
+    result
 }
 
 #[cfg(test)]

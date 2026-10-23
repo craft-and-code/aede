@@ -10,6 +10,10 @@ use std::{
 pub(crate) struct Server {
     child: Child,
     lease: Option<ChildStdin>,
+    control: bool,
+    stopping: bool,
+    stopped: std::sync::mpsc::Receiver<bool>,
+    confirmed: bool,
     pub(crate) address: String,
     pub(crate) token: Option<String>,
     pub(crate) agent: ureq::Agent,
@@ -79,14 +83,17 @@ impl Server {
             }
         };
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (stopped_tx, stopped) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             let mut line = String::new();
             let result = Read::take(&mut reader, 4097)
                 .read_line(&mut line)
                 .map(|_| line);
+            let line_start = result.as_ref().is_ok_and(|line| line.ends_with('\n'));
             let _ = tx.send(result);
-            let _ = std::io::copy(&mut reader, &mut std::io::sink());
+            let acknowledgement = matches!(read_stop_ack(reader, line_start), Ok(true));
+            let _ = stopped_tx.send(acknowledgement);
         });
         let ready = rx
             .recv_timeout(Duration::from_secs(12))
@@ -94,7 +101,10 @@ impl Server {
             .and_then(Result::ok)
             .and_then(|line| serde_json::from_str::<Value>(&line).ok());
         let expected = format!("https://127.0.0.1:{}", config.port);
-        if !ready.is_some_and(|v| v["desktopProtocol"] == 2 && v["address"] == expected) {
+        if !ready
+            .as_ref()
+            .is_some_and(|v| v["desktopProtocol"] == 2 && v["address"] == expected)
+        {
             drop(stdin);
             let _ = child.kill();
             let _ = child.wait();
@@ -103,6 +113,10 @@ impl Server {
         let mut server = Self {
             child,
             lease: Some(stdin),
+            control: ready.as_ref().is_some_and(|v| v["desktopControl"] == 1),
+            stopping: false,
+            stopped,
+            confirmed: false,
             address: expected,
             token: None,
             agent: crate::http::agent(identity),
@@ -121,22 +135,58 @@ impl Server {
             .map_err(|_| "État du serveur indisponible.".into())
     }
     pub(crate) fn stop(&mut self) -> Result<(), String> {
-        self.lease.take();
-        let until = Instant::now() + Duration::from_secs(3);
-        while self.running()? {
-            if Instant::now() >= until {
-                self.child
-                    .kill()
-                    .map_err(|_| "Arrêt du serveur impossible.")?;
-                break;
+        if self.confirmed {
+            return Ok(());
+        }
+        if !self.stopping {
+            if self.control {
+                self.send_control(b"{\"desktopCommand\":\"shutdown\"}\n")?;
+            } else {
+                self.lease.take();
             }
+            self.stopping = true;
+        }
+        let until = Instant::now() + Duration::from_secs(3);
+        while self.running()? && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(20));
+        }
+        if self.running()? {
+            if !self.control {
+                return Err("Le moteur ne confirme pas l’arrêt de ses tâches. Arrêt gracieux en cours ; propriété conservée.".into());
+            }
+            self.send_control(b"{\"desktopCommand\":\"force-stop\"}\n")?;
+            let until = Instant::now() + Duration::from_secs(5);
+            while self.running()? {
+                if Instant::now() >= until {
+                    return Err("Arrêt des tâches non confirmé ; le moteur reste possédé. Réessayez l’arrêt.".into());
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
         }
         self.child
             .wait()
             .map_err(|_| "Confirmation de l’arrêt impossible.")?;
+        if self.control && self.stopped.recv_timeout(Duration::from_secs(1)) != Ok(true) {
+            return Err(
+                "Le moteur n’a pas confirmé l’arrêt de toutes ses tâches ; propriété conservée."
+                    .into(),
+            );
+        }
+        self.confirmed = true;
+        self.lease.take();
         self.token = None;
         Ok(())
+    }
+
+    fn send_control(&mut self, line: &[u8]) -> Result<(), String> {
+        if !self.running()? {
+            return Ok(());
+        }
+        self.lease
+            .as_mut()
+            .ok_or("Contrôle du moteur indisponible ; propriété conservée.")?
+            .write_all(line)
+            .map_err(|_| "Commande d’arrêt impossible ; propriété conservée.".into())
     }
 }
 impl Drop for Server {
@@ -144,3 +194,24 @@ impl Drop for Server {
         let _ = self.stop();
     }
 }
+
+fn read_stop_ack(mut reader: impl BufRead, mut line_start: bool) -> std::io::Result<bool> {
+    let mut acknowledged = false;
+    let mut line = Vec::with_capacity(4097);
+    loop {
+        line.clear();
+        if reader.by_ref().take(4097).read_until(b'\n', &mut line)? == 0 {
+            return Ok(acknowledged);
+        }
+        // Diagnostics share stdout. Never treat an oversized line's later fragment as a frame.
+        acknowledged |= line_start && line == b"{\"desktopStopped\":1}\n";
+        line_start = line.last() == Some(&b'\n');
+    }
+}
+
+#[cfg(test)]
+#[path = "process_output_tests.rs"]
+mod output_tests;
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod tests;

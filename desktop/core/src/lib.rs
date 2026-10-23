@@ -48,7 +48,7 @@ struct Root {
     path: String,
     available: bool,
 }
-/// Owns a fixed executable and its lifetime lease; dropping it stops only its own child.
+/// Owns a fixed engine executable and its lifetime control, including accepted workers.
 pub struct Host {
     root: PathBuf,
     binary: PathBuf,
@@ -73,6 +73,7 @@ impl Host {
         if let Some(server) = self.process.as_mut()
             && !server.running()?
         {
+            server.stop()?;
             self.process = None;
             self.logs
                 .push("warn", "Le processus serveur s’est arrêté.".into());
@@ -137,10 +138,12 @@ impl Host {
         );
         self.status()
     }
-    /// Release the owned child, waiting briefly for graceful shutdown before terminating it.
+    /// Drain accepted work, then request owned-worker termination if needed.
+    /// Failed confirmation retains ownership so shutdown can be retried.
     pub fn stop(&mut self) -> Result<Status, String> {
-        if let Some(mut server) = self.process.take() {
+        if let Some(server) = self.process.as_mut() {
             server.stop()?;
+            self.process = None;
             self.logs.push("info", "Serveur arrêté.".into());
         }
         self.status()

@@ -85,7 +85,10 @@ fn cancelling_only_marks_a_registered_task() {
 fn a_running_child_stops_after_cancellation() {
     let requested = Arc::new(AtomicBool::new(false));
     let signal = requested.clone();
-    let mut child = Command::new("sleep").arg("10").spawn().unwrap();
+    let mut command = Command::new("sleep");
+    command.arg("10");
+    crate::owned_process::isolate(&mut command);
+    let mut child = command.spawn().unwrap();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(100));
         signal.store(true, Ordering::Release);

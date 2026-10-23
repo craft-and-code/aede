@@ -98,6 +98,7 @@ pub use fetch_service_keys::FetchServiceKeys;
 mod lyrics;
 mod models;
 mod network_audio;
+pub mod owned_process;
 mod parental;
 mod personal;
 mod playback_api;
@@ -125,10 +126,13 @@ use events::*;
 use models::*;
 use query::*;
 use routing::*;
+pub use runtime::{
+    DesktopControl, serve, serve_with_desktop_control, serve_with_desktop_tls, serve_with_options,
+    serve_with_owner_lease,
+};
 use runtime::{refresh_catalog, storage_stamp};
 #[cfg(test)]
 use runtime::{run_http, stamp};
-pub use runtime::{serve, serve_with_desktop_tls, serve_with_options, serve_with_owner_lease};
 use security::*;
 use state::*;
 pub use tls::DesktopTls;

@@ -504,6 +504,19 @@ impl Drop for SynchronousScanReservation {
 }
 
 impl JobRegistry {
+    pub(super) fn force_stop(&self) -> Result<(), ApiError> {
+        let mut data = self.data.lock().map_err(|_| registry_error())?;
+        for task in data
+            .tasks
+            .values_mut()
+            .filter(|task| !task.status.is_terminal())
+        {
+            task.cancel_requested = true;
+            task.cancellation.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
     pub(super) fn reserve_synchronous_scan(
         self: &Arc<Self>,
     ) -> Result<SynchronousScanReservation, ApiError> {

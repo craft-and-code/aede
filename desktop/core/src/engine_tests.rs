@@ -204,3 +204,7 @@ mod proxy;
 
 #[path = "selection_engine_tests.rs"]
 mod selection;
+
+#[cfg(unix)]
+#[path = "engine_lifecycle_tests.rs"]
+mod lifecycle;

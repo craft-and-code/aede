@@ -70,3 +70,32 @@ fn desktop_tls_bootstrap_rejects_bad_identity_before_creating_stores() {
     assert!(!accounts::accounts_path(&data.0).exists());
     assert!(!store::catalog_path(&data.0).exists());
 }
+
+#[test]
+fn desktop_control_eof_only_drains_and_force_requires_an_exact_complete_command() {
+    let mut commands = Vec::new();
+    read_control(std::io::Cursor::new(b""), |force| commands.push(force)).unwrap();
+    assert_eq!(commands, [false]);
+    let mut commands = Vec::new();
+    read_control(
+        std::io::Cursor::new(
+            b"{\"desktopCommand\":\"shutdown\"}\n{\"desktopCommand\":\"force-stop\"}\n",
+        ),
+        |force| commands.push(force),
+    )
+    .unwrap();
+    assert_eq!(commands, [false, true, false]);
+    for invalid in [
+        b"{\"desktopCommand\":\"force-stop\"}".as_slice(),
+        b"{\"desktopCommand\":\"force-stop\",\"pid\":1}\n".as_slice(),
+        b"{\"desktopCommand\":\"kill\"}\n".as_slice(),
+        &[b'x'; 129],
+    ] {
+        let mut commands = Vec::new();
+        assert!(read_control(std::io::Cursor::new(invalid), |force| commands.push(force)).is_err());
+        assert!(
+            commands.is_empty(),
+            "invalid control must never cancel work"
+        );
+    }
+}

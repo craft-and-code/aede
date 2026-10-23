@@ -46,9 +46,14 @@ struct CommandRequest {
 #[derive(Default)]
 pub struct TaskRegistry {
     running: Mutex<BTreeMap<u64, Arc<AtomicBool>>>,
+    forced: AtomicBool,
 }
 
 impl TaskRegistry {
+    pub(super) fn force_stop(&self) {
+        self.forced.store(true, Ordering::Release);
+    }
+
     fn insert(&self, task_id: u64, requested: Arc<AtomicBool>) -> io::Result<()> {
         self.running
             .lock()
@@ -369,6 +374,8 @@ fn handle_command(
             process.env_remove(name);
         }
     }
+    process.env_remove("AEDE_DESKTOP_LEASE");
+    crate::owned_process::isolate(&mut process);
     let _scan_guard = (kind == "scan").then(|| state.scan_activity.start());
     let mut child = match process.spawn() {
         Ok(child) => child,
@@ -414,7 +421,12 @@ fn handle_command(
     let stdout_thread = std::thread::spawn(move || relay_output(stdout, b'O', out));
     let err = output.clone();
     let stderr_thread = std::thread::spawn(move || relay_output(stderr, b'E', err));
-    let (status, cancelled) = wait_for_command(&mut child, cancellation.as_deref())?;
+    let (status, cancelled) = wait_for_command_until(
+        &mut child,
+        cancellation.as_deref(),
+        &state.tasks.forced,
+        || stdout_thread.is_finished() && stderr_thread.is_finished(),
+    )?;
     if cancellation.is_some() {
         state.tasks.remove(task_id)?;
     }
@@ -477,18 +489,33 @@ fn handle_command(
     Ok(())
 }
 
+#[cfg(test)]
 fn wait_for_command(
     child: &mut Child,
     cancellation: Option<&AtomicBool>,
 ) -> io::Result<(ExitStatus, bool)> {
+    wait_for_command_until(child, cancellation, &AtomicBool::new(false), || true)
+}
+
+fn wait_for_command_until(
+    child: &mut Child,
+    cancellation: Option<&AtomicBool>,
+    forced: &AtomicBool,
+    output_finished: impl Fn() -> bool,
+) -> io::Result<(ExitStatus, bool)> {
     let mut cancelled = false;
     loop {
-        if cancellation.is_some_and(|requested| requested.load(Ordering::Acquire))
-            && child.kill().is_ok()
+        if (forced.load(Ordering::Acquire)
+            || cancellation.is_some_and(|requested| requested.load(Ordering::Acquire)))
+            && crate::owned_process::terminate(child).is_ok()
         {
             cancelled = true;
         }
-        if let Some(status) = child.try_wait()? {
+        // Preserve the owned leader PID until descendants close their pipes;
+        // otherwise it could be reused before the group needs termination.
+        if output_finished()
+            && let Some(status) = child.try_wait()?
+        {
             return Ok((status, cancelled));
         }
         std::thread::sleep(Duration::from_millis(50));
