@@ -1,0 +1,43 @@
+# Independent Tauri App workspace; this policy does not modify its locked dependencies.
+# From desktop/: cargo deny --locked check
+[graph]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+# Do not silently translate OSV's exact GTK compatibility warnings into RustSec ignores.
+ignore = []
+
+[licenses]
+confidence-threshold = 0.95
+include-dev = true
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+multiple-versions-include-dev = true
+# Existing local workspace paths omit versions; report rather than change manifests.
+wildcards = "warn"
+allow-wildcard-paths = true
+highlight = "simplest-path"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+required-git-spec = "rev"
+allow-git = []

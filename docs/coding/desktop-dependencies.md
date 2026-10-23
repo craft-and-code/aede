@@ -1,5 +1,7 @@
 # Desktop dependency findings
 
+The [RustSec audit policy and 2026-10-23 baseline](dependency-audit.md) additionally cover `cargo-audit` and the independent `desktop/deny.toml` configuration. They keep the GTK findings below blocking. The initially yanked Windows `clipboard-win 5.4.1` dependency has been updated to 5.4.3; the fresh database also flags Tokio 1.53.2 for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html), which remains unresolved and blocking. The exact OSV compatibility-warning rules described here remain unchanged.
+
 The desktop lockfile is audited independently of the CLI:
 
 ```sh
@@ -12,6 +14,10 @@ The audit fails for every finding except the exact approved GTK3 combinations be
 ## Corrected TLS dependency
 
 Both desktop clients now resolve Rustls 0.23.46. The previous 0.23.45 resolution was reported by OSV, including [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html). The fixed version is reused without a new product package or a certificate-verification bypass. The earlier 0.23.45 lookup also matched [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html) (ECH/early buffered data), [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) (optional Brotli decompression allocation; not enabled here) and [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) (hybrid key-exchange downgrade). Package matches are not demonstrated application exploits; a past corrected lookup is not a fresh audit of the current tree.
+
+## Corrected Windows clipboard dependency
+
+The approved 2026-10-23 update changes only `clipboard-win 5.4.1 -> 5.4.3` and its checksum in the desktop lockfile, through the existing clipboard-manager → Arboard dependency chain. The yanked-version finding disappears without upgrading Tauri or adding a direct dependency. The full macOS desktop gate passes; native Windows build and clipboard-contention/secret-copy acceptance remain pending. See the [before/after audit and remaining remediation plan](dependency-audit.md#approved-clipboard-update-and-verification-2026-10-23).
 
 ## Outstanding GTK3 findings
 

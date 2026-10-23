@@ -28,6 +28,8 @@ The 2026-10-23 independent desktop gate passed 76 Rust tests, 38 Vitest cases an
 
 ## Remaining acceptance and limits
 
+The [dependency audit](dependency-audit.md) records the approved Windows `clipboard-win` 5.4.3 correction and a passing repeat of the complete desktop gate on 2026-10-23. Native Windows clipboard acceptance remains pending. RustSec policies retain empty ignore lists: GLib and Tokio unsoundness, `paste`/`proc-macro-error` maintenance findings and the documented cargo-deny internal diagnostics remain visible; the two cargo-deny workspace checks still fail.
+
 Physical gapless/digital bit-perfect output, Windows console/device behavior, strict ALSA runtime, target-NAS memory/throughput/concurrent-client capacity and real LAN renderers require their own environments. Synthetic signals, metadata harnesses and software loopbacks do not certify those targets. Docker/service deployment, richer device registries and additional queue/session designs remain roadmap work.
 
 No metadata-only browse initiates enrichment. Public caches/roots stay common; the trusted OS operator and installation token are outside account privacy. JSON stores, shared writer budgets, filesystem TOCTOU constraints and failure-preserving publication remain explicit. SQLite is a measured option, not an M2 requirement.

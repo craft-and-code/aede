@@ -1,0 +1,43 @@
+# CLI/engine policy. Audit every feature and platform; do not hide target-specific crates.
+# Run independently of the offline gate: cargo deny --locked check
+[graph]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+# Keep findings visible for review, including previously documented maintenance notices.
+ignore = []
+
+[licenses]
+confidence-threshold = 0.95
+include-dev = true
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+]
+
+[bans]
+# Parallel transitive versions need review, but are not themselves vulnerabilities.
+multiple-versions = "warn"
+multiple-versions-include-dev = true
+# Existing local path/tagged workspace declarations omit registry versions.
+# Report publication hygiene without treating it as a registry vulnerability.
+wildcards = "warn"
+allow-wildcard-paths = true
+highlight = "simplest-path"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The existing published FlacCompagnon tag is also pinned by the unchanged Cargo.lock.
+required-git-spec = "tag"
+allow-git = ["https://github.com/craft-and-code/FlacCompagnon"]
