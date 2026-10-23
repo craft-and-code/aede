@@ -8,70 +8,82 @@
 <a href=#8 id=8 data-nosnippet>8</a>// Retaining 24 source frames supplies the complete state for either path.
 <a href=#9 id=9 data-nosnippet>9</a></span><span class="kw">const </span>TAIL_FRAMES: usize = <span class="number">24</span>;
 <a href=#10 id=10 data-nosnippet>10</a>
-<a href=#11 id=11 data-nosnippet>11</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>PeakTail {
-<a href=#12 id=12 data-nosnippet>12</a>    format: PcmFormat,
-<a href=#13 id=13 data-nosnippet>13</a>    samples: Vec&lt;f32&gt;,
-<a href=#14 id=14 data-nosnippet>14</a>}
-<a href=#15 id=15 data-nosnippet>15</a>
-<a href=#16 id=16 data-nosnippet>16</a><span class="kw">impl </span>PeakTail {
-<a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>new(format: PcmFormat) -&gt; <span class="self">Self </span>{
-<a href=#18 id=18 data-nosnippet>18</a>        <span class="self">Self </span>{
-<a href=#19 id=19 data-nosnippet>19</a>            format,
-<a href=#20 id=20 data-nosnippet>20</a>            samples: <span class="kw">if </span>format.sample_rate() &lt; <span class="number">192_000 </span>{
-<a href=#21 id=21 data-nosnippet>21</a>                Vec::with_capacity(TAIL_FRAMES * usize::from(format.channels()))
-<a href=#22 id=22 data-nosnippet>22</a>            } <span class="kw">else </span>{
-<a href=#23 id=23 data-nosnippet>23</a>                Vec::new()
-<a href=#24 id=24 data-nosnippet>24</a>            },
-<a href=#25 id=25 data-nosnippet>25</a>        }
-<a href=#26 id=26 data-nosnippet>26</a>    }
-<a href=#27 id=27 data-nosnippet>27</a>
-<a href=#28 id=28 data-nosnippet>28</a>    <span class="doccomment">/// Called after the owner validates finite PCM and complete frames.
-<a href=#29 id=29 data-nosnippet>29</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>push(<span class="kw-2">&amp;mut </span><span class="self">self</span>, samples: <span class="kw-2">&amp;</span>[f32]) {
-<a href=#30 id=30 data-nosnippet>30</a>        <span class="kw">if </span><span class="self">self</span>.format.sample_rate() &gt;= <span class="number">192_000 </span>{
-<a href=#31 id=31 data-nosnippet>31</a>            <span class="kw">return</span>;
-<a href=#32 id=32 data-nosnippet>32</a>        }
-<a href=#33 id=33 data-nosnippet>33</a>        <span class="kw">let </span>capacity = TAIL_FRAMES * usize::from(<span class="self">self</span>.format.channels());
-<a href=#34 id=34 data-nosnippet>34</a>        <span class="kw">if </span>samples.len() &gt;= capacity {
-<a href=#35 id=35 data-nosnippet>35</a>            <span class="self">self</span>.samples.clear();
-<a href=#36 id=36 data-nosnippet>36</a>            <span class="self">self</span>.samples
-<a href=#37 id=37 data-nosnippet>37</a>                .extend_from_slice(<span class="kw-2">&amp;</span>samples[samples.len() - capacity..]);
-<a href=#38 id=38 data-nosnippet>38</a>        } <span class="kw">else </span>{
-<a href=#39 id=39 data-nosnippet>39</a>            <span class="kw">let </span>discard = (<span class="self">self</span>.samples.len() + samples.len()).saturating_sub(capacity);
-<a href=#40 id=40 data-nosnippet>40</a>            <span class="kw">if </span>discard &gt; <span class="number">0 </span>{
-<a href=#41 id=41 data-nosnippet>41</a>                <span class="self">self</span>.samples.copy_within(discard.., <span class="number">0</span>);
-<a href=#42 id=42 data-nosnippet>42</a>                <span class="self">self</span>.samples.truncate(<span class="self">self</span>.samples.len() - discard);
-<a href=#43 id=43 data-nosnippet>43</a>            }
-<a href=#44 id=44 data-nosnippet>44</a>            <span class="self">self</span>.samples.extend_from_slice(samples);
-<a href=#45 id=45 data-nosnippet>45</a>        }
-<a href=#46 id=46 data-nosnippet>46</a>    }
-<a href=#47 id=47 data-nosnippet>47</a>
-<a href=#48 id=48 data-nosnippet>48</a>    <span class="doccomment">/// Snapshot a finite signal's peak, treating samples after its end as zero.
-<a href=#49 id=49 data-nosnippet>49</a>    ///
-<a href=#50 id=50 data-nosnippet>50</a>    /// Only a temporary peak meter receives zero frames. The original meter and
-<a href=#51 id=51 data-nosnippet>51</a>    /// retained PCM stay unchanged, so future samples and LUFS are unaffected.
-<a href=#52 id=52 data-nosnippet>52</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>peak(<span class="kw-2">&amp;</span><span class="self">self</span>, original: <span class="kw-2">&amp;</span>EbuR128) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;f32&gt;, ebur128::Error&gt; {
-<a href=#53 id=53 data-nosnippet>53</a>        <span class="kw">if </span><span class="self">self</span>.format.sample_rate() &gt;= <span class="number">192_000 </span>{
-<a href=#54 id=54 data-nosnippet>54</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>);
-<a href=#55 id=55 data-nosnippet>55</a>        }
-<a href=#56 id=56 data-nosnippet>56</a>        <span class="kw">let </span>channels = u32::from(<span class="self">self</span>.format.channels());
-<a href=#57 id=57 data-nosnippet>57</a>        <span class="kw">let </span><span class="kw-2">mut </span>peak = <span class="number">0.0_f64</span>;
-<a href=#58 id=58 data-nosnippet>58</a>        <span class="kw">for </span>channel <span class="kw">in </span><span class="number">0</span>..channels {
-<a href=#59 id=59 data-nosnippet>59</a>            peak = peak.max(original.true_peak(channel)<span class="question-mark">?</span>);
-<a href=#60 id=60 data-nosnippet>60</a>        }
-<a href=#61 id=61 data-nosnippet>61</a>        <span class="kw">if </span>!<span class="self">self</span>.samples.is_empty() {
-<a href=#62 id=62 data-nosnippet>62</a>            <span class="kw">let </span><span class="kw-2">mut </span>tail = EbuR128::new(channels, <span class="self">self</span>.format.sample_rate(), Mode::TRUE_PEAK)<span class="question-mark">?</span>;
-<a href=#63 id=63 data-nosnippet>63</a>            tail.add_frames_f32(<span class="kw-2">&amp;</span><span class="self">self</span>.samples)<span class="question-mark">?</span>;
-<a href=#64 id=64 data-nosnippet>64</a>            tail.add_frames_f32(<span class="kw-2">&amp;</span><span class="macro">vec!</span>[<span class="number">0.0</span>; TAIL_FRAMES * channels <span class="kw">as </span>usize])<span class="question-mark">?</span>;
-<a href=#65 id=65 data-nosnippet>65</a>            <span class="kw">for </span>channel <span class="kw">in </span><span class="number">0</span>..channels {
-<a href=#66 id=66 data-nosnippet>66</a>                <span class="comment">// Ignore the temporary meter's synthetic zero-to-seed edge.
-<a href=#67 id=67 data-nosnippet>67</a>                // The zero block reports only genuinely pending final output.
-<a href=#68 id=68 data-nosnippet>68</a>                </span>peak = peak.max(tail.prev_true_peak(channel)<span class="question-mark">?</span>);
-<a href=#69 id=69 data-nosnippet>69</a>            }
-<a href=#70 id=70 data-nosnippet>70</a>        }
-<a href=#71 id=71 data-nosnippet>71</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(peak <span class="kw">as </span>f32))
-<a href=#72 id=72 data-nosnippet>72</a>    }
-<a href=#73 id=73 data-nosnippet>73</a>}
-<a href=#74 id=74 data-nosnippet>74</a>
-<a href=#75 id=75 data-nosnippet>75</a><span class="attr">#[cfg(test)]
-<a href=#76 id=76 data-nosnippet>76</a>#[path = <span class="string">"peak_tail_tests.rs"</span>]
-<a href=#77 id=77 data-nosnippet>77</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#11 id=11 data-nosnippet>11</a><span class="doccomment">/// Enforce the admission boundary shared by EBU-backed measurements.
+<a href=#12 id=12 data-nosnippet>12</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>validate_meter_rate(rate: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ebur128::Error&gt; {
+<a href=#13 id=13 data-nosnippet>13</a>    <span class="comment">// ebur128 0.1.10 accepts 16/17 Hz, but its rounded first loudness gate
+<a href=#14 id=14 data-nosnippet>14</a>    // exceeds its PCM window there. Preserve its existing lower-rate error
+<a href=#15 id=15 data-nosnippet>15</a>    // without constructing a meter or changing an existing meter's format.
+<a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">if </span>rate &lt; <span class="number">18 </span>{
+<a href=#17 id=17 data-nosnippet>17</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(ebur128::Error::NoMem);
+<a href=#18 id=18 data-nosnippet>18</a>    }
+<a href=#19 id=19 data-nosnippet>19</a>    <span class="prelude-val">Ok</span>(())
+<a href=#20 id=20 data-nosnippet>20</a>}
+<a href=#21 id=21 data-nosnippet>21</a>
+<a href=#22 id=22 data-nosnippet>22</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>PeakTail {
+<a href=#23 id=23 data-nosnippet>23</a>    format: PcmFormat,
+<a href=#24 id=24 data-nosnippet>24</a>    samples: Vec&lt;f32&gt;,
+<a href=#25 id=25 data-nosnippet>25</a>}
+<a href=#26 id=26 data-nosnippet>26</a>
+<a href=#27 id=27 data-nosnippet>27</a><span class="kw">impl </span>PeakTail {
+<a href=#28 id=28 data-nosnippet>28</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>new(format: PcmFormat) -&gt; <span class="self">Self </span>{
+<a href=#29 id=29 data-nosnippet>29</a>        <span class="self">Self </span>{
+<a href=#30 id=30 data-nosnippet>30</a>            format,
+<a href=#31 id=31 data-nosnippet>31</a>            samples: <span class="kw">if </span>format.sample_rate() &lt; <span class="number">192_000 </span>{
+<a href=#32 id=32 data-nosnippet>32</a>                Vec::with_capacity(TAIL_FRAMES * usize::from(format.channels()))
+<a href=#33 id=33 data-nosnippet>33</a>            } <span class="kw">else </span>{
+<a href=#34 id=34 data-nosnippet>34</a>                Vec::new()
+<a href=#35 id=35 data-nosnippet>35</a>            },
+<a href=#36 id=36 data-nosnippet>36</a>        }
+<a href=#37 id=37 data-nosnippet>37</a>    }
+<a href=#38 id=38 data-nosnippet>38</a>
+<a href=#39 id=39 data-nosnippet>39</a>    <span class="doccomment">/// Called after the owner validates finite PCM and complete frames.
+<a href=#40 id=40 data-nosnippet>40</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>push(<span class="kw-2">&amp;mut </span><span class="self">self</span>, samples: <span class="kw-2">&amp;</span>[f32]) {
+<a href=#41 id=41 data-nosnippet>41</a>        <span class="kw">if </span><span class="self">self</span>.format.sample_rate() &gt;= <span class="number">192_000 </span>{
+<a href=#42 id=42 data-nosnippet>42</a>            <span class="kw">return</span>;
+<a href=#43 id=43 data-nosnippet>43</a>        }
+<a href=#44 id=44 data-nosnippet>44</a>        <span class="kw">let </span>capacity = TAIL_FRAMES * usize::from(<span class="self">self</span>.format.channels());
+<a href=#45 id=45 data-nosnippet>45</a>        <span class="kw">if </span>samples.len() &gt;= capacity {
+<a href=#46 id=46 data-nosnippet>46</a>            <span class="self">self</span>.samples.clear();
+<a href=#47 id=47 data-nosnippet>47</a>            <span class="self">self</span>.samples
+<a href=#48 id=48 data-nosnippet>48</a>                .extend_from_slice(<span class="kw-2">&amp;</span>samples[samples.len() - capacity..]);
+<a href=#49 id=49 data-nosnippet>49</a>        } <span class="kw">else </span>{
+<a href=#50 id=50 data-nosnippet>50</a>            <span class="kw">let </span>discard = (<span class="self">self</span>.samples.len() + samples.len()).saturating_sub(capacity);
+<a href=#51 id=51 data-nosnippet>51</a>            <span class="kw">if </span>discard &gt; <span class="number">0 </span>{
+<a href=#52 id=52 data-nosnippet>52</a>                <span class="self">self</span>.samples.copy_within(discard.., <span class="number">0</span>);
+<a href=#53 id=53 data-nosnippet>53</a>                <span class="self">self</span>.samples.truncate(<span class="self">self</span>.samples.len() - discard);
+<a href=#54 id=54 data-nosnippet>54</a>            }
+<a href=#55 id=55 data-nosnippet>55</a>            <span class="self">self</span>.samples.extend_from_slice(samples);
+<a href=#56 id=56 data-nosnippet>56</a>        }
+<a href=#57 id=57 data-nosnippet>57</a>    }
+<a href=#58 id=58 data-nosnippet>58</a>
+<a href=#59 id=59 data-nosnippet>59</a>    <span class="doccomment">/// Snapshot a finite signal's peak, treating samples after its end as zero.
+<a href=#60 id=60 data-nosnippet>60</a>    ///
+<a href=#61 id=61 data-nosnippet>61</a>    /// Only a temporary peak meter receives zero frames. The original meter and
+<a href=#62 id=62 data-nosnippet>62</a>    /// retained PCM stay unchanged, so future samples and LUFS are unaffected.
+<a href=#63 id=63 data-nosnippet>63</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>peak(<span class="kw-2">&amp;</span><span class="self">self</span>, original: <span class="kw-2">&amp;</span>EbuR128) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;f32&gt;, ebur128::Error&gt; {
+<a href=#64 id=64 data-nosnippet>64</a>        <span class="kw">if </span><span class="self">self</span>.format.sample_rate() &gt;= <span class="number">192_000 </span>{
+<a href=#65 id=65 data-nosnippet>65</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>);
+<a href=#66 id=66 data-nosnippet>66</a>        }
+<a href=#67 id=67 data-nosnippet>67</a>        validate_meter_rate(<span class="self">self</span>.format.sample_rate())<span class="question-mark">?</span>;
+<a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">let </span>channels = u32::from(<span class="self">self</span>.format.channels());
+<a href=#69 id=69 data-nosnippet>69</a>        <span class="kw">let </span><span class="kw-2">mut </span>peak = <span class="number">0.0_f64</span>;
+<a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">for </span>channel <span class="kw">in </span><span class="number">0</span>..channels {
+<a href=#71 id=71 data-nosnippet>71</a>            peak = peak.max(original.true_peak(channel)<span class="question-mark">?</span>);
+<a href=#72 id=72 data-nosnippet>72</a>        }
+<a href=#73 id=73 data-nosnippet>73</a>        <span class="kw">if </span>!<span class="self">self</span>.samples.is_empty() {
+<a href=#74 id=74 data-nosnippet>74</a>            <span class="kw">let </span><span class="kw-2">mut </span>tail = EbuR128::new(channels, <span class="self">self</span>.format.sample_rate(), Mode::TRUE_PEAK)<span class="question-mark">?</span>;
+<a href=#75 id=75 data-nosnippet>75</a>            tail.add_frames_f32(<span class="kw-2">&amp;</span><span class="self">self</span>.samples)<span class="question-mark">?</span>;
+<a href=#76 id=76 data-nosnippet>76</a>            tail.add_frames_f32(<span class="kw-2">&amp;</span><span class="macro">vec!</span>[<span class="number">0.0</span>; TAIL_FRAMES * channels <span class="kw">as </span>usize])<span class="question-mark">?</span>;
+<a href=#77 id=77 data-nosnippet>77</a>            <span class="kw">for </span>channel <span class="kw">in </span><span class="number">0</span>..channels {
+<a href=#78 id=78 data-nosnippet>78</a>                <span class="comment">// Ignore the temporary meter's synthetic zero-to-seed edge.
+<a href=#79 id=79 data-nosnippet>79</a>                // The zero block reports only genuinely pending final output.
+<a href=#80 id=80 data-nosnippet>80</a>                </span>peak = peak.max(tail.prev_true_peak(channel)<span class="question-mark">?</span>);
+<a href=#81 id=81 data-nosnippet>81</a>            }
+<a href=#82 id=82 data-nosnippet>82</a>        }
+<a href=#83 id=83 data-nosnippet>83</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(peak <span class="kw">as </span>f32))
+<a href=#84 id=84 data-nosnippet>84</a>    }
+<a href=#85 id=85 data-nosnippet>85</a>}
+<a href=#86 id=86 data-nosnippet>86</a>
+<a href=#87 id=87 data-nosnippet>87</a><span class="attr">#[cfg(test)]
+<a href=#88 id=88 data-nosnippet>88</a>#[path = <span class="string">"peak_tail_tests.rs"</span>]
+<a href=#89 id=89 data-nosnippet>89</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>

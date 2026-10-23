@@ -118,28 +118,28 @@
 <a href=#118 id=118 data-nosnippet>118</a>        .try_read()
 <a href=#119 id=119 data-nosnippet>119</a>        .ok()
 <a href=#120 id=120 data-nosnippet>120</a>        .and_then(|c| c.as_ref().map(signature));
-<a href=#121 id=121 data-nosnippet>121</a>    <span class="kw">let </span>loaded = state
-<a href=#122 id=122 data-nosnippet>122</a>        .audio_features
-<a href=#123 id=123 data-nosnippet>123</a>        .facts
-<a href=#124 id=124 data-nosnippet>124</a>        .lock()
-<a href=#125 id=125 data-nosnippet>125</a>        .ok()
-<a href=#126 id=126 data-nosnippet>126</a>        .and_then(|facts| facts.epoch);
-<a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">if </span>epoch.is_none()
-<a href=#128 id=128 data-nosnippet>128</a>        || loaded == epoch
-<a href=#129 id=129 data-nosnippet>129</a>        || state.audio_features.warming.swap(<span class="bool-val">true</span>, Ordering::AcqRel)
-<a href=#130 id=130 data-nosnippet>130</a>    {
-<a href=#131 id=131 data-nosnippet>131</a>        <span class="kw">return</span>;
-<a href=#132 id=132 data-nosnippet>132</a>    }
-<a href=#133 id=133 data-nosnippet>133</a>    <span class="kw">let </span><span class="kw-2">mut </span>state = state.clone();
-<a href=#134 id=134 data-nosnippet>134</a>    state.catalog = shared_catalog;
-<a href=#135 id=135 data-nosnippet>135</a>    tokio::task::spawn_blocking(<span class="kw">move </span>|| {
-<a href=#136 id=136 data-nosnippet>136</a>        <span class="kw">let </span>result: <span class="prelude-ty">Result</span>&lt;(), String&gt; = (|| {
-<a href=#137 id=137 data-nosnippet>137</a>            <span class="kw">let </span>(epoch, sources) = sources(<span class="kw-2">&amp;</span>state)<span class="question-mark">?</span>;
-<a href=#138 id=138 data-nosnippet>138</a>            <span class="kw">let </span><span class="kw-2">mut </span>shutdown = state.shutdown.subscribe();
-<a href=#139 id=139 data-nosnippet>139</a>            <span class="kw">let </span>cancel = AtomicBool::new(<span class="bool-val">false</span>);
-<a href=#140 id=140 data-nosnippet>140</a>            <span class="kw">let </span><span class="kw-2">mut </span>control =
-<a href=#141 id=141 data-nosnippet>141</a>                worker::Control::new(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>cancel, <span class="kw-2">&amp;mut </span>shutdown, <span class="prelude-val">None</span>, Default::default());
-<a href=#142 id=142 data-nosnippet>142</a>            <span class="kw">let </span>_worker = worker::lock(<span class="kw-2">&amp;</span>state, || control.checkpoint())<span class="question-mark">?</span>;
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="comment">// The catalogue stamp alone cannot detect replacement or removal of an
+<a href=#122 id=122 data-nosnippet>122</a>    // original between scans. Revalidate even when the catalogue is unchanged.
+<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">if </span>epoch.is_none() || state.audio_features.warming.swap(<span class="bool-val">true</span>, Ordering::AcqRel) {
+<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">return</span>;
+<a href=#125 id=125 data-nosnippet>125</a>    }
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">let </span><span class="kw-2">mut </span>state = state.clone();
+<a href=#127 id=127 data-nosnippet>127</a>    state.catalog = shared_catalog;
+<a href=#128 id=128 data-nosnippet>128</a>    tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#129 id=129 data-nosnippet>129</a>        <span class="kw">let </span>result: <span class="prelude-ty">Result</span>&lt;(), String&gt; = (|| {
+<a href=#130 id=130 data-nosnippet>130</a>            <span class="kw">let </span>(epoch, sources) = sources(<span class="kw-2">&amp;</span>state)<span class="question-mark">?</span>;
+<a href=#131 id=131 data-nosnippet>131</a>            <span class="kw">let </span><span class="kw-2">mut </span>shutdown = state.shutdown.subscribe();
+<a href=#132 id=132 data-nosnippet>132</a>            <span class="kw">let </span>cancel = AtomicBool::new(<span class="bool-val">false</span>);
+<a href=#133 id=133 data-nosnippet>133</a>            <span class="kw">let </span><span class="kw-2">mut </span>control =
+<a href=#134 id=134 data-nosnippet>134</a>                worker::Control::new(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>cancel, <span class="kw-2">&amp;mut </span>shutdown, <span class="prelude-val">None</span>, Default::default());
+<a href=#135 id=135 data-nosnippet>135</a>            <span class="kw">let </span>_worker = worker::lock(<span class="kw-2">&amp;</span>state, || control.checkpoint())<span class="question-mark">?</span>;
+<a href=#136 id=136 data-nosnippet>136</a>            <span class="kw">let </span>retained = state
+<a href=#137 id=137 data-nosnippet>137</a>                .audio_features
+<a href=#138 id=138 data-nosnippet>138</a>                .facts
+<a href=#139 id=139 data-nosnippet>139</a>                .lock()
+<a href=#140 id=140 data-nosnippet>140</a>                .map_err(|<span class="kw">_</span>| <span class="string">"feature state unavailable"</span>)<span class="question-mark">?
+<a href=#141 id=141 data-nosnippet>141</a>                </span>.rows
+<a href=#142 id=142 data-nosnippet>142</a>                .clone();
 <a href=#143 id=143 data-nosnippet>143</a>            <span class="kw">let </span><span class="kw-2">mut </span>rows = BTreeMap::new();
 <a href=#144 id=144 data-nosnippet>144</a>            <span class="kw">let </span><span class="kw-2">mut </span>errors = <span class="number">0</span>;
 <a href=#145 id=145 data-nosnippet>145</a>            <span class="kw">for </span>source <span class="kw">in </span>sources {
@@ -147,150 +147,191 @@
 <a href=#147 id=147 data-nosnippet>147</a>                <span class="comment">// Unknown scan precision is missing evidence, not a zero stamp
 <a href=#148 id=148 data-nosnippet>148</a>                // with which to address a previously measured cache record.
 <a href=#149 id=149 data-nosnippet>149</a>                </span><span class="kw">let </span><span class="prelude-val">Ok</span>(source) = source <span class="kw">else </span>{ <span class="kw">continue </span>};
-<a href=#150 id=150 data-nosnippet>150</a>                <span class="kw">match </span>aede_core::audio_features::load(<span class="kw-2">&amp;</span>state.data_dir, <span class="kw-2">&amp;</span>identity(<span class="kw-2">&amp;</span>source)) {
-<a href=#151 id=151 data-nosnippet>151</a>                    <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(record)) =&gt; {
-<a href=#152 id=152 data-nosnippet>152</a>                        rows.insert(record.input.path.clone(), record);
-<a href=#153 id=153 data-nosnippet>153</a>                    }
-<a href=#154 id=154 data-nosnippet>154</a>                    <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; {}
-<a href=#155 id=155 data-nosnippet>155</a>                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; errors += <span class="number">1</span>,
-<a href=#156 id=156 data-nosnippet>156</a>                }
-<a href=#157 id=157 data-nosnippet>157</a>            }
-<a href=#158 id=158 data-nosnippet>158</a>            <span class="kw">if </span>state
-<a href=#159 id=159 data-nosnippet>159</a>                .catalog
-<a href=#160 id=160 data-nosnippet>160</a>                .blocking_read()
-<a href=#161 id=161 data-nosnippet>161</a>                .as_ref()
-<a href=#162 id=162 data-nosnippet>162</a>                .is_none_or(|catalog| signature(catalog) != epoch)
-<a href=#163 id=163 data-nosnippet>163</a>            {
-<a href=#164 id=164 data-nosnippet>164</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"catalog changed while warming features"</span>.to_string());
+<a href=#150 id=150 data-nosnippet>150</a>                <span class="kw">if </span>playback_api::validate_source(<span class="kw-2">&amp;</span>source).is_err() {
+<a href=#151 id=151 data-nosnippet>151</a>                    <span class="kw">continue</span>;
+<a href=#152 id=152 data-nosnippet>152</a>                }
+<a href=#153 id=153 data-nosnippet>153</a>                <span class="kw">let </span>input = identity(<span class="kw-2">&amp;</span>source);
+<a href=#154 id=154 data-nosnippet>154</a>                <span class="kw">let </span>cached = <span class="kw">match </span>retained.get(<span class="kw-2">&amp;</span>input.path) {
+<a href=#155 id=155 data-nosnippet>155</a>                    <span class="prelude-val">Some</span>(record) <span class="kw">if </span>record.input == input =&gt; <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(record.clone())),
+<a href=#156 id=156 data-nosnippet>156</a>                    <span class="kw">_ </span>=&gt; aede_core::audio_features::load(<span class="kw-2">&amp;</span>state.data_dir, <span class="kw-2">&amp;</span>input),
+<a href=#157 id=157 data-nosnippet>157</a>                };
+<a href=#158 id=158 data-nosnippet>158</a>                <span class="kw">match </span>cached {
+<a href=#159 id=159 data-nosnippet>159</a>                    <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(record)) =&gt; {
+<a href=#160 id=160 data-nosnippet>160</a>                        rows.insert(record.input.path.clone(), record);
+<a href=#161 id=161 data-nosnippet>161</a>                    }
+<a href=#162 id=162 data-nosnippet>162</a>                    <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; {}
+<a href=#163 id=163 data-nosnippet>163</a>                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; errors += <span class="number">1</span>,
+<a href=#164 id=164 data-nosnippet>164</a>                }
 <a href=#165 id=165 data-nosnippet>165</a>            }
-<a href=#166 id=166 data-nosnippet>166</a>            <span class="kw">let </span><span class="kw-2">mut </span>facts = state
-<a href=#167 id=167 data-nosnippet>167</a>                .audio_features
-<a href=#168 id=168 data-nosnippet>168</a>                .facts
-<a href=#169 id=169 data-nosnippet>169</a>                .lock()
-<a href=#170 id=170 data-nosnippet>170</a>                .map_err(|<span class="kw">_</span>| <span class="string">"feature state unavailable"</span>)<span class="question-mark">?</span>;
-<a href=#171 id=171 data-nosnippet>171</a>            <span class="kw">if </span>facts.rows != rows {
-<a href=#172 id=172 data-nosnippet>172</a>                facts.revision = facts.revision.saturating_add(<span class="number">1</span>);
+<a href=#166 id=166 data-nosnippet>166</a>            rows.retain(|<span class="kw">_</span>, record| original_matches(<span class="kw-2">&amp;</span>record.input));
+<a href=#167 id=167 data-nosnippet>167</a>            <span class="kw">let </span>catalog = state.catalog.blocking_read();
+<a href=#168 id=168 data-nosnippet>168</a>            <span class="kw">if </span>catalog
+<a href=#169 id=169 data-nosnippet>169</a>                .as_ref()
+<a href=#170 id=170 data-nosnippet>170</a>                .is_none_or(|catalog| signature(catalog) != epoch)
+<a href=#171 id=171 data-nosnippet>171</a>            {
+<a href=#172 id=172 data-nosnippet>172</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="string">"catalog changed while warming features"</span>.to_string());
 <a href=#173 id=173 data-nosnippet>173</a>            }
-<a href=#174 id=174 data-nosnippet>174</a>            facts.rows = rows;
-<a href=#175 id=175 data-nosnippet>175</a>            facts.epoch = <span class="prelude-val">Some</span>(epoch);
-<a href=#176 id=176 data-nosnippet>176</a>            facts.cache_errors = errors;
-<a href=#177 id=177 data-nosnippet>177</a>            <span class="prelude-val">Ok</span>(())
-<a href=#178 id=178 data-nosnippet>178</a>        })();
-<a href=#179 id=179 data-nosnippet>179</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(message) = result {
-<a href=#180 id=180 data-nosnippet>180</a>            <span class="macro">eprintln!</span>(<span class="string">"acoustic cache warming: {message}"</span>);
-<a href=#181 id=181 data-nosnippet>181</a>        }
-<a href=#182 id=182 data-nosnippet>182</a>        state.audio_features.warming.store(<span class="bool-val">false</span>, Ordering::Release);
-<a href=#183 id=183 data-nosnippet>183</a>    });
-<a href=#184 id=184 data-nosnippet>184</a>}
-<a href=#185 id=185 data-nosnippet>185</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>facts(state: <span class="kw-2">&amp;</span>ApiState) -&gt; <span class="prelude-ty">Result</span>&lt;std::sync::MutexGuard&lt;<span class="lifetime">'_</span>, Facts&gt;, ApiError&gt; {
-<a href=#186 id=186 data-nosnippet>186</a>    state.audio_features.facts.lock().map_err(|<span class="kw">_</span>| {
-<a href=#187 id=187 data-nosnippet>187</a>        error(
-<a href=#188 id=188 data-nosnippet>188</a>            StatusCode::INTERNAL_SERVER_ERROR,
-<a href=#189 id=189 data-nosnippet>189</a>            <span class="string">"features_unavailable"</span>,
-<a href=#190 id=190 data-nosnippet>190</a>            <span class="string">"acoustic state unavailable"</span>,
-<a href=#191 id=191 data-nosnippet>191</a>        )
-<a href=#192 id=192 data-nosnippet>192</a>    })
-<a href=#193 id=193 data-nosnippet>193</a>}
-<a href=#194 id=194 data-nosnippet>194</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>current&lt;<span class="lifetime">'a</span>&gt;(
-<a href=#195 id=195 data-nosnippet>195</a>    facts: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Facts,
-<a href=#196 id=196 data-nosnippet>196</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
-<a href=#197 id=197 data-nosnippet>197</a>    file_id: Id,
-<a href=#198 id=198 data-nosnippet>198</a>) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>aede_moods::Features&gt; {
-<a href=#199 id=199 data-nosnippet>199</a>    <span class="kw">let </span>file = catalog.file(file_id)<span class="question-mark">?</span>;
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="kw">let </span>record = facts.rows.get(<span class="kw-2">&amp;</span>file.path)<span class="question-mark">?</span>;
-<a href=#201 id=201 data-nosnippet>201</a>    (record.input.size == file.size
-<a href=#202 id=202 data-nosnippet>202</a>        &amp;&amp; record.input.modified == file.mtime
-<a href=#203 id=203 data-nosnippet>203</a>        &amp;&amp; catalog.file_mtime_subseconds.get(<span class="kw-2">&amp;</span>file.path) == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>record.input.nanos))
-<a href=#204 id=204 data-nosnippet>204</a>    .then_some(<span class="kw-2">&amp;</span>record.features)
-<a href=#205 id=205 data-nosnippet>205</a>}
-<a href=#206 id=206 data-nosnippet>206</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>coverage(state: <span class="kw-2">&amp;</span>ApiState, catalog: <span class="kw-2">&amp;</span>Catalog, facts: <span class="kw-2">&amp;</span>Facts) -&gt; serde_json::Value {
-<a href=#207 id=207 data-nosnippet>207</a>    <span class="kw">let </span>ready = catalog
-<a href=#208 id=208 data-nosnippet>208</a>        .files
-<a href=#209 id=209 data-nosnippet>209</a>        .iter()
-<a href=#210 id=210 data-nosnippet>210</a>        .filter(|f| current(facts, catalog, f.id).is_some())
-<a href=#211 id=211 data-nosnippet>211</a>        .count();
-<a href=#212 id=212 data-nosnippet>212</a>    <span class="macro">serde_json::json!</span>({<span class="string">"profile"</span>:aede_moods::PROFILE,<span class="string">"ready"</span>:ready,<span class="string">"missing"</span>:catalog.files.len()-ready,<span class="string">"cache_errors"</span>:facts.cache_errors,<span class="string">"warming"</span>:state.audio_features.warming.load(Ordering::Acquire)})
-<a href=#213 id=213 data-nosnippet>213</a>}
-<a href=#214 id=214 data-nosnippet>214</a><span class="attr">#[cfg(test)]
-<a href=#215 id=215 data-nosnippet>215</a>#[path = <span class="string">"audio_features_tests.rs"</span>]
-<a href=#216 id=216 data-nosnippet>216</a></span><span class="kw">mod </span>tests;
-<a href=#217 id=217 data-nosnippet>217</a>
-<a href=#218 id=218 data-nosnippet>218</a><span class="kw">impl </span>FeatureState {
-<a href=#219 id=219 data-nosnippet>219</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>stop(<span class="kw-2">&amp;</span><span class="self">self</span>) {
-<a href=#220 id=220 data-nosnippet>220</a>        <span class="self">self</span>.stopping.store(<span class="bool-val">true</span>, Ordering::Release);
+<a href=#174 id=174 data-nosnippet>174</a>            <span class="kw">let </span><span class="kw-2">mut </span>facts = state
+<a href=#175 id=175 data-nosnippet>175</a>                .audio_features
+<a href=#176 id=176 data-nosnippet>176</a>                .facts
+<a href=#177 id=177 data-nosnippet>177</a>                .lock()
+<a href=#178 id=178 data-nosnippet>178</a>                .map_err(|<span class="kw">_</span>| <span class="string">"feature state unavailable"</span>)<span class="question-mark">?</span>;
+<a href=#179 id=179 data-nosnippet>179</a>            <span class="kw">if </span>facts.rows != rows {
+<a href=#180 id=180 data-nosnippet>180</a>                facts.revision = facts.revision.saturating_add(<span class="number">1</span>);
+<a href=#181 id=181 data-nosnippet>181</a>            }
+<a href=#182 id=182 data-nosnippet>182</a>            facts.rows = rows;
+<a href=#183 id=183 data-nosnippet>183</a>            facts.epoch = <span class="prelude-val">Some</span>(epoch);
+<a href=#184 id=184 data-nosnippet>184</a>            facts.cache_errors = errors;
+<a href=#185 id=185 data-nosnippet>185</a>            <span class="prelude-val">Ok</span>(())
+<a href=#186 id=186 data-nosnippet>186</a>        })();
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(message) = result {
+<a href=#188 id=188 data-nosnippet>188</a>            <span class="macro">eprintln!</span>(<span class="string">"acoustic cache warming: {message}"</span>);
+<a href=#189 id=189 data-nosnippet>189</a>        }
+<a href=#190 id=190 data-nosnippet>190</a>        state.audio_features.warming.store(<span class="bool-val">false</span>, Ordering::Release);
+<a href=#191 id=191 data-nosnippet>191</a>    });
+<a href=#192 id=192 data-nosnippet>192</a>}
+<a href=#193 id=193 data-nosnippet>193</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>facts(state: <span class="kw-2">&amp;</span>ApiState) -&gt; <span class="prelude-ty">Result</span>&lt;std::sync::MutexGuard&lt;<span class="lifetime">'_</span>, Facts&gt;, ApiError&gt; {
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">let </span><span class="kw-2">mut </span>facts = state.audio_features.facts.lock().map_err(|<span class="kw">_</span>| {
+<a href=#195 id=195 data-nosnippet>195</a>        error(
+<a href=#196 id=196 data-nosnippet>196</a>            StatusCode::INTERNAL_SERVER_ERROR,
+<a href=#197 id=197 data-nosnippet>197</a>            <span class="string">"features_unavailable"</span>,
+<a href=#198 id=198 data-nosnippet>198</a>            <span class="string">"acoustic state unavailable"</span>,
+<a href=#199 id=199 data-nosnippet>199</a>        )
+<a href=#200 id=200 data-nosnippet>200</a>    })<span class="question-mark">?</span>;
+<a href=#201 id=201 data-nosnippet>201</a>    <span class="comment">// Validate once per projection, before its revision is calculated. Recipes
+<a href=#202 id=202 data-nosnippet>202</a>    // can then share this bounded snapshot without a filesystem read per row.
+<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="kw">let </span>before = facts.rows.len();
+<a href=#204 id=204 data-nosnippet>204</a>    facts
+<a href=#205 id=205 data-nosnippet>205</a>        .rows
+<a href=#206 id=206 data-nosnippet>206</a>        .retain(|<span class="kw">_</span>, record| original_matches(<span class="kw-2">&amp;</span>record.input));
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="kw">if </span>facts.rows.len() != before {
+<a href=#208 id=208 data-nosnippet>208</a>        facts.revision = facts.revision.saturating_add(<span class="number">1</span>);
+<a href=#209 id=209 data-nosnippet>209</a>    }
+<a href=#210 id=210 data-nosnippet>210</a>    <span class="prelude-val">Ok</span>(facts)
+<a href=#211 id=211 data-nosnippet>211</a>}
+<a href=#212 id=212 data-nosnippet>212</a>
+<a href=#213 id=213 data-nosnippet>213</a><span class="kw">fn </span>original_matches(input: <span class="kw-2">&amp;</span>InputIdentity) -&gt; bool {
+<a href=#214 id=214 data-nosnippet>214</a>    <span class="kw">let </span>path = Path::new(<span class="kw-2">&amp;</span>input.path);
+<a href=#215 id=215 data-nosnippet>215</a>    <span class="kw">if </span>!path.is_absolute()
+<a href=#216 id=216 data-nosnippet>216</a>        || path
+<a href=#217 id=217 data-nosnippet>217</a>            .components()
+<a href=#218 id=218 data-nosnippet>218</a>            .any(|part| <span class="macro">matches!</span>(part, std::path::Component::ParentDir))
+<a href=#219 id=219 data-nosnippet>219</a>    {
+<a href=#220 id=220 data-nosnippet>220</a>        <span class="kw">return </span><span class="bool-val">false</span>;
 <a href=#221 id=221 data-nosnippet>221</a>    }
-<a href=#222 id=222 data-nosnippet>222</a>}
-<a href=#223 id=223 data-nosnippet>223</a><span class="attr">#[derive(Deserialize)]
-<a href=#224 id=224 data-nosnippet>224</a>#[serde(deny_unknown_fields)]
-<a href=#225 id=225 data-nosnippet>225</a></span><span class="kw">struct </span>Priority {
-<a href=#226 id=226 data-nosnippet>226</a>    client: String,
-<a href=#227 id=227 data-nosnippet>227</a>    active: bool,
-<a href=#228 id=228 data-nosnippet>228</a>}
-<a href=#229 id=229 data-nosnippet>229</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>routes() -&gt; Router&lt;ApiState&gt; {
-<a href=#230 id=230 data-nosnippet>230</a>    Router::new().route(<span class="string">"/api/me/v1/background-priority"</span>, post(priority))
+<a href=#222 id=222 data-nosnippet>222</a>    std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+<a href=#223 id=223 data-nosnippet>223</a>        !metadata.file_type().is_symlink()
+<a href=#224 id=224 data-nosnippet>224</a>            &amp;&amp; aede_core::user::PlaybackSource {
+<a href=#225 id=225 data-nosnippet>225</a>                size: input.size,
+<a href=#226 id=226 data-nosnippet>226</a>                mtime: input.modified,
+<a href=#227 id=227 data-nosnippet>227</a>                mtime_ns: <span class="prelude-val">Some</span>(input.nanos),
+<a href=#228 id=228 data-nosnippet>228</a>            }
+<a href=#229 id=229 data-nosnippet>229</a>            .matches_metadata(<span class="kw-2">&amp;</span>metadata)
+<a href=#230 id=230 data-nosnippet>230</a>    })
 <a href=#231 id=231 data-nosnippet>231</a>}
-<a href=#232 id=232 data-nosnippet>232</a><span class="kw">async fn </span>priority(
-<a href=#233 id=233 data-nosnippet>233</a>    State(state): State&lt;ApiState&gt;,
-<a href=#234 id=234 data-nosnippet>234</a>    request: Request,
-<a href=#235 id=235 data-nosnippet>235</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;serde_json::Value&gt;, ApiError&gt; {
-<a href=#236 id=236 data-nosnippet>236</a>    personal::no_query(<span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
-<a href=#237 id=237 data-nosnippet>237</a>    <span class="kw">let </span>principal = auth::request_principal(<span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
-<a href=#238 id=238 data-nosnippet>238</a>    <span class="kw">let </span>data: Priority = jobs::decode(<span class="kw-2">&amp;</span>jobs::body(request, <span class="number">256</span>).<span class="kw">await</span><span class="question-mark">?</span>)<span class="question-mark">?</span>;
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="kw">if </span>data.client.len() != <span class="number">36
-<a href=#240 id=240 data-nosnippet>240</a>        </span>|| !data.client.bytes().enumerate().all(|(i, c)| {
-<a href=#241 id=241 data-nosnippet>241</a>            <span class="kw">if </span>[<span class="number">8</span>, <span class="number">13</span>, <span class="number">18</span>, <span class="number">23</span>].contains(<span class="kw-2">&amp;</span>i) {
-<a href=#242 id=242 data-nosnippet>242</a>                c == <span class="string">b'-'
-<a href=#243 id=243 data-nosnippet>243</a>            </span>} <span class="kw">else </span>{
-<a href=#244 id=244 data-nosnippet>244</a>                c.is_ascii_hexdigit()
-<a href=#245 id=245 data-nosnippet>245</a>            }
-<a href=#246 id=246 data-nosnippet>246</a>        })
-<a href=#247 id=247 data-nosnippet>247</a>    {
-<a href=#248 id=248 data-nosnippet>248</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"client must be a UUID"</span>));
-<a href=#249 id=249 data-nosnippet>249</a>    }
-<a href=#250 id=250 data-nosnippet>250</a>    auth::recheck(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>principal)<span class="question-mark">?</span>;
-<a href=#251 id=251 data-nosnippet>251</a>    <span class="kw">let </span><span class="kw-2">mut </span>leases = state
-<a href=#252 id=252 data-nosnippet>252</a>        .audio_features
-<a href=#253 id=253 data-nosnippet>253</a>        .leases
-<a href=#254 id=254 data-nosnippet>254</a>        .lock()
-<a href=#255 id=255 data-nosnippet>255</a>        .map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?</span>;
-<a href=#256 id=256 data-nosnippet>256</a>    leases.retain(|<span class="kw">_</span>, time| time.elapsed() &lt; Duration::from_secs(<span class="number">6</span>));
-<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">let </span>key = (principal.owner.clone(), data.client);
-<a href=#258 id=258 data-nosnippet>258</a>    <span class="kw">if </span>data.active {
-<a href=#259 id=259 data-nosnippet>259</a>        <span class="kw">if </span>!leases.contains_key(<span class="kw-2">&amp;</span>key)
-<a href=#260 id=260 data-nosnippet>260</a>            &amp;&amp; (leases.len() &gt;= <span class="number">64
-<a href=#261 id=261 data-nosnippet>261</a>                </span>|| leases
-<a href=#262 id=262 data-nosnippet>262</a>                    .keys()
-<a href=#263 id=263 data-nosnippet>263</a>                    .filter(|(owner, <span class="kw">_</span>)| owner == <span class="kw-2">&amp;</span>principal.owner)
-<a href=#264 id=264 data-nosnippet>264</a>                    .count()
-<a href=#265 id=265 data-nosnippet>265</a>                    &gt;= <span class="number">8</span>)
-<a href=#266 id=266 data-nosnippet>266</a>        {
-<a href=#267 id=267 data-nosnippet>267</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(error(
-<a href=#268 id=268 data-nosnippet>268</a>                StatusCode::TOO_MANY_REQUESTS,
-<a href=#269 id=269 data-nosnippet>269</a>                <span class="string">"priority_limit"</span>,
-<a href=#270 id=270 data-nosnippet>270</a>                <span class="string">"foreground lease capacity reached"</span>,
-<a href=#271 id=271 data-nosnippet>271</a>            ));
-<a href=#272 id=272 data-nosnippet>272</a>        }
-<a href=#273 id=273 data-nosnippet>273</a>        leases.insert(key, Instant::now());
-<a href=#274 id=274 data-nosnippet>274</a>    } <span class="kw">else </span>{
-<a href=#275 id=275 data-nosnippet>275</a>        leases.remove(<span class="kw-2">&amp;</span>key);
-<a href=#276 id=276 data-nosnippet>276</a>    }
-<a href=#277 id=277 data-nosnippet>277</a>    <span class="prelude-val">Ok</span>(Json(
-<a href=#278 id=278 data-nosnippet>278</a>        <span class="macro">serde_json::json!</span>({<span class="string">"active"</span>:data.active,<span class="string">"expires_in_ms"</span>:<span class="number">6000</span>}),
-<a href=#279 id=279 data-nosnippet>279</a>    ))
-<a href=#280 id=280 data-nosnippet>280</a>}
-<a href=#281 id=281 data-nosnippet>281</a>
-<a href=#282 id=282 data-nosnippet>282</a><span class="kw">fn </span>signature(catalog: <span class="kw-2">&amp;</span>Catalog) -&gt; u64 {
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="kw">use </span>std::hash::{Hash, Hasher};
-<a href=#284 id=284 data-nosnippet>284</a>    <span class="kw">let </span><span class="kw-2">mut </span>hash = std::collections::hash_map::DefaultHasher::new();
-<a href=#285 id=285 data-nosnippet>285</a>    catalog.scanned_at.hash(<span class="kw-2">&amp;mut </span>hash);
-<a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">for </span>file <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.files {
-<a href=#287 id=287 data-nosnippet>287</a>        (
-<a href=#288 id=288 data-nosnippet>288</a>            file.path.as_str(),
-<a href=#289 id=289 data-nosnippet>289</a>            file.size,
-<a href=#290 id=290 data-nosnippet>290</a>            file.mtime,
-<a href=#291 id=291 data-nosnippet>291</a>            catalog.file_mtime_subseconds.get(<span class="kw-2">&amp;</span>file.path),
-<a href=#292 id=292 data-nosnippet>292</a>        )
-<a href=#293 id=293 data-nosnippet>293</a>            .hash(<span class="kw-2">&amp;mut </span>hash);
-<a href=#294 id=294 data-nosnippet>294</a>    }
-<a href=#295 id=295 data-nosnippet>295</a>    hash.finish()
-<a href=#296 id=296 data-nosnippet>296</a>}</code></pre></div></section></main></body></html>
+<a href=#232 id=232 data-nosnippet>232</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>current&lt;<span class="lifetime">'a</span>&gt;(
+<a href=#233 id=233 data-nosnippet>233</a>    facts: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Facts,
+<a href=#234 id=234 data-nosnippet>234</a>    catalog: <span class="kw-2">&amp;</span>Catalog,
+<a href=#235 id=235 data-nosnippet>235</a>    file_id: Id,
+<a href=#236 id=236 data-nosnippet>236</a>) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>aede_moods::Features&gt; {
+<a href=#237 id=237 data-nosnippet>237</a>    <span class="kw">let </span>file = catalog.file(file_id)<span class="question-mark">?</span>;
+<a href=#238 id=238 data-nosnippet>238</a>    <span class="kw">let </span>record = facts.rows.get(<span class="kw-2">&amp;</span>file.path)<span class="question-mark">?</span>;
+<a href=#239 id=239 data-nosnippet>239</a>    (record.input.size == file.size
+<a href=#240 id=240 data-nosnippet>240</a>        &amp;&amp; record.input.modified == file.mtime
+<a href=#241 id=241 data-nosnippet>241</a>        &amp;&amp; catalog.file_mtime_subseconds.get(<span class="kw-2">&amp;</span>file.path) == <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>record.input.nanos))
+<a href=#242 id=242 data-nosnippet>242</a>    .then_some(<span class="kw-2">&amp;</span>record.features)
+<a href=#243 id=243 data-nosnippet>243</a>}
+<a href=#244 id=244 data-nosnippet>244</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>coverage(state: <span class="kw-2">&amp;</span>ApiState, catalog: <span class="kw-2">&amp;</span>Catalog, facts: <span class="kw-2">&amp;</span>Facts) -&gt; serde_json::Value {
+<a href=#245 id=245 data-nosnippet>245</a>    <span class="kw">let </span>ready = catalog
+<a href=#246 id=246 data-nosnippet>246</a>        .files
+<a href=#247 id=247 data-nosnippet>247</a>        .iter()
+<a href=#248 id=248 data-nosnippet>248</a>        .filter(|f| current(facts, catalog, f.id).is_some())
+<a href=#249 id=249 data-nosnippet>249</a>        .count();
+<a href=#250 id=250 data-nosnippet>250</a>    <span class="macro">serde_json::json!</span>({<span class="string">"profile"</span>:aede_moods::PROFILE,<span class="string">"ready"</span>:ready,<span class="string">"missing"</span>:catalog.files.len()-ready,<span class="string">"cache_errors"</span>:facts.cache_errors,<span class="string">"warming"</span>:state.audio_features.warming.load(Ordering::Acquire)})
+<a href=#251 id=251 data-nosnippet>251</a>}
+<a href=#252 id=252 data-nosnippet>252</a><span class="attr">#[cfg(test)]
+<a href=#253 id=253 data-nosnippet>253</a>#[path = <span class="string">"ae016_tests.rs"</span>]
+<a href=#254 id=254 data-nosnippet>254</a></span><span class="kw">mod </span>ae016_tests;
+<a href=#255 id=255 data-nosnippet>255</a><span class="attr">#[cfg(test)]
+<a href=#256 id=256 data-nosnippet>256</a>#[path = <span class="string">"audio_features_tests.rs"</span>]
+<a href=#257 id=257 data-nosnippet>257</a></span><span class="kw">mod </span>tests;
+<a href=#258 id=258 data-nosnippet>258</a>
+<a href=#259 id=259 data-nosnippet>259</a><span class="kw">impl </span>FeatureState {
+<a href=#260 id=260 data-nosnippet>260</a>    <span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>stop(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+<a href=#261 id=261 data-nosnippet>261</a>        <span class="self">self</span>.stopping.store(<span class="bool-val">true</span>, Ordering::Release);
+<a href=#262 id=262 data-nosnippet>262</a>    }
+<a href=#263 id=263 data-nosnippet>263</a>}
+<a href=#264 id=264 data-nosnippet>264</a><span class="attr">#[derive(Deserialize)]
+<a href=#265 id=265 data-nosnippet>265</a>#[serde(deny_unknown_fields)]
+<a href=#266 id=266 data-nosnippet>266</a></span><span class="kw">struct </span>Priority {
+<a href=#267 id=267 data-nosnippet>267</a>    client: String,
+<a href=#268 id=268 data-nosnippet>268</a>    active: bool,
+<a href=#269 id=269 data-nosnippet>269</a>}
+<a href=#270 id=270 data-nosnippet>270</a><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">fn </span>routes() -&gt; Router&lt;ApiState&gt; {
+<a href=#271 id=271 data-nosnippet>271</a>    Router::new().route(<span class="string">"/api/me/v1/background-priority"</span>, post(priority))
+<a href=#272 id=272 data-nosnippet>272</a>}
+<a href=#273 id=273 data-nosnippet>273</a><span class="kw">async fn </span>priority(
+<a href=#274 id=274 data-nosnippet>274</a>    State(state): State&lt;ApiState&gt;,
+<a href=#275 id=275 data-nosnippet>275</a>    request: Request,
+<a href=#276 id=276 data-nosnippet>276</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;serde_json::Value&gt;, ApiError&gt; {
+<a href=#277 id=277 data-nosnippet>277</a>    personal::no_query(<span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
+<a href=#278 id=278 data-nosnippet>278</a>    <span class="kw">let </span>principal = auth::request_principal(<span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
+<a href=#279 id=279 data-nosnippet>279</a>    <span class="kw">let </span>data: Priority = jobs::decode(<span class="kw-2">&amp;</span>jobs::body(request, <span class="number">256</span>).<span class="kw">await</span><span class="question-mark">?</span>)<span class="question-mark">?</span>;
+<a href=#280 id=280 data-nosnippet>280</a>    <span class="kw">if </span>data.client.len() != <span class="number">36
+<a href=#281 id=281 data-nosnippet>281</a>        </span>|| !data.client.bytes().enumerate().all(|(i, c)| {
+<a href=#282 id=282 data-nosnippet>282</a>            <span class="kw">if </span>[<span class="number">8</span>, <span class="number">13</span>, <span class="number">18</span>, <span class="number">23</span>].contains(<span class="kw-2">&amp;</span>i) {
+<a href=#283 id=283 data-nosnippet>283</a>                c == <span class="string">b'-'
+<a href=#284 id=284 data-nosnippet>284</a>            </span>} <span class="kw">else </span>{
+<a href=#285 id=285 data-nosnippet>285</a>                c.is_ascii_hexdigit()
+<a href=#286 id=286 data-nosnippet>286</a>            }
+<a href=#287 id=287 data-nosnippet>287</a>        })
+<a href=#288 id=288 data-nosnippet>288</a>    {
+<a href=#289 id=289 data-nosnippet>289</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(invalid_query(<span class="string">"client must be a UUID"</span>));
+<a href=#290 id=290 data-nosnippet>290</a>    }
+<a href=#291 id=291 data-nosnippet>291</a>    auth::recheck(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>principal)<span class="question-mark">?</span>;
+<a href=#292 id=292 data-nosnippet>292</a>    <span class="kw">let </span><span class="kw-2">mut </span>leases = state
+<a href=#293 id=293 data-nosnippet>293</a>        .audio_features
+<a href=#294 id=294 data-nosnippet>294</a>        .leases
+<a href=#295 id=295 data-nosnippet>295</a>        .lock()
+<a href=#296 id=296 data-nosnippet>296</a>        .map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?</span>;
+<a href=#297 id=297 data-nosnippet>297</a>    leases.retain(|<span class="kw">_</span>, time| time.elapsed() &lt; Duration::from_secs(<span class="number">6</span>));
+<a href=#298 id=298 data-nosnippet>298</a>    <span class="kw">let </span>key = (principal.owner.clone(), data.client);
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="kw">if </span>data.active {
+<a href=#300 id=300 data-nosnippet>300</a>        <span class="kw">if </span>!leases.contains_key(<span class="kw-2">&amp;</span>key)
+<a href=#301 id=301 data-nosnippet>301</a>            &amp;&amp; (leases.len() &gt;= <span class="number">64
+<a href=#302 id=302 data-nosnippet>302</a>                </span>|| leases
+<a href=#303 id=303 data-nosnippet>303</a>                    .keys()
+<a href=#304 id=304 data-nosnippet>304</a>                    .filter(|(owner, <span class="kw">_</span>)| owner == <span class="kw-2">&amp;</span>principal.owner)
+<a href=#305 id=305 data-nosnippet>305</a>                    .count()
+<a href=#306 id=306 data-nosnippet>306</a>                    &gt;= <span class="number">8</span>)
+<a href=#307 id=307 data-nosnippet>307</a>        {
+<a href=#308 id=308 data-nosnippet>308</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(error(
+<a href=#309 id=309 data-nosnippet>309</a>                StatusCode::TOO_MANY_REQUESTS,
+<a href=#310 id=310 data-nosnippet>310</a>                <span class="string">"priority_limit"</span>,
+<a href=#311 id=311 data-nosnippet>311</a>                <span class="string">"foreground lease capacity reached"</span>,
+<a href=#312 id=312 data-nosnippet>312</a>            ));
+<a href=#313 id=313 data-nosnippet>313</a>        }
+<a href=#314 id=314 data-nosnippet>314</a>        leases.insert(key, Instant::now());
+<a href=#315 id=315 data-nosnippet>315</a>    } <span class="kw">else </span>{
+<a href=#316 id=316 data-nosnippet>316</a>        leases.remove(<span class="kw-2">&amp;</span>key);
+<a href=#317 id=317 data-nosnippet>317</a>    }
+<a href=#318 id=318 data-nosnippet>318</a>    <span class="prelude-val">Ok</span>(Json(
+<a href=#319 id=319 data-nosnippet>319</a>        <span class="macro">serde_json::json!</span>({<span class="string">"active"</span>:data.active,<span class="string">"expires_in_ms"</span>:<span class="number">6000</span>}),
+<a href=#320 id=320 data-nosnippet>320</a>    ))
+<a href=#321 id=321 data-nosnippet>321</a>}
+<a href=#322 id=322 data-nosnippet>322</a>
+<a href=#323 id=323 data-nosnippet>323</a><span class="kw">fn </span>signature(catalog: <span class="kw-2">&amp;</span>Catalog) -&gt; u64 {
+<a href=#324 id=324 data-nosnippet>324</a>    <span class="kw">use </span>std::hash::{Hash, Hasher};
+<a href=#325 id=325 data-nosnippet>325</a>    <span class="kw">let </span><span class="kw-2">mut </span>hash = std::collections::hash_map::DefaultHasher::new();
+<a href=#326 id=326 data-nosnippet>326</a>    catalog.scanned_at.hash(<span class="kw-2">&amp;mut </span>hash);
+<a href=#327 id=327 data-nosnippet>327</a>    <span class="kw">for </span>file <span class="kw">in </span><span class="kw-2">&amp;</span>catalog.files {
+<a href=#328 id=328 data-nosnippet>328</a>        (
+<a href=#329 id=329 data-nosnippet>329</a>            file.path.as_str(),
+<a href=#330 id=330 data-nosnippet>330</a>            file.size,
+<a href=#331 id=331 data-nosnippet>331</a>            file.mtime,
+<a href=#332 id=332 data-nosnippet>332</a>            catalog.file_mtime_subseconds.get(<span class="kw-2">&amp;</span>file.path),
+<a href=#333 id=333 data-nosnippet>333</a>        )
+<a href=#334 id=334 data-nosnippet>334</a>            .hash(<span class="kw-2">&amp;mut </span>hash);
+<a href=#335 id=335 data-nosnippet>335</a>    }
+<a href=#336 id=336 data-nosnippet>336</a>    hash.finish()
+<a href=#337 id=337 data-nosnippet>337</a>}</code></pre></div></section></main></body></html>

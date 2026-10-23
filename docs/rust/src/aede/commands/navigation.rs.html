@@ -66,7 +66,7 @@
 <a href=#66 id=66 data-nosnippet>66</a>        <span class="kw">let </span><span class="kw-2">mut </span>table = Table::new(<span class="kw-2">&amp;</span>[<span class="string">"Relation"</span>, <span class="string">"Command"</span>]).limit(<span class="number">0</span>, <span class="number">30</span>);
 <a href=#67 id=67 data-nosnippet>67</a>        <span class="kw">let </span>total = <span class="self">self</span>.rows.len();
 <a href=#68 id=68 data-nosnippet>68</a>        <span class="kw">for </span>(relation, command) <span class="kw">in </span><span class="self">self</span>.rows.into_iter().take(LIMIT) {
-<a href=#69 id=69 data-nosnippet>69</a>            table.push(<span class="macro">vec!</span>[relation, command]);
+<a href=#69 id=69 data-nosnippet>69</a>            table.push(<span class="macro">vec!</span>[ui::literal(<span class="kw-2">&amp;</span>relation), ui::literal(<span class="kw-2">&amp;</span>command)]);
 <a href=#70 id=70 data-nosnippet>70</a>        }
 <a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">let </span><span class="kw-2">mut </span>output = <span class="macro">format!</span>(<span class="string">"{}\n{}"</span>, ui::section(<span class="string">"Continue"</span>), table.render());
 <a href=#72 id=72 data-nosnippet>72</a>        <span class="kw">if </span>total &gt; LIMIT {

@@ -12,8 +12,8 @@
 <meta property="og:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Audio player, music library and DSP"><meta name="twitter:description" content="Aède, a local audio player and music library manager: lyrics, credits, artist relationships, search, verified copying and DSP. Explore the CLI, server and user manual."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
-<link rel="stylesheet" href="../styles.css?v=5ec9e536b490">
-<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=7c991a62e98e"></script><script defer src="../translations.js?v=e296a82eba78"></script><script defer src="../app.js?v=b3b6c69b9484"></script>
+<link rel="stylesheet" href="../styles.css?v=d673321847aa">
+<script src="../language.js?v=cd2025bbb364"></script><script defer src="../home-strings.js?v=8939fceec8f7"></script><script defer src="../translations.js?v=e296a82eba78"></script><script defer src="../sillons.js?v=ce683c9a6407"></script><script defer src="../app.js?v=a67323eb3d3a"></script>
 <script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -44,8 +44,10 @@
         <p class="ae-deck">Listen. Explore. Preserve.</p>
         <div class="ae-stage" aria-label="Feature illustrations">
           <div class="ae-scene ae-sound">
-            <canvas id="ae-sound-canvas" role="img" aria-label="Illustrative audio spectrum and waveform"></canvas>
-            <p class="ae-scene-foot">Spectrum &amp; pulses · Synthetic signal</p>
+            <button id="ae-sillons" class="ae-sillons cursor-interaction" type="button" aria-label="Sillons, an interactive 3D sculpture. Move the pointer to lift the rings. Click or press Enter for an impulse. Arrow keys move the relief; Escape resets it.">
+              <canvas class="ae-sillons-fallback" aria-hidden="true"></canvas>
+            </button>
+            <p class="ae-scene-foot">Sillons · Hover over the relief; click for an impulse.</p>
           </div>
           <div class="ae-scene ae-graph" hidden>
             <canvas id="ae-graph-canvas" role="img" aria-label="Relationships between an album, artist, musician, producer, track, work and composer"></canvas>
@@ -122,7 +124,7 @@ Audio and tags unchanged.</pre>
           <p>The local server exposes the catalog to clients and centralises scanning and information retrieval jobs.</p>
           <p class="ae-status">API, accounts and HTTPS available</p>
           <p>Two ways to start: the CLI for scripts, or the Aède app to add folders and run a local HTTPS server connected to Phémios.</p>
-          <p class="ae-future">Version 0.6.1 in preparation · separate CLI and App downloads at release.</p>
+          <p class="ae-future">Version 0.7.0 in preparation · separate CLI and App downloads at release.</p>
           <a class="ae-text-link" href="../docs/en/server/reference/desktop.html">Explore the server app <span aria-hidden="true">→</span></a>
           <ul class="ae-feature-list"><li>A catalog shared between clients.</li><li>Scans and fetches tracked in one place.</li><li>Catalog browsing, original audio, favourites and playlists through Subsonic/OpenSubsonic.</li><li>A foundation for future interfaces.</li></ul>
           <p class="ae-future">Use a separate key for each application. Browsing and FLAC playback have been verified with Submariner on macOS; check which features your player supports.</p>

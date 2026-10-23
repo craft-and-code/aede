@@ -261,144 +261,153 @@
 <a href=#261 id=261 data-nosnippet>261</a>            .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw">_</span>&gt;&gt;()<span class="question-mark">?
 <a href=#262 id=262 data-nosnippet>262</a>    </span>};
 <a href=#263 id=263 data-nosnippet>263</a>    <span class="comment">// Source validation performs filesystem IO off the async executor.
-<a href=#264 id=264 data-nosnippet>264</a>    </span><span class="kw">let </span>paths = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#264 id=264 data-nosnippet>264</a>    </span><span class="kw">let </span>sources = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
 <a href=#265 id=265 data-nosnippet>265</a>        sources
 <a href=#266 id=266 data-nosnippet>266</a>            .iter()
 <a href=#267 id=267 data-nosnippet>267</a>            .map(|source| {
-<a href=#268 id=268 data-nosnippet>268</a>                <span class="kw">super</span>::playback_api::validate_source(source).map_err(|<span class="kw">_</span>| <span class="string">"track source changed"</span>)<span class="question-mark">?</span>;
-<a href=#269 id=269 data-nosnippet>269</a>                <span class="prelude-val">Ok</span>(source.path.clone())
-<a href=#270 id=270 data-nosnippet>270</a>            })
-<a href=#271 id=271 data-nosnippet>271</a>            .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw-2">&amp;</span>str&gt;&gt;()
-<a href=#272 id=272 data-nosnippet>272</a>    })
-<a href=#273 id=273 data-nosnippet>273</a>    .<span class="kw">await
-<a href=#274 id=274 data-nosnippet>274</a>    </span>.map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?
-<a href=#275 id=275 data-nosnippet>275</a>    </span>.map_err(|<span class="kw">_</span>| <span class="kw">super</span>::invalid_query(<span class="string">"track source changed; rescan the library"</span>))<span class="question-mark">?</span>;
-<a href=#276 id=276 data-nosnippet>276</a>    auth::recheck(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>principal)<span class="question-mark">?</span>;
-<a href=#277 id=277 data-nosnippet>277</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
-<a href=#278 id=278 data-nosnippet>278</a>        shutdown.try_recv(),
-<a href=#279 id=279 data-nosnippet>279</a>        <span class="prelude-val">Err</span>(broadcast::error::TryRecvError::Empty)
-<a href=#280 id=280 data-nosnippet>280</a>    ) {
-<a href=#281 id=281 data-nosnippet>281</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(shutting_down());
-<a href=#282 id=282 data-nosnippet>282</a>    }
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="kw">let </span>id = state.next_task_id.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
-<a href=#284 id=284 data-nosnippet>284</a>    <span class="kw">let </span>cancelled = Arc::new(AtomicBool::new(<span class="bool-val">false</span>));
-<a href=#285 id=285 data-nosnippet>285</a>    {
-<a href=#286 id=286 data-nosnippet>286</a>        <span class="kw">let </span><span class="kw-2">mut </span>held = state.network_audio.run.lock().map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?</span>;
-<a href=#287 id=287 data-nosnippet>287</a>        <span class="kw">if </span>held
-<a href=#288 id=288 data-nosnippet>288</a>            .as_ref()
-<a href=#289 id=289 data-nosnippet>289</a>            .is_some_and(|run| <span class="macro">matches!</span>(run.status, <span class="string">"running" </span>| <span class="string">"stopping"</span>))
-<a href=#290 id=290 data-nosnippet>290</a>        {
-<a href=#291 id=291 data-nosnippet>291</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(error(
-<a href=#292 id=292 data-nosnippet>292</a>                StatusCode::CONFLICT,
-<a href=#293 id=293 data-nosnippet>293</a>                <span class="string">"network_audio_busy"</span>,
-<a href=#294 id=294 data-nosnippet>294</a>                <span class="string">"a network session is already active"</span>,
-<a href=#295 id=295 data-nosnippet>295</a>            ));
-<a href=#296 id=296 data-nosnippet>296</a>        }
-<a href=#297 id=297 data-nosnippet>297</a>        <span class="kw-2">*</span>held = <span class="prelude-val">Some</span>(Run {
-<a href=#298 id=298 data-nosnippet>298</a>            id,
-<a href=#299 id=299 data-nosnippet>299</a>            owner: auth::session_token(<span class="kw-2">&amp;</span>principal).into(),
-<a href=#300 id=300 data-nosnippet>300</a>            cancelled: cancelled.clone(),
-<a href=#301 id=301 data-nosnippet>301</a>            status: <span class="string">"running"</span>,
-<a href=#302 id=302 data-nosnippet>302</a>            last_seen: Instant::now(),
-<a href=#303 id=303 data-nosnippet>303</a>        });
-<a href=#304 id=304 data-nosnippet>304</a>    }
-<a href=#305 id=305 data-nosnippet>305</a>    tokio::spawn(supervise(
-<a href=#306 id=306 data-nosnippet>306</a>        state.clone(),
-<a href=#307 id=307 data-nosnippet>307</a>        principal,
-<a href=#308 id=308 data-nosnippet>308</a>        id,
-<a href=#309 id=309 data-nosnippet>309</a>        cancelled,
-<a href=#310 id=310 data-nosnippet>310</a>        options,
-<a href=#311 id=311 data-nosnippet>311</a>        paths,
-<a href=#312 id=312 data-nosnippet>312</a>        shutdown,
-<a href=#313 id=313 data-nosnippet>313</a>    ));
-<a href=#314 id=314 data-nosnippet>314</a>    <span class="prelude-val">Ok</span>(Json(<span class="macro">serde_json::json!</span>({<span class="string">"id"</span>:id,<span class="string">"status"</span>:<span class="string">"running"</span>})))
-<a href=#315 id=315 data-nosnippet>315</a>}
-<a href=#316 id=316 data-nosnippet>316</a><span class="kw">fn </span>supervise(
-<a href=#317 id=317 data-nosnippet>317</a>    state: ApiState,
-<a href=#318 id=318 data-nosnippet>318</a>    principal: auth::Principal,
-<a href=#319 id=319 data-nosnippet>319</a>    id: u64,
-<a href=#320 id=320 data-nosnippet>320</a>    cancelled: Arc&lt;AtomicBool&gt;,
-<a href=#321 id=321 data-nosnippet>321</a>    options: aede_devices::CastOptions,
-<a href=#322 id=322 data-nosnippet>322</a>    paths: Vec&lt;PathBuf&gt;,
-<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
-<a href=#324 id=324 data-nosnippet>324</a>) -&gt; <span class="kw">impl </span>Future&lt;Output = ()&gt; + Send {
-<a href=#325 id=325 data-nosnippet>325</a>    <span class="comment">// Keep the receiver captured before source preparation, including signals
-<a href=#326 id=326 data-nosnippet>326</a>    // delivered before this future receives its first poll.
-<a href=#327 id=327 data-nosnippet>327</a>    </span><span class="kw">let </span>cancel_on_drop = CancellationGuard(cancelled.clone());
-<a href=#328 id=328 data-nosnippet>328</a>    <span class="kw">async move </span>{
-<a href=#329 id=329 data-nosnippet>329</a>        <span class="kw">let </span>_cancel_on_drop = cancel_on_drop;
-<a href=#330 id=330 data-nosnippet>330</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(
-<a href=#331 id=331 data-nosnippet>331</a>            shutdown.try_recv(),
-<a href=#332 id=332 data-nosnippet>332</a>            <span class="prelude-val">Err</span>(broadcast::error::TryRecvError::Empty)
-<a href=#333 id=333 data-nosnippet>333</a>        ) {
-<a href=#334 id=334 data-nosnippet>334</a>            cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
-<a href=#335 id=335 data-nosnippet>335</a>        }
-<a href=#336 id=336 data-nosnippet>336</a>        <span class="kw">let </span>flag = cancelled.clone();
-<a href=#337 id=337 data-nosnippet>337</a>        <span class="kw">let </span><span class="kw-2">mut </span>worker = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
-<a href=#338 id=338 data-nosnippet>338</a>            aede_devices::cast_controlled(options, paths, flag)
-<a href=#339 id=339 data-nosnippet>339</a>        });
-<a href=#340 id=340 data-nosnippet>340</a>        <span class="kw">let </span>identity = auth::SocketIdentity {
-<a href=#341 id=341 data-nosnippet>341</a>            session: <span class="prelude-val">Some</span>(principal),
-<a href=#342 id=342 data-nosnippet>342</a>            administrative: <span class="bool-val">false</span>,
-<a href=#343 id=343 data-nosnippet>343</a>        };
-<a href=#344 id=344 data-nosnippet>344</a>        <span class="kw">let </span>authorization = <span class="kw">async </span>{
-<a href=#345 id=345 data-nosnippet>345</a>            <span class="kw">let </span><span class="kw-2">mut </span>interval = tokio::time::interval(Duration::from_millis(<span class="number">500</span>));
-<a href=#346 id=346 data-nosnippet>346</a>            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-<a href=#347 id=347 data-nosnippet>347</a>            <span class="kw">loop </span>{
-<a href=#348 id=348 data-nosnippet>348</a>                interval.tick().<span class="kw">await</span>;
-<a href=#349 id=349 data-nosnippet>349</a>                <span class="kw">if </span>!auth::socket_live(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>identity).<span class="kw">await </span>{
-<a href=#350 id=350 data-nosnippet>350</a>                    <span class="kw">return</span>;
-<a href=#351 id=351 data-nosnippet>351</a>                }
-<a href=#352 id=352 data-nosnippet>352</a>            }
-<a href=#353 id=353 data-nosnippet>353</a>        };
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="macro">tokio::pin!</span>(authorization);
-<a href=#355 id=355 data-nosnippet>355</a>        <span class="comment">// A queued credential read cannot suspend shutdown or lease expiry.
-<a href=#356 id=356 data-nosnippet>356</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>lease = tokio::time::interval(Duration::from_millis(<span class="number">500</span>));
-<a href=#357 id=357 data-nosnippet>357</a>        lease.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-<a href=#358 id=358 data-nosnippet>358</a>        <span class="kw">let </span><span class="kw-2">mut </span>shutdown_seen = <span class="bool-val">false</span>;
-<a href=#359 id=359 data-nosnippet>359</a>        <span class="kw">let </span>outcome = <span class="kw">loop </span>{
-<a href=#360 id=360 data-nosnippet>360</a>            <span class="macro">tokio::select!</span> {
-<a href=#361 id=361 data-nosnippet>361</a>                result = <span class="kw-2">&amp;mut </span>worker =&gt; <span class="kw">break </span>result,
-<a href=#362 id=362 data-nosnippet>362</a>                <span class="kw">_ </span>= shutdown.recv(), <span class="kw">if </span>!shutdown_seen =&gt; { shutdown_seen = <span class="bool-val">true</span>; cancelled.store(<span class="bool-val">true</span>, Ordering::Release); },
-<a href=#363 id=363 data-nosnippet>363</a>                <span class="kw">_ </span>= <span class="kw-2">&amp;mut </span>authorization, <span class="kw">if </span>!cancelled.load(Ordering::Acquire) =&gt; {
-<a href=#364 id=364 data-nosnippet>364</a>                    cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
-<a href=#365 id=365 data-nosnippet>365</a>                }
-<a href=#366 id=366 data-nosnippet>366</a>                <span class="kw">_ </span>= lease.tick() =&gt; {
-<a href=#367 id=367 data-nosnippet>367</a>                    <span class="kw">if </span>state.network_audio.expired(id) {
-<a href=#368 id=368 data-nosnippet>368</a>                        cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
-<a href=#369 id=369 data-nosnippet>369</a>                    }
+<a href=#268 id=268 data-nosnippet>268</a>                <span class="kw">let </span>expected = aede_core::user::PlaybackSource {
+<a href=#269 id=269 data-nosnippet>269</a>                    size: source.file.size,
+<a href=#270 id=270 data-nosnippet>270</a>                    mtime: source.file.mtime,
+<a href=#271 id=271 data-nosnippet>271</a>                    mtime_ns: <span class="prelude-val">Some</span>(source.mtime_subseconds),
+<a href=#272 id=272 data-nosnippet>272</a>                };
+<a href=#273 id=273 data-nosnippet>273</a>                aede_devices::SelectedSource::from_expected(source.path.clone(), <span class="kw-2">&amp;</span>expected)
+<a href=#274 id=274 data-nosnippet>274</a>                    .map_err(|<span class="kw">_</span>| <span class="string">"track source changed"</span>)
+<a href=#275 id=275 data-nosnippet>275</a>            })
+<a href=#276 id=276 data-nosnippet>276</a>            .collect::&lt;<span class="prelude-ty">Result</span>&lt;Vec&lt;<span class="kw">_</span>&gt;, <span class="kw-2">&amp;</span>str&gt;&gt;()
+<a href=#277 id=277 data-nosnippet>277</a>    })
+<a href=#278 id=278 data-nosnippet>278</a>    .<span class="kw">await
+<a href=#279 id=279 data-nosnippet>279</a>    </span>.map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?
+<a href=#280 id=280 data-nosnippet>280</a>    </span>.map_err(|<span class="kw">_</span>| <span class="kw">super</span>::invalid_query(<span class="string">"track source changed; rescan the library"</span>))<span class="question-mark">?</span>;
+<a href=#281 id=281 data-nosnippet>281</a>    auth::recheck(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>principal)<span class="question-mark">?</span>;
+<a href=#282 id=282 data-nosnippet>282</a>    <span class="kw">if </span>!<span class="macro">matches!</span>(
+<a href=#283 id=283 data-nosnippet>283</a>        shutdown.try_recv(),
+<a href=#284 id=284 data-nosnippet>284</a>        <span class="prelude-val">Err</span>(broadcast::error::TryRecvError::Empty)
+<a href=#285 id=285 data-nosnippet>285</a>    ) {
+<a href=#286 id=286 data-nosnippet>286</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(shutting_down());
+<a href=#287 id=287 data-nosnippet>287</a>    }
+<a href=#288 id=288 data-nosnippet>288</a>    <span class="kw">let </span>id = state.next_task_id.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
+<a href=#289 id=289 data-nosnippet>289</a>    <span class="kw">let </span>cancelled = Arc::new(AtomicBool::new(<span class="bool-val">false</span>));
+<a href=#290 id=290 data-nosnippet>290</a>    {
+<a href=#291 id=291 data-nosnippet>291</a>        <span class="kw">let </span><span class="kw-2">mut </span>held = state.network_audio.run.lock().map_err(|<span class="kw">_</span>| unavailable())<span class="question-mark">?</span>;
+<a href=#292 id=292 data-nosnippet>292</a>        <span class="kw">if </span>held
+<a href=#293 id=293 data-nosnippet>293</a>            .as_ref()
+<a href=#294 id=294 data-nosnippet>294</a>            .is_some_and(|run| <span class="macro">matches!</span>(run.status, <span class="string">"running" </span>| <span class="string">"stopping"</span>))
+<a href=#295 id=295 data-nosnippet>295</a>        {
+<a href=#296 id=296 data-nosnippet>296</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(error(
+<a href=#297 id=297 data-nosnippet>297</a>                StatusCode::CONFLICT,
+<a href=#298 id=298 data-nosnippet>298</a>                <span class="string">"network_audio_busy"</span>,
+<a href=#299 id=299 data-nosnippet>299</a>                <span class="string">"a network session is already active"</span>,
+<a href=#300 id=300 data-nosnippet>300</a>            ));
+<a href=#301 id=301 data-nosnippet>301</a>        }
+<a href=#302 id=302 data-nosnippet>302</a>        <span class="kw-2">*</span>held = <span class="prelude-val">Some</span>(Run {
+<a href=#303 id=303 data-nosnippet>303</a>            id,
+<a href=#304 id=304 data-nosnippet>304</a>            owner: auth::session_token(<span class="kw-2">&amp;</span>principal).into(),
+<a href=#305 id=305 data-nosnippet>305</a>            cancelled: cancelled.clone(),
+<a href=#306 id=306 data-nosnippet>306</a>            status: <span class="string">"running"</span>,
+<a href=#307 id=307 data-nosnippet>307</a>            last_seen: Instant::now(),
+<a href=#308 id=308 data-nosnippet>308</a>        });
+<a href=#309 id=309 data-nosnippet>309</a>    }
+<a href=#310 id=310 data-nosnippet>310</a>    tokio::spawn(supervise(
+<a href=#311 id=311 data-nosnippet>311</a>        state.clone(),
+<a href=#312 id=312 data-nosnippet>312</a>        principal,
+<a href=#313 id=313 data-nosnippet>313</a>        id,
+<a href=#314 id=314 data-nosnippet>314</a>        cancelled,
+<a href=#315 id=315 data-nosnippet>315</a>        options,
+<a href=#316 id=316 data-nosnippet>316</a>        sources,
+<a href=#317 id=317 data-nosnippet>317</a>        shutdown,
+<a href=#318 id=318 data-nosnippet>318</a>    ));
+<a href=#319 id=319 data-nosnippet>319</a>    <span class="prelude-val">Ok</span>(Json(<span class="macro">serde_json::json!</span>({<span class="string">"id"</span>:id,<span class="string">"status"</span>:<span class="string">"running"</span>})))
+<a href=#320 id=320 data-nosnippet>320</a>}
+<a href=#321 id=321 data-nosnippet>321</a><span class="kw">fn </span>supervise(
+<a href=#322 id=322 data-nosnippet>322</a>    state: ApiState,
+<a href=#323 id=323 data-nosnippet>323</a>    principal: auth::Principal,
+<a href=#324 id=324 data-nosnippet>324</a>    id: u64,
+<a href=#325 id=325 data-nosnippet>325</a>    cancelled: Arc&lt;AtomicBool&gt;,
+<a href=#326 id=326 data-nosnippet>326</a>    options: aede_devices::CastOptions,
+<a href=#327 id=327 data-nosnippet>327</a>    sources: Vec&lt;aede_devices::SelectedSource&gt;,
+<a href=#328 id=328 data-nosnippet>328</a>    <span class="kw-2">mut </span>shutdown: <span class="kw">crate</span>::shutdown::Receiver,
+<a href=#329 id=329 data-nosnippet>329</a>) -&gt; <span class="kw">impl </span>Future&lt;Output = ()&gt; + Send {
+<a href=#330 id=330 data-nosnippet>330</a>    <span class="comment">// Keep the receiver captured before source preparation, including signals
+<a href=#331 id=331 data-nosnippet>331</a>    // delivered before this future receives its first poll.
+<a href=#332 id=332 data-nosnippet>332</a>    </span><span class="kw">let </span>cancel_on_drop = CancellationGuard(cancelled.clone());
+<a href=#333 id=333 data-nosnippet>333</a>    <span class="kw">async move </span>{
+<a href=#334 id=334 data-nosnippet>334</a>        <span class="kw">let </span>_cancel_on_drop = cancel_on_drop;
+<a href=#335 id=335 data-nosnippet>335</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(
+<a href=#336 id=336 data-nosnippet>336</a>            shutdown.try_recv(),
+<a href=#337 id=337 data-nosnippet>337</a>            <span class="prelude-val">Err</span>(broadcast::error::TryRecvError::Empty)
+<a href=#338 id=338 data-nosnippet>338</a>        ) {
+<a href=#339 id=339 data-nosnippet>339</a>            cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
+<a href=#340 id=340 data-nosnippet>340</a>        }
+<a href=#341 id=341 data-nosnippet>341</a>        <span class="kw">let </span>flag = cancelled.clone();
+<a href=#342 id=342 data-nosnippet>342</a>        <span class="kw">let </span><span class="kw-2">mut </span>worker = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#343 id=343 data-nosnippet>343</a>            aede_devices::cast_selected_controlled(options, sources, flag)
+<a href=#344 id=344 data-nosnippet>344</a>        });
+<a href=#345 id=345 data-nosnippet>345</a>        <span class="kw">let </span>identity = auth::SocketIdentity {
+<a href=#346 id=346 data-nosnippet>346</a>            session: <span class="prelude-val">Some</span>(principal),
+<a href=#347 id=347 data-nosnippet>347</a>            administrative: <span class="bool-val">false</span>,
+<a href=#348 id=348 data-nosnippet>348</a>        };
+<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">let </span>authorization = <span class="kw">async </span>{
+<a href=#350 id=350 data-nosnippet>350</a>            <span class="kw">let </span><span class="kw-2">mut </span>interval = tokio::time::interval(Duration::from_millis(<span class="number">500</span>));
+<a href=#351 id=351 data-nosnippet>351</a>            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+<a href=#352 id=352 data-nosnippet>352</a>            <span class="kw">loop </span>{
+<a href=#353 id=353 data-nosnippet>353</a>                interval.tick().<span class="kw">await</span>;
+<a href=#354 id=354 data-nosnippet>354</a>                <span class="kw">if </span>!auth::socket_live(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>identity).<span class="kw">await </span>{
+<a href=#355 id=355 data-nosnippet>355</a>                    <span class="kw">return</span>;
+<a href=#356 id=356 data-nosnippet>356</a>                }
+<a href=#357 id=357 data-nosnippet>357</a>            }
+<a href=#358 id=358 data-nosnippet>358</a>        };
+<a href=#359 id=359 data-nosnippet>359</a>        <span class="macro">tokio::pin!</span>(authorization);
+<a href=#360 id=360 data-nosnippet>360</a>        <span class="comment">// A queued credential read cannot suspend shutdown or lease expiry.
+<a href=#361 id=361 data-nosnippet>361</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>lease = tokio::time::interval(Duration::from_millis(<span class="number">500</span>));
+<a href=#362 id=362 data-nosnippet>362</a>        lease.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">let </span><span class="kw-2">mut </span>shutdown_seen = <span class="bool-val">false</span>;
+<a href=#364 id=364 data-nosnippet>364</a>        <span class="kw">let </span>outcome = <span class="kw">loop </span>{
+<a href=#365 id=365 data-nosnippet>365</a>            <span class="macro">tokio::select!</span> {
+<a href=#366 id=366 data-nosnippet>366</a>                result = <span class="kw-2">&amp;mut </span>worker =&gt; <span class="kw">break </span>result,
+<a href=#367 id=367 data-nosnippet>367</a>                <span class="kw">_ </span>= shutdown.recv(), <span class="kw">if </span>!shutdown_seen =&gt; { shutdown_seen = <span class="bool-val">true</span>; cancelled.store(<span class="bool-val">true</span>, Ordering::Release); },
+<a href=#368 id=368 data-nosnippet>368</a>                <span class="kw">_ </span>= <span class="kw-2">&amp;mut </span>authorization, <span class="kw">if </span>!cancelled.load(Ordering::Acquire) =&gt; {
+<a href=#369 id=369 data-nosnippet>369</a>                    cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
 <a href=#370 id=370 data-nosnippet>370</a>                }
-<a href=#371 id=371 data-nosnippet>371</a>            }
-<a href=#372 id=372 data-nosnippet>372</a>        };
-<a href=#373 id=373 data-nosnippet>373</a>        <span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>held) = state.network_audio.run.lock()
-<a href=#374 id=374 data-nosnippet>374</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(run) = held.as_mut().filter(|run| run.id == id)
-<a href=#375 id=375 data-nosnippet>375</a>        {
-<a href=#376 id=376 data-nosnippet>376</a>            run.status = <span class="kw">match </span>(
-<a href=#377 id=377 data-nosnippet>377</a>                <span class="macro">matches!</span>(outcome, <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(()))),
-<a href=#378 id=378 data-nosnippet>378</a>                cancelled.load(Ordering::Acquire),
-<a href=#379 id=379 data-nosnippet>379</a>            ) {
-<a href=#380 id=380 data-nosnippet>380</a>                (<span class="bool-val">true</span>, <span class="bool-val">true</span>) =&gt; <span class="string">"stopped"</span>,
-<a href=#381 id=381 data-nosnippet>381</a>                (<span class="bool-val">true</span>, <span class="bool-val">false</span>) =&gt; <span class="string">"completed"</span>,
-<a href=#382 id=382 data-nosnippet>382</a>                (<span class="bool-val">false</span>, <span class="bool-val">true</span>) =&gt; <span class="string">"stop_unconfirmed"</span>,
-<a href=#383 id=383 data-nosnippet>383</a>                (<span class="bool-val">false</span>, <span class="bool-val">false</span>) =&gt; <span class="string">"failed"</span>,
-<a href=#384 id=384 data-nosnippet>384</a>            };
-<a href=#385 id=385 data-nosnippet>385</a>        }
-<a href=#386 id=386 data-nosnippet>386</a>    }
-<a href=#387 id=387 data-nosnippet>387</a>}
-<a href=#388 id=388 data-nosnippet>388</a><span class="kw">async fn </span>stop(
-<a href=#389 id=389 data-nosnippet>389</a>    State(state): State&lt;ApiState&gt;,
-<a href=#390 id=390 data-nosnippet>390</a>    request: Request,
-<a href=#391 id=391 data-nosnippet>391</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;serde_json::Value&gt;, ApiError&gt; {
-<a href=#392 id=392 data-nosnippet>392</a>    <span class="kw">let </span>principal = owner(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
-<a href=#393 id=393 data-nosnippet>393</a>    <span class="kw">let </span>(<span class="kw">_</span>, bytes) = <span class="kw">super</span>::jobs::administrative_body(<span class="kw-2">&amp;</span>state, request, <span class="number">1024</span>).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#394 id=394 data-nosnippet>394</a>    <span class="kw">let </span>input: Stop = decode(<span class="kw-2">&amp;</span>bytes)<span class="question-mark">?</span>;
-<a href=#395 id=395 data-nosnippet>395</a>    <span class="prelude-val">Ok</span>(Json(
-<a href=#396 id=396 data-nosnippet>396</a>        state
-<a href=#397 id=397 data-nosnippet>397</a>            .network_audio
-<a href=#398 id=398 data-nosnippet>398</a>            .stop(auth::session_token(<span class="kw-2">&amp;</span>principal), input.id)<span class="question-mark">?</span>,
-<a href=#399 id=399 data-nosnippet>399</a>    ))
-<a href=#400 id=400 data-nosnippet>400</a>}
-<a href=#401 id=401 data-nosnippet>401</a>
-<a href=#402 id=402 data-nosnippet>402</a><span class="attr">#[cfg(test)]
-<a href=#403 id=403 data-nosnippet>403</a>#[path = <span class="string">"network_audio_tests.rs"</span>]
-<a href=#404 id=404 data-nosnippet>404</a></span><span class="kw">mod </span>tests;</code></pre></div></section></main></body></html>
+<a href=#371 id=371 data-nosnippet>371</a>                <span class="kw">_ </span>= lease.tick() =&gt; {
+<a href=#372 id=372 data-nosnippet>372</a>                    <span class="kw">if </span>state.network_audio.expired(id) {
+<a href=#373 id=373 data-nosnippet>373</a>                        cancelled.store(<span class="bool-val">true</span>, Ordering::Release);
+<a href=#374 id=374 data-nosnippet>374</a>                    }
+<a href=#375 id=375 data-nosnippet>375</a>                }
+<a href=#376 id=376 data-nosnippet>376</a>            }
+<a href=#377 id=377 data-nosnippet>377</a>        };
+<a href=#378 id=378 data-nosnippet>378</a>        <span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>held) = state.network_audio.run.lock()
+<a href=#379 id=379 data-nosnippet>379</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(run) = held.as_mut().filter(|run| run.id == id)
+<a href=#380 id=380 data-nosnippet>380</a>        {
+<a href=#381 id=381 data-nosnippet>381</a>            run.status = <span class="kw">match </span>(
+<a href=#382 id=382 data-nosnippet>382</a>                <span class="macro">matches!</span>(outcome, <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(()))),
+<a href=#383 id=383 data-nosnippet>383</a>                cancelled.load(Ordering::Acquire),
+<a href=#384 id=384 data-nosnippet>384</a>            ) {
+<a href=#385 id=385 data-nosnippet>385</a>                (<span class="bool-val">true</span>, <span class="bool-val">true</span>) =&gt; <span class="string">"stopped"</span>,
+<a href=#386 id=386 data-nosnippet>386</a>                (<span class="bool-val">true</span>, <span class="bool-val">false</span>) =&gt; <span class="string">"completed"</span>,
+<a href=#387 id=387 data-nosnippet>387</a>                (<span class="bool-val">false</span>, <span class="bool-val">true</span>) =&gt; <span class="string">"stop_unconfirmed"</span>,
+<a href=#388 id=388 data-nosnippet>388</a>                (<span class="bool-val">false</span>, <span class="bool-val">false</span>) =&gt; <span class="string">"failed"</span>,
+<a href=#389 id=389 data-nosnippet>389</a>            };
+<a href=#390 id=390 data-nosnippet>390</a>        }
+<a href=#391 id=391 data-nosnippet>391</a>    }
+<a href=#392 id=392 data-nosnippet>392</a>}
+<a href=#393 id=393 data-nosnippet>393</a><span class="kw">async fn </span>stop(
+<a href=#394 id=394 data-nosnippet>394</a>    State(state): State&lt;ApiState&gt;,
+<a href=#395 id=395 data-nosnippet>395</a>    request: Request,
+<a href=#396 id=396 data-nosnippet>396</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;serde_json::Value&gt;, ApiError&gt; {
+<a href=#397 id=397 data-nosnippet>397</a>    <span class="kw">let </span>principal = owner(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
+<a href=#398 id=398 data-nosnippet>398</a>    <span class="kw">let </span>(<span class="kw">_</span>, bytes) = <span class="kw">super</span>::jobs::administrative_body(<span class="kw-2">&amp;</span>state, request, <span class="number">1024</span>).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#399 id=399 data-nosnippet>399</a>    <span class="kw">let </span>input: Stop = decode(<span class="kw-2">&amp;</span>bytes)<span class="question-mark">?</span>;
+<a href=#400 id=400 data-nosnippet>400</a>    <span class="prelude-val">Ok</span>(Json(
+<a href=#401 id=401 data-nosnippet>401</a>        state
+<a href=#402 id=402 data-nosnippet>402</a>            .network_audio
+<a href=#403 id=403 data-nosnippet>403</a>            .stop(auth::session_token(<span class="kw-2">&amp;</span>principal), input.id)<span class="question-mark">?</span>,
+<a href=#404 id=404 data-nosnippet>404</a>    ))
+<a href=#405 id=405 data-nosnippet>405</a>}
+<a href=#406 id=406 data-nosnippet>406</a>
+<a href=#407 id=407 data-nosnippet>407</a><span class="attr">#[cfg(test)]
+<a href=#408 id=408 data-nosnippet>408</a>#[path = <span class="string">"network_audio_tests.rs"</span>]
+<a href=#409 id=409 data-nosnippet>409</a></span><span class="kw">mod </span>tests;
+<a href=#410 id=410 data-nosnippet>410</a>
+<a href=#411 id=411 data-nosnippet>411</a><span class="attr">#[cfg(test)]
+<a href=#412 id=412 data-nosnippet>412</a>#[path = <span class="string">"network_audio_identity_tests.rs"</span>]
+<a href=#413 id=413 data-nosnippet>413</a></span><span class="kw">mod </span>identity_tests;</code></pre></div></section></main></body></html>

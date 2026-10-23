@@ -50,66 +50,69 @@
 <a href=#50 id=50 data-nosnippet>50</a>    }
 <a href=#51 id=51 data-nosnippet>51</a>    table.push(<span class="macro">vec!</span>[<span class="string">"File"</span>.into(), text::format_size(size)]);
 <a href=#52 id=52 data-nosnippet>52</a>    <span class="macro">print!</span>(<span class="string">"{}"</span>, table.render());
-<a href=#53 id=53 data-nosnippet>53</a>    <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>catalog_file.display().to_string()));
-<a href=#54 id=54 data-nosnippet>54</a>
-<a href=#55 id=55 data-nosnippet>55</a>    <span class="comment">// What a scan brings back and what it does not: the difference is the whole
-<a href=#56 id=56 data-nosnippet>56</a>    // reason to hesitate.
-<a href=#57 id=57 data-nosnippet>57</a>    </span><span class="macro">println!</span>(
-<a href=#58 id=58 data-nosnippet>58</a>        <span class="string">"  {}"</span>,
-<a href=#59 id=59 data-nosnippet>59</a>        ui::dim(<span class="string">"a scan rebuilds the catalog; watched folders must be named again"</span>)
-<a href=#60 id=60 data-nosnippet>60</a>    );
-<a href=#61 id=61 data-nosnippet>61</a>    <span class="macro">println!</span>(
-<a href=#62 id=62 data-nosnippet>62</a>        <span class="string">"  {}"</span>,
-<a href=#63 id=63 data-nosnippet>63</a>        ui::dim(<span class="string">"integrity verdicts, fingerprints and imported analyses are kept"</span>)
-<a href=#64 id=64 data-nosnippet>64</a>    );
-<a href=#65 id=65 data-nosnippet>65</a>
-<a href=#66 id=66 data-nosnippet>66</a>    <span class="comment">// The one thing `reset` must never take: what the user wrote lives in
-<a href=#67 id=67 data-nosnippet>67</a>    // another file, and a command that empties the catalog has no business
-<a href=#68 id=68 data-nosnippet>68</a>    // touching it. Saying so is what stops the hesitation from being about the
-<a href=#69 id=69 data-nosnippet>69</a>    // wrong thing.
-<a href=#70 id=70 data-nosnippet>70</a>    </span><span class="kw">let </span>written = aede_core::user::load(<span class="kw-2">&amp;</span>aede_core::user::user_path(<span class="kw-2">&amp;</span><span class="kw">super</span>::data_dir(args)))
-<a href=#71 id=71 data-nosnippet>71</a>        .ok()
-<a href=#72 id=72 data-nosnippet>72</a>        .flatten()
-<a href=#73 id=73 data-nosnippet>73</a>        .map(|d| d.annotations.len())
-<a href=#74 id=74 data-nosnippet>74</a>        .unwrap_or(<span class="number">0</span>);
-<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">if </span>written &gt; <span class="number">0 </span>{
-<a href=#76 id=76 data-nosnippet>76</a>        <span class="macro">println!</span>(
-<a href=#77 id=77 data-nosnippet>77</a>            <span class="string">"  {}"</span>,
-<a href=#78 id=78 data-nosnippet>78</a>            ui::green(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
-<a href=#79 id=79 data-nosnippet>79</a>                <span class="string">"your {} stay: they are not in this file"</span>,
-<a href=#80 id=80 data-nosnippet>80</a>                ui::plural(written, <span class="string">"note"</span>)
-<a href=#81 id=81 data-nosnippet>81</a>            ))
-<a href=#82 id=82 data-nosnippet>82</a>        );
-<a href=#83 id=83 data-nosnippet>83</a>    }
-<a href=#84 id=84 data-nosnippet>84</a>
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">if </span>!<span class="kw">super</span>::confirmed(args, <span class="string">"remove the catalog"</span>)<span class="question-mark">? </span>{
-<a href=#86 id=86 data-nosnippet>86</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::green(<span class="string">"nothing was removed"</span>));
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
-<a href=#88 id=88 data-nosnippet>88</a>    }
-<a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a>    <span class="comment">// Read-only loading keeps old inline conclusions available in memory.
-<a href=#91 id=91 data-nosnippet>91</a>    // Preserve them independently before deleting their only on-disk copy;
-<a href=#92 id=92 data-nosnippet>92</a>    // an unsuccessful migration must leave that original catalog intact.
-<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">let </span>conclusions_file = conclusions::conclusions_path(<span class="kw-2">&amp;</span>dir);
-<a href=#94 id=94 data-nosnippet>94</a>    <span class="kw">if </span>conclusions::load(<span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>.is_none() {
-<a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">let </span>retained = conclusions::Conclusions::from_catalog(<span class="kw-2">&amp;</span>catalog);
-<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">if </span>!retained.files.is_empty() || !retained.analyses.is_empty() {
-<a href=#97 id=97 data-nosnippet>97</a>            conclusions::save(<span class="kw-2">&amp;</span>retained, <span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>;
-<a href=#98 id=98 data-nosnippet>98</a>        }
-<a href=#99 id=99 data-nosnippet>99</a>    }
-<a href=#100 id=100 data-nosnippet>100</a>
-<a href=#101 id=101 data-nosnippet>101</a>    <span class="comment">// The folders are printed after the deletion, not before: at that point
-<a href=#102 id=102 data-nosnippet>102</a>    // they are the only way back, and they have to be readable on screen.
-<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="kw">let </span>roots = <span class="kw-2">&amp;</span>catalog.roots;
-<a href=#104 id=104 data-nosnippet>104</a>    std::fs::remove_file(<span class="kw-2">&amp;</span>catalog_file)<span class="question-mark">?</span>;
-<a href=#105 id=105 data-nosnippet>105</a>    <span class="macro">println!</span>(<span class="string">"{} catalog removed"</span>, ui::green(<span class="string">"→"</span>));
-<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">if </span>!roots.is_empty() {
-<a href=#107 id=107 data-nosnippet>107</a>        <span class="kw">let </span>quoted: Vec&lt;String&gt; = roots
-<a href=#108 id=108 data-nosnippet>108</a>            .iter()
-<a href=#109 id=109 data-nosnippet>109</a>            .map(|root| <span class="kw">super</span>::navigation::shell_arg(root))
-<a href=#110 id=110 data-nosnippet>110</a>            .collect();
-<a href=#111 id=111 data-nosnippet>111</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="string">"to rebuild it:"</span>));
-<a href=#112 id=112 data-nosnippet>112</a>        <span class="macro">println!</span>(<span class="string">"  aede scan {}"</span>, ui::literal(<span class="kw-2">&amp;</span>quoted.join(<span class="string">" "</span>)));
-<a href=#113 id=113 data-nosnippet>113</a>    }
-<a href=#114 id=114 data-nosnippet>114</a>    <span class="prelude-val">Ok</span>(())
-<a href=#115 id=115 data-nosnippet>115</a>}</code></pre></div></section></main></body></html>
+<a href=#53 id=53 data-nosnippet>53</a>    <span class="macro">println!</span>(
+<a href=#54 id=54 data-nosnippet>54</a>        <span class="string">"  {}"</span>,
+<a href=#55 id=55 data-nosnippet>55</a>        ui::dim(<span class="kw-2">&amp;</span>ui::literal(<span class="kw-2">&amp;</span>catalog_file.display().to_string()))
+<a href=#56 id=56 data-nosnippet>56</a>    );
+<a href=#57 id=57 data-nosnippet>57</a>
+<a href=#58 id=58 data-nosnippet>58</a>    <span class="comment">// What a scan brings back and what it does not: the difference is the whole
+<a href=#59 id=59 data-nosnippet>59</a>    // reason to hesitate.
+<a href=#60 id=60 data-nosnippet>60</a>    </span><span class="macro">println!</span>(
+<a href=#61 id=61 data-nosnippet>61</a>        <span class="string">"  {}"</span>,
+<a href=#62 id=62 data-nosnippet>62</a>        ui::dim(<span class="string">"a scan rebuilds the catalog; watched folders must be named again"</span>)
+<a href=#63 id=63 data-nosnippet>63</a>    );
+<a href=#64 id=64 data-nosnippet>64</a>    <span class="macro">println!</span>(
+<a href=#65 id=65 data-nosnippet>65</a>        <span class="string">"  {}"</span>,
+<a href=#66 id=66 data-nosnippet>66</a>        ui::dim(<span class="string">"integrity verdicts, fingerprints and imported analyses are kept"</span>)
+<a href=#67 id=67 data-nosnippet>67</a>    );
+<a href=#68 id=68 data-nosnippet>68</a>
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="comment">// The one thing `reset` must never take: what the user wrote lives in
+<a href=#70 id=70 data-nosnippet>70</a>    // another file, and a command that empties the catalog has no business
+<a href=#71 id=71 data-nosnippet>71</a>    // touching it. Saying so is what stops the hesitation from being about the
+<a href=#72 id=72 data-nosnippet>72</a>    // wrong thing.
+<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">let </span>written = aede_core::user::load(<span class="kw-2">&amp;</span>aede_core::user::user_path(<span class="kw-2">&amp;</span><span class="kw">super</span>::data_dir(args)))
+<a href=#74 id=74 data-nosnippet>74</a>        .ok()
+<a href=#75 id=75 data-nosnippet>75</a>        .flatten()
+<a href=#76 id=76 data-nosnippet>76</a>        .map(|d| d.annotations.len())
+<a href=#77 id=77 data-nosnippet>77</a>        .unwrap_or(<span class="number">0</span>);
+<a href=#78 id=78 data-nosnippet>78</a>    <span class="kw">if </span>written &gt; <span class="number">0 </span>{
+<a href=#79 id=79 data-nosnippet>79</a>        <span class="macro">println!</span>(
+<a href=#80 id=80 data-nosnippet>80</a>            <span class="string">"  {}"</span>,
+<a href=#81 id=81 data-nosnippet>81</a>            ui::green(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
+<a href=#82 id=82 data-nosnippet>82</a>                <span class="string">"your {} stay: they are not in this file"</span>,
+<a href=#83 id=83 data-nosnippet>83</a>                ui::plural(written, <span class="string">"note"</span>)
+<a href=#84 id=84 data-nosnippet>84</a>            ))
+<a href=#85 id=85 data-nosnippet>85</a>        );
+<a href=#86 id=86 data-nosnippet>86</a>    }
+<a href=#87 id=87 data-nosnippet>87</a>
+<a href=#88 id=88 data-nosnippet>88</a>    <span class="kw">if </span>!<span class="kw">super</span>::confirmed(args, <span class="string">"remove the catalog"</span>)<span class="question-mark">? </span>{
+<a href=#89 id=89 data-nosnippet>89</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::green(<span class="string">"nothing was removed"</span>));
+<a href=#90 id=90 data-nosnippet>90</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+<a href=#91 id=91 data-nosnippet>91</a>    }
+<a href=#92 id=92 data-nosnippet>92</a>
+<a href=#93 id=93 data-nosnippet>93</a>    <span class="comment">// Read-only loading keeps old inline conclusions available in memory.
+<a href=#94 id=94 data-nosnippet>94</a>    // Preserve them independently before deleting their only on-disk copy;
+<a href=#95 id=95 data-nosnippet>95</a>    // an unsuccessful migration must leave that original catalog intact.
+<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="kw">let </span>conclusions_file = conclusions::conclusions_path(<span class="kw-2">&amp;</span>dir);
+<a href=#97 id=97 data-nosnippet>97</a>    <span class="kw">if </span>conclusions::load(<span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>.is_none() {
+<a href=#98 id=98 data-nosnippet>98</a>        <span class="kw">let </span>retained = conclusions::Conclusions::from_catalog(<span class="kw-2">&amp;</span>catalog);
+<a href=#99 id=99 data-nosnippet>99</a>        <span class="kw">if </span>!retained.files.is_empty() || !retained.analyses.is_empty() {
+<a href=#100 id=100 data-nosnippet>100</a>            conclusions::save(<span class="kw-2">&amp;</span>retained, <span class="kw-2">&amp;</span>conclusions_file)<span class="question-mark">?</span>;
+<a href=#101 id=101 data-nosnippet>101</a>        }
+<a href=#102 id=102 data-nosnippet>102</a>    }
+<a href=#103 id=103 data-nosnippet>103</a>
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="comment">// The folders are printed after the deletion, not before: at that point
+<a href=#105 id=105 data-nosnippet>105</a>    // they are the only way back, and they have to be readable on screen.
+<a href=#106 id=106 data-nosnippet>106</a>    </span><span class="kw">let </span>roots = <span class="kw-2">&amp;</span>catalog.roots;
+<a href=#107 id=107 data-nosnippet>107</a>    std::fs::remove_file(<span class="kw-2">&amp;</span>catalog_file)<span class="question-mark">?</span>;
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="macro">println!</span>(<span class="string">"{} catalog removed"</span>, ui::green(<span class="string">"→"</span>));
+<a href=#109 id=109 data-nosnippet>109</a>    <span class="kw">if </span>!roots.is_empty() {
+<a href=#110 id=110 data-nosnippet>110</a>        <span class="kw">let </span>quoted: Vec&lt;String&gt; = roots
+<a href=#111 id=111 data-nosnippet>111</a>            .iter()
+<a href=#112 id=112 data-nosnippet>112</a>            .map(|root| <span class="kw">super</span>::navigation::shell_arg(root))
+<a href=#113 id=113 data-nosnippet>113</a>            .collect();
+<a href=#114 id=114 data-nosnippet>114</a>        <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="string">"to rebuild it:"</span>));
+<a href=#115 id=115 data-nosnippet>115</a>        <span class="macro">println!</span>(<span class="string">"  aede scan {}"</span>, ui::literal(<span class="kw-2">&amp;</span>quoted.join(<span class="string">" "</span>)));
+<a href=#116 id=116 data-nosnippet>116</a>    }
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="prelude-val">Ok</span>(())
+<a href=#118 id=118 data-nosnippet>118</a>}</code></pre></div></section></main></body></html>

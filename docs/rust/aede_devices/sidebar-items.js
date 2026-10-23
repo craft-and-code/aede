@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["DeviceProtocol"],"fn":["cast","cast_controlled","discover","discover_cast","inspect_cast_certificate"],"mod":["original"],"struct":["CastOptions","DeviceDescription"]};
+window.SIDEBAR_ITEMS = {"enum":["DeviceProtocol"],"fn":["cast","cast_controlled","cast_selected_controlled","discover","discover_cast","inspect_cast_certificate"],"mod":["original"],"struct":["CastOptions","DeviceDescription","SelectedSource"]};

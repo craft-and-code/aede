@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["PROFILE","RATE"],"enum":["TagScope"],"fn":["audio_recipes","presets"],"mod":["background"],"struct":["AcousticModel","AudioRecipe","Extractor","Features","Match","Rule","Statistics","TagSelector"]};
+window.SIDEBAR_ITEMS = {"constant":["PROFILE","RATE"],"enum":["TagScope"],"fn":["audio_recipes","is_audio_recipe_id","presets"],"mod":["background"],"struct":["AcousticModel","AudioRecipe","Extractor","Features","Match","Rule","Statistics","TagSelector"]};

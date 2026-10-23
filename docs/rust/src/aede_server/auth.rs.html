@@ -397,44 +397,57 @@
 <a href=#397 id=397 data-nosnippet>397</a>
 <a href=#398 id=398 data-nosnippet>398</a><span class="doccomment">/// Revalidate a WebSocket without treating server notifications as user activity.
 <a href=#399 id=399 data-nosnippet>399</a></span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">async fn </span>socket_live(state: <span class="kw-2">&amp;</span>ApiState, identity: <span class="kw-2">&amp;</span>SocketIdentity) -&gt; bool {
-<a href=#400 id=400 data-nosnippet>400</a>    <span class="comment">// These waits are bounded by the 64 already-admitted sockets. Let ordinary
-<a href=#401 id=401 data-nosnippet>401</a>    // notification bursts queue instead of disconnecting healthy sessions.
-<a href=#402 id=402 data-nosnippet>402</a>    </span><span class="kw">let </span>permit = <span class="kw">match </span>tokio::time::timeout(
-<a href=#403 id=403 data-nosnippet>403</a>        Duration::from_secs(<span class="number">2</span>),
-<a href=#404 id=404 data-nosnippet>404</a>        state.auth.read_slots.clone().acquire_owned(),
-<a href=#405 id=405 data-nosnippet>405</a>    )
-<a href=#406 id=406 data-nosnippet>406</a>    .<span class="kw">await
-<a href=#407 id=407 data-nosnippet>407</a>    </span>{
-<a href=#408 id=408 data-nosnippet>408</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(permit)) =&gt; permit,
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="bool-val">false</span>,
-<a href=#410 id=410 data-nosnippet>410</a>    };
-<a href=#411 id=411 data-nosnippet>411</a>    <span class="kw">let </span>to_read = state.clone();
-<a href=#412 id=412 data-nosnippet>412</a>    <span class="kw">let </span>accounts = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
-<a href=#413 id=413 data-nosnippet>413</a>        <span class="kw">let </span>_permit = permit;
-<a href=#414 id=414 data-nosnippet>414</a>        load_accounts(<span class="kw-2">&amp;</span>to_read)
-<a href=#415 id=415 data-nosnippet>415</a>    })
-<a href=#416 id=416 data-nosnippet>416</a>    .<span class="kw">await</span>;
-<a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">match </span>accounts {
-<a href=#418 id=418 data-nosnippet>418</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>)) =&gt; identity.session.is_none(),
-<a href=#419 id=419 data-nosnippet>419</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(accounts))) =&gt; {
-<a href=#420 id=420 data-nosnippet>420</a>            identity.administrative
-<a href=#421 id=421 data-nosnippet>421</a>                || identity.session.as_ref().is_some_and(|captured| {
-<a href=#422 id=422 data-nosnippet>422</a>                    principal(state, <span class="kw-2">&amp;</span>accounts, <span class="kw-2">&amp;</span>captured.token, <span class="bool-val">false</span>, Instant::now()).is_ok()
-<a href=#423 id=423 data-nosnippet>423</a>                })
-<a href=#424 id=424 data-nosnippet>424</a>        }
-<a href=#425 id=425 data-nosnippet>425</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="bool-val">false</span>,
-<a href=#426 id=426 data-nosnippet>426</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Err</span>(<span class="kw">_</span>)) =&gt; <span class="bool-val">false</span>,
-<a href=#427 id=427 data-nosnippet>427</a>    }
-<a href=#428 id=428 data-nosnippet>428</a>}
-<a href=#429 id=429 data-nosnippet>429</a>
-<a href=#430 id=430 data-nosnippet>430</a><span class="attr">#[cfg(test)]
-<a href=#431 id=431 data-nosnippet>431</a>#[path = <span class="string">"auth_tests.rs"</span>]
-<a href=#432 id=432 data-nosnippet>432</a></span><span class="kw">mod </span>tests;
-<a href=#433 id=433 data-nosnippet>433</a>
-<a href=#434 id=434 data-nosnippet>434</a><span class="attr">#[cfg(test)]
-<a href=#435 id=435 data-nosnippet>435</a>#[path = <span class="string">"auth_notification_tests.rs"</span>]
-<a href=#436 id=436 data-nosnippet>436</a></span><span class="kw">mod </span>notification_tests;
-<a href=#437 id=437 data-nosnippet>437</a>
-<a href=#438 id=438 data-nosnippet>438</a><span class="attr">#[cfg(test)]
-<a href=#439 id=439 data-nosnippet>439</a>#[path = <span class="string">"auth_login_tests.rs"</span>]
-<a href=#440 id=440 data-nosnippet>440</a></span><span class="kw">mod </span>login_tests;</code></pre></div></section></main></body></html>
+<a href=#400 id=400 data-nosnippet>400</a>    socket_live_with(state, identity, |<span class="kw">_</span>| <span class="bool-val">true</span>).<span class="kw">await
+<a href=#401 id=401 data-nosnippet>401</a></span>}
+<a href=#402 id=402 data-nosnippet>402</a>
+<a href=#403 id=403 data-nosnippet>403</a><span class="doccomment">/// Keep additional admission and the credential read in one worker.
+<a href=#404 id=404 data-nosnippet>404</a></span><span class="kw">pub</span>(<span class="kw">super</span>) <span class="kw">async fn </span>socket_live_with(
+<a href=#405 id=405 data-nosnippet>405</a>    state: <span class="kw-2">&amp;</span>ApiState,
+<a href=#406 id=406 data-nosnippet>406</a>    identity: <span class="kw-2">&amp;</span>SocketIdentity,
+<a href=#407 id=407 data-nosnippet>407</a>    check: <span class="kw">impl </span>Fn(<span class="kw-2">&amp;</span>ApiState) -&gt; bool + Send + <span class="lifetime">'static</span>,
+<a href=#408 id=408 data-nosnippet>408</a>) -&gt; bool {
+<a href=#409 id=409 data-nosnippet>409</a>    <span class="comment">// These waits are bounded by the 64 already-admitted sockets. Let ordinary
+<a href=#410 id=410 data-nosnippet>410</a>    // notification bursts queue instead of disconnecting healthy sessions.
+<a href=#411 id=411 data-nosnippet>411</a>    </span><span class="kw">let </span>permit = <span class="kw">match </span>tokio::time::timeout(
+<a href=#412 id=412 data-nosnippet>412</a>        Duration::from_secs(<span class="number">2</span>),
+<a href=#413 id=413 data-nosnippet>413</a>        state.auth.read_slots.clone().acquire_owned(),
+<a href=#414 id=414 data-nosnippet>414</a>    )
+<a href=#415 id=415 data-nosnippet>415</a>    .<span class="kw">await
+<a href=#416 id=416 data-nosnippet>416</a>    </span>{
+<a href=#417 id=417 data-nosnippet>417</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Ok</span>(permit)) =&gt; permit,
+<a href=#418 id=418 data-nosnippet>418</a>        <span class="kw">_ </span>=&gt; <span class="kw">return </span><span class="bool-val">false</span>,
+<a href=#419 id=419 data-nosnippet>419</a>    };
+<a href=#420 id=420 data-nosnippet>420</a>    <span class="kw">let </span>to_read = state.clone();
+<a href=#421 id=421 data-nosnippet>421</a>    <span class="kw">let </span>accounts = tokio::task::spawn_blocking(<span class="kw">move </span>|| {
+<a href=#422 id=422 data-nosnippet>422</a>        <span class="kw">let </span>_permit = permit;
+<a href=#423 id=423 data-nosnippet>423</a>        <span class="comment">// Borrow the check so its captured admission guards stay with this
+<a href=#424 id=424 data-nosnippet>424</a>        // job, even if the socket retires while it waits in the pool.
+<a href=#425 id=425 data-nosnippet>425</a>        </span>check(<span class="kw-2">&amp;</span>to_read).then(|| load_accounts(<span class="kw-2">&amp;</span>to_read))
+<a href=#426 id=426 data-nosnippet>426</a>    })
+<a href=#427 id=427 data-nosnippet>427</a>    .<span class="kw">await</span>;
+<a href=#428 id=428 data-nosnippet>428</a>    <span class="kw">let </span><span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(accounts)) = accounts <span class="kw">else </span>{
+<a href=#429 id=429 data-nosnippet>429</a>        <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#430 id=430 data-nosnippet>430</a>    };
+<a href=#431 id=431 data-nosnippet>431</a>    <span class="kw">match </span>accounts {
+<a href=#432 id=432 data-nosnippet>432</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; identity.session.is_none(),
+<a href=#433 id=433 data-nosnippet>433</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(accounts)) =&gt; {
+<a href=#434 id=434 data-nosnippet>434</a>            identity.administrative
+<a href=#435 id=435 data-nosnippet>435</a>                || identity.session.as_ref().is_some_and(|captured| {
+<a href=#436 id=436 data-nosnippet>436</a>                    principal(state, <span class="kw-2">&amp;</span>accounts, <span class="kw-2">&amp;</span>captured.token, <span class="bool-val">false</span>, Instant::now()).is_ok()
+<a href=#437 id=437 data-nosnippet>437</a>                })
+<a href=#438 id=438 data-nosnippet>438</a>        }
+<a href=#439 id=439 data-nosnippet>439</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="bool-val">false</span>,
+<a href=#440 id=440 data-nosnippet>440</a>    }
+<a href=#441 id=441 data-nosnippet>441</a>}
+<a href=#442 id=442 data-nosnippet>442</a>
+<a href=#443 id=443 data-nosnippet>443</a><span class="attr">#[cfg(test)]
+<a href=#444 id=444 data-nosnippet>444</a>#[path = <span class="string">"auth_tests.rs"</span>]
+<a href=#445 id=445 data-nosnippet>445</a></span><span class="kw">mod </span>tests;
+<a href=#446 id=446 data-nosnippet>446</a>
+<a href=#447 id=447 data-nosnippet>447</a><span class="attr">#[cfg(test)]
+<a href=#448 id=448 data-nosnippet>448</a>#[path = <span class="string">"auth_notification_tests.rs"</span>]
+<a href=#449 id=449 data-nosnippet>449</a></span><span class="kw">mod </span>notification_tests;
+<a href=#450 id=450 data-nosnippet>450</a>
+<a href=#451 id=451 data-nosnippet>451</a><span class="attr">#[cfg(test)]
+<a href=#452 id=452 data-nosnippet>452</a>#[path = <span class="string">"auth_login_tests.rs"</span>]
+<a href=#453 id=453 data-nosnippet>453</a></span><span class="kw">mod </span>login_tests;</code></pre></div></section></main></body></html>

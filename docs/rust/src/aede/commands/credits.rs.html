@@ -262,7 +262,7 @@
 <a href=#262 id=262 data-nosnippet>262</a>    <span class="kw">let </span>tally = counts(rows.iter().map(|row| row.status));
 <a href=#263 id=263 data-nosnippet>263</a>    <span class="kw">let </span>edition = editions.get(release.id <span class="kw">as </span>usize);
 <a href=#264 id=264 data-nosnippet>264</a>    <span class="macro">println!</span>(<span class="string">"{}"</span>, ui::section(<span class="kw-2">&amp;</span>release.title));
-<a href=#265 id=265 data-nosnippet>265</a>    <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>release.folder));
+<a href=#265 id=265 data-nosnippet>265</a>    <span class="macro">println!</span>(<span class="string">"  {}"</span>, ui::dim(<span class="kw-2">&amp;</span>ui::literal(<span class="kw-2">&amp;</span>release.folder)));
 <a href=#266 id=266 data-nosnippet>266</a>    <span class="macro">println!</span>(
 <a href=#267 id=267 data-nosnippet>267</a>        <span class="string">"  {} recordings · {} credited · {} queried empty · {} waiting · {} untrusted · {} without ID"</span>,
 <a href=#268 id=268 data-nosnippet>268</a>        tally.total(),
@@ -297,7 +297,7 @@
 <a href=#297 id=297 data-nosnippet>297</a>                .and_then(|path| Path::new(path).file_name())
 <a href=#298 id=298 data-nosnippet>298</a>                .map_or_else(
 <a href=#299 id=299 data-nosnippet>299</a>                    || <span class="string">"—"</span>.to_string(),
-<a href=#300 id=300 data-nosnippet>300</a>                    |name| name.to_string_lossy().into_owned(),
+<a href=#300 id=300 data-nosnippet>300</a>                    |name| ui::literal(<span class="kw-2">&amp;</span>name.to_string_lossy()),
 <a href=#301 id=301 data-nosnippet>301</a>                ),
 <a href=#302 id=302 data-nosnippet>302</a>        ]);
 <a href=#303 id=303 data-nosnippet>303</a>    }
@@ -308,7 +308,7 @@
 <a href=#308 id=308 data-nosnippet>308</a>            <span class="string">"  {}"</span>,
 <a href=#309 id=309 data-nosnippet>309</a>            ui::dim(<span class="kw-2">&amp;</span><span class="macro">format!</span>(
 <a href=#310 id=310 data-nosnippet>310</a>                <span class="string">"Fetch waiting recording or edition credits: aede fetch --credits {}"</span>,
-<a href=#311 id=311 data-nosnippet>311</a>                shell_arg(<span class="kw-2">&amp;</span>release.folder)
+<a href=#311 id=311 data-nosnippet>311</a>                ui::literal(<span class="kw-2">&amp;</span>shell_arg(<span class="kw-2">&amp;</span>release.folder))
 <a href=#312 id=312 data-nosnippet>312</a>            ))
 <a href=#313 id=313 data-nosnippet>313</a>        );
 <a href=#314 id=314 data-nosnippet>314</a>    }

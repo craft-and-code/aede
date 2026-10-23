@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["DecodeError","PcmStreamDecoder"]};
+window.SIDEBAR_ITEMS = {"struct":["DecodeError","FlacAudioSource","FlacProbe","PcmStreamDecoder"]};

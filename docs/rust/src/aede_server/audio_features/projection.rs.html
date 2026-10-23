@@ -157,18 +157,18 @@
 <a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">let </span><span class="kw-2">mut </span>summaries = Vec::new();
 <a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">let </span><span class="kw-2">mut </span>items = Vec::new();
 <a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">let </span><span class="kw-2">mut </span>total = <span class="number">0</span>;
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">for </span>rule <span class="kw">in </span>rules {
-<a href=#161 id=161 data-nosnippet>161</a>        <span class="kw">let </span>(selected, model) = personal(<span class="kw-2">&amp;</span>facts, catalog, rows, rule);
-<a href=#162 id=162 data-nosnippet>162</a>        summaries.push(<span class="macro">serde_json::json!</span>({<span class="string">"rule"</span>:rule,<span class="string">"count"</span>:selected.len(),<span class="string">"model"</span>:model.as_ref().map(|m|<span class="macro">serde_json::json!</span>({<span class="string">"examples"</span>:m.examples(),<span class="string">"radius"</span>:m.radius()}))}));
-<a href=#163 id=163 data-nosnippet>163</a>        <span class="kw">if </span>chosen == <span class="prelude-val">Some</span>(rule.id.as_str()) {
-<a href=#164 id=164 data-nosnippet>164</a>            total = selected.len();
-<a href=#165 id=165 data-nosnippet>165</a>            items = expand(catalog, selected, offset, limit)<span class="question-mark">?</span>;
-<a href=#166 id=166 data-nosnippet>166</a>        }
-<a href=#167 id=167 data-nosnippet>167</a>    }
-<a href=#168 id=168 data-nosnippet>168</a>    <span class="kw">for </span>recipe <span class="kw">in </span>aede_moods::audio_recipes() {
-<a href=#169 id=169 data-nosnippet>169</a>        <span class="kw">if </span>rules.iter().any(|rule| rule.id == recipe.id) {
-<a href=#170 id=170 data-nosnippet>170</a>            <span class="kw">continue</span>;
-<a href=#171 id=171 data-nosnippet>171</a>        }
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">for </span>rule <span class="kw">in </span>rules
+<a href=#161 id=161 data-nosnippet>161</a>        .iter()
+<a href=#162 id=162 data-nosnippet>162</a>        .filter(|rule| !aede_moods::is_audio_recipe_id(<span class="kw-2">&amp;</span>rule.id))
+<a href=#163 id=163 data-nosnippet>163</a>    {
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="kw">let </span>(selected, model) = personal(<span class="kw-2">&amp;</span>facts, catalog, rows, rule);
+<a href=#165 id=165 data-nosnippet>165</a>        summaries.push(<span class="macro">serde_json::json!</span>({<span class="string">"rule"</span>:rule,<span class="string">"count"</span>:selected.len(),<span class="string">"model"</span>:model.as_ref().map(|m|<span class="macro">serde_json::json!</span>({<span class="string">"examples"</span>:m.examples(),<span class="string">"radius"</span>:m.radius()}))}));
+<a href=#166 id=166 data-nosnippet>166</a>        <span class="kw">if </span>chosen == <span class="prelude-val">Some</span>(rule.id.as_str()) {
+<a href=#167 id=167 data-nosnippet>167</a>            total = selected.len();
+<a href=#168 id=168 data-nosnippet>168</a>            items = expand(catalog, selected, offset, limit)<span class="question-mark">?</span>;
+<a href=#169 id=169 data-nosnippet>169</a>        }
+<a href=#170 id=170 data-nosnippet>170</a>    }
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="kw">for </span>recipe <span class="kw">in </span>aede_moods::audio_recipes() {
 <a href=#172 id=172 data-nosnippet>172</a>        <span class="kw">let </span>selected = rows
 <a href=#173 id=173 data-nosnippet>173</a>            .iter()
 <a href=#174 id=174 data-nosnippet>174</a>            .filter_map(|row| {

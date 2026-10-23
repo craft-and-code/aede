@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["bootstrap","prepare"]};
+window.SIDEBAR_ITEMS = {"fn":["bootstrap","prepare","read_control"]};
