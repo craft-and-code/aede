@@ -40,7 +40,7 @@ Aède uses a two-tier parsing architecture. The primary containers use native Ru
 | :----------------- | :------------------------ | :------------------------------ | :---------------------------- | :------------------- |
 | **FLAC**           | FLAC                      | Vorbis Comment, ID3v2 Header    | `STREAMINFO` block            | Native (`aede-core`) |
 | **MP3**            | MPEG 1/2/2.5 Layers I–III | ID3v2.2/2.3/2.4, ID3v1          | Xing / VBRI / CBR calculation | Native (`aede-core`) |
-| **MP4 / M4A**      | ALAC, AAC                 | iTunes Atoms, Freeform `----`   | `mvhd` movie header          | Native (`aede-core`) |
+| **MP4 / M4A**      | ALAC, AAC                 | iTunes Atoms, Freeform `----`   | `mvhd` movie header           | Native (`aede-core`) |
 | **Ogg**            | Vorbis, Opus              | Vorbis Comment                  | Granule position              | Native (`aede-core`) |
 | **WAV**            | PCM                       | `LIST/INFO` chunk, `id3 ` chunk | `fmt ` + `data` chunk sizes   | Native (`aede-core`) |
 | **AIFF / AIFC**    | PCM                       | `NAME`/`AUTH`, `ID3 ` chunk     | `COMM` chunk                  | Native (`aede-core`) |
@@ -54,7 +54,7 @@ Aède uses a two-tier parsing architecture. The primary containers use native Ru
 
 ## Desktop server application
 
-Version 0.7.0 prepares separate **CLI** and **App** downloads. The [Aède desktop server](docs/desktop.md) uses the same engine behind a minimal SolidJS/Tauri console: local folders, explicit scans, HTTPS and a public connection profile for Phémios. It stores an isolated private library and stops its owned server on exit. It is intended first for same-machine testing; remote HTTPS remains a CLI feature. See [desktop development](desktop/README.md). See the [0.7.0 release notes](docs/releases/v0.7.0.md) and [desktop dependency findings](docs/coding/desktop-dependencies.md).
+Version 0.7.1 prepares separate **CLI** and **App** downloads. The [Aède desktop server](docs/desktop.md) uses the same engine behind a minimal SolidJS/Tauri console: local folders, explicit scans, HTTPS and a public connection profile for Phémios. It stores an isolated private library and stops its owned server on exit. It is intended first for same-machine testing; remote HTTPS remains a CLI feature. See [desktop development](desktop/README.md). See the [0.7.1 release notes](docs/releases/v0.7.1.md) and [desktop dependency findings](docs/coding/desktop-dependencies.md).
 
 ## 📦 Installation & System Dependencies
 
@@ -84,7 +84,7 @@ sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev lib
 sudo pacman -S base-devel rust alsa-lib ffmpeg
 ```
 
-Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.7.0 release notes](docs/releases/v0.7.0.md) provide the next draft highlights. The [v0.6.1 notes](docs/releases/v0.6.1.md), [v0.6.0 notes](docs/releases/v0.6.0.md), [v0.5.0 notes](docs/releases/v0.5.0.md), [v0.4.0 notes](docs/releases/v0.4.0.md) and [v0.3.0 notes](docs/releases/v0.3.0.md) remain available.
+Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.7.1 release notes](docs/releases/v0.7.1.md) provide the next draft highlights. The [v0.7.0 notes](docs/releases/v0.7.0.md), [v0.6.1 notes](docs/releases/v0.6.1.md), [v0.6.0 notes](docs/releases/v0.6.0.md), [v0.5.0 notes](docs/releases/v0.5.0.md), [v0.4.0 notes](docs/releases/v0.4.0.md) and [v0.3.0 notes](docs/releases/v0.3.0.md) remain available.
 
 ### Building & Installing from Source
 
@@ -134,42 +134,42 @@ aede doctor
 
 ### Core Vault & Catalog Management
 
-| Command       | Arguments    | Key Options                                 | Description                                                                                 |
-| :------------ | :----------- | :------------------------------------------ | :------------------------------------------------------------------------------------------ |
-| `aede roots`  | `[paths...]` | `--exclude <path>`, `--remove`, `--no-scan` | Display, add, or exclude watched storage directories.                                       |
-| `aede scan`   | `[path]`     | `--full`, `--dry-run`, `--json`             | Traverses roots to index audio files, tags, and structure.                                  |
-| `aede serve`  | None         | `--bind <IP>`, `--port <N>`, TLS options                                | Serves the catalog/audio API, optional authenticated HTTPS, and coordinates Unix CLI writes.                        |
-| `aede accounts` | `list`, `init`, `create`, `password`, `role`, `rename`, `enable`, `disable`, `revoke` | `--password-stdin`, `--json` | Manages local accounts, roles and session revocation; preserves existing personal ownership. |
-| `aede cancel` | `<task-id>`  | None                                        | Requests cancellation of a delegated scan or fetch.                                       |
-| `aede check`  | `[path]`     | `--full`                                    | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot. |
-| `aede doctor` | None         | None                                        | Run a health check: metadata, duplicates, source conflicts and incomplete credits.         |
-| `aede credits` | `[album]` | `--json`, `--limit`, `--offset`, `--all` | Show recording/work and exact-edition credit coverage by album and identify fetchable gaps. |
-| `aede credit` | None | `--add <scope> --artist=<name> --role=<role>`, `--exclude=<ID>`, `--undo=<ID>` | Add a manual credit or exclude/restore one sourced credit without changing tags. |
-| `aede review` | None         | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all` | Resolve uncertain source identities without rewriting tags.               |
-| `aede stats`  | None         | None                                        | Displays catalog metrics, audio quality distribution, and credit roles.                     |
-| `aede reset`  | None         | `--yes`                                     | Removes the catalog, watched roots and exclusions; preserves independent stores.                            |
+| Command         | Arguments                                                                             | Key Options                                                                    | Description                                                                                  |
+| :-------------- | :------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------- |
+| `aede roots`    | `[paths...]`                                                                          | `--exclude <path>`, `--remove`, `--no-scan`                                    | Display, add, or exclude watched storage directories.                                        |
+| `aede scan`     | `[path]`                                                                              | `--full`, `--dry-run`, `--json`                                                | Traverses roots to index audio files, tags, and structure.                                   |
+| `aede serve`    | None                                                                                  | `--bind <IP>`, `--port <N>`, TLS options                                       | Serves the catalog/audio API, optional authenticated HTTPS, and coordinates Unix CLI writes. |
+| `aede accounts` | `list`, `init`, `create`, `password`, `role`, `rename`, `enable`, `disable`, `revoke` | `--password-stdin`, `--json`                                                   | Manages local accounts, roles and session revocation; preserves existing personal ownership. |
+| `aede cancel`   | `<task-id>`                                                                           | None                                                                           | Requests cancellation of a delegated scan or fetch.                                          |
+| `aede check`    | `[path]`                                                                              | `--full`                                                                       | Audits frame/page checksums ($CRC\text{-}8$, $CRC\text{-}16$, $CRC\text{-}32$) for bit rot.  |
+| `aede doctor`   | None                                                                                  | None                                                                           | Run a health check: metadata, duplicates, source conflicts and incomplete credits.           |
+| `aede credits`  | `[album]`                                                                             | `--json`, `--limit`, `--offset`, `--all`                                       | Show recording/work and exact-edition credit coverage by album and identify fetchable gaps.  |
+| `aede credit`   | None                                                                                  | `--add <scope> --artist=<name> --role=<role>`, `--exclude=<ID>`, `--undo=<ID>` | Add a manual credit or exclude/restore one sourced credit without changing tags.             |
+| `aede review`   | None                                                                                  | `--interactive`, `--accept=<ID>`, `--reject=<ID>`, `--undo=<ID>`, `--all`      | Resolve uncertain source identities without rewriting tags.                                  |
+| `aede stats`    | None                                                                                  | None                                                                           | Displays catalog metrics, audio quality distribution, and credit roles.                      |
+| `aede reset`    | None                                                                                  | `--yes`                                                                        | Removes the catalog, watched roots and exclusions; preserves independent stores.             |
 
 ### Query, Search & Catalog Browsing
 
-| Command          | Arguments       | Key Options                                                                                                               | Description                                                                          |
-| :--------------- | :-------------- | :------------------------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------------------- |
-| `aede query`     | `<expression>`  | `--m3u`, `--csv`, `--json`                                                                                                | Evaluates a relational search expression across the catalog graph.                   |
-| `aede search`    | `<term>`        | `--comments`, `--notes`, `--lyrics`                                                                                       | Search artists, albums, tracks, recordings, works, release groups and optional prose. |
-| `aede albums`    | None            | `--artist`, `--genre`, `--year`, `--compilations`, `--no-compilations`, `--limit`, `--offset`, `--all`, `--csv`, `--json` | List and filter album records with pagination support.                               |
-| `aede artists`   | None            | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.                    |
-| `aede genres`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                      |
-| `aede labels`    | `[name]`        | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                                         |
-| `aede artist`    | `<name\|MBID>`        | `--with <artist>`, `--members`, `--role`, `--m3u`, `--csv`                                                                          | Show a local artist or source-only contributor, with their credits and links.                |
-| `aede album`     | `<title\|MBID>` | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                        |
-| `aede track`     | `<title>`       | `--artist`, `--lyrics`, `--limit`                                                                                         | Show a local placement, tags, credits, and technical facts.                          |
-| `aede recording` | `<title\|MBID\|local:path>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.               |
-| `aede work`      | `<title\|MBID>` | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                    |
-| `aede release-group` | `<title\|MBID>` | None                                                                                                                   | Show the album identity shared by every local edition.                               |
-| `aede label`     | `<name>`        | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity. |
-| `aede relations` | `[name]`        | `--source`, `--tag`, `--limit`, `--json`, `--output=<file>`                                                              | List every local or sourced graph edge with its stable ID and provenance.            |
-| `aede relation`  | `<ID>`          | `--text`, `--tag`, `--remove`                                                                                             | Inspect one edge or attach personal notes and labels to the relationship itself.      |
-| `aede countries` | None            | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz.                 |
-| `aede missing`   | `<artist>`      | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.                        |
+| Command              | Arguments                   | Key Options                                                                                                               | Description                                                                           |
+| :------------------- | :-------------------------- | :------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------ |
+| `aede query`         | `<expression>`              | `--m3u`, `--csv`, `--json`                                                                                                | Evaluates a relational search expression across the catalog graph.                    |
+| `aede search`        | `<term>`                    | `--comments`, `--notes`, `--lyrics`                                                                                       | Search artists, albums, tracks, recordings, works, release groups and optional prose. |
+| `aede albums`        | None                        | `--artist`, `--genre`, `--year`, `--compilations`, `--no-compilations`, `--limit`, `--offset`, `--all`, `--csv`, `--json` | List and filter album records with pagination support.                                |
+| `aede artists`       | None                        | `--role <role>`, `--country <code>`, `--limit`, `--offset`, `--all`, `--csv`, `--json`                                    | List artists, filter by credit role, or map by geographic origin.                     |
+| `aede genres`        | `[name]`                    | `--m3u`, `--csv`, `--json`                                                                                                | Browse music genres or export tracks matching a specific genre.                       |
+| `aede labels`        | `[name]`                    | `--m3u`, `--csv`, `--json`                                                                                                | Survey record imprints and catalog releases.                                          |
+| `aede artist`        | `<name\|MBID>`              | `--with <artist>`, `--members`, `--role`, `--m3u`, `--csv`                                                                | Show a local artist or source-only contributor, with their credits and links.         |
+| `aede album`         | `<title\|MBID>`             | `--m3u`, `--csv`                                                                                                          | Show one local edition, its tracks, credits, and graph links.                         |
+| `aede track`         | `<title>`                   | `--artist`, `--lyrics`, `--limit`                                                                                         | Show a local placement, tags, credits, and technical facts.                           |
+| `aede recording`     | `<title\|MBID\|local:path>` | None                                                                                                                      | Show a recorded performance, every local placement, and sourced works.                |
+| `aede work`          | `<title\|MBID>`             | None                                                                                                                      | Show a composition and its canonical or source-backed recordings.                     |
+| `aede release-group` | `<title\|MBID>`             | None                                                                                                                      | Show the album identity shared by every local edition.                                |
+| `aede label`         | `<name>`                    | `--m3u`, `--csv`                                                                                                          | Show a label catalog and its explicit, confirmed, proposed, or conflicting identity.  |
+| `aede relations`     | `[name]`                    | `--source`, `--tag`, `--limit`, `--json`, `--output=<file>`                                                               | List every local or sourced graph edge with its stable ID and provenance.             |
+| `aede relation`      | `<ID>`                      | `--text`, `--tag`, `--remove`                                                                                             | Inspect one edge or attach personal notes and labels to the relationship itself.      |
+| `aede countries`     | None                        | `--csv`, `--output=<file>`                                                                                                | Summarize artist geographical distributions sourced via MusicBrainz.                  |
+| `aede missing`       | `<artist>`                  | None                                                                                                                      | Queries MusicBrainz to list missing official studio releases.                         |
 
 ### External Metadata & Artwork
 
@@ -329,21 +329,21 @@ disappears; `aede doctor --severity=info` then makes it visible.
 | `aede spectrum`   | `[path]`        | `--size <half\|full>`, `--dry-run`, `--full`, `--threads`                                                                               | Generates $900 \times 470$ or $1800 \times 940$ FFT acoustic spectrogram PNGs via FFmpeg.              |
 | `aede playlist`   | `[path]`        | `--simple`, `--artists`, `--dry-run`                                                                                                    | Writes relative `.m3u` playlist files directly into physical album directories.                        |
 | `aede collection` | `<name>`        | `--query <expr>`, `--m3u`, `--csv`, `--json`, `--remove`                                                                                | Defines or manages dynamic, self-refreshing smart playlists.                                           |
-| `aede export`     | None            | `--csv`, `--tracks`, `--graph`, `--json`, `--output=<file>`                                                                             | Export the catalog, a flat table, or every attributed graph layer in one JSON document.                 |
+| `aede export`     | None            | `--csv`, `--tracks`, `--graph`, `--json`, `--output=<file>`                                                                             | Export the catalog, a flat table, or every attributed graph layer in one JSON document.                |
 
 ### Forensic Ingestion & Annotations
 
-| Command        | Arguments         | Key Options                                             | Description                                                                  |
-| :------------- | :---------------- | :------------------------------------------------------ | :--------------------------------------------------------------------------- |
-| `aede import`  | `<path>`          | `--list`, `--pending`, `--forget`, `--source`           | Ingests external FlacCompagnon JSON reports for spectral analysis.           |
-| `aede analyze` | `[folder…]`      | `--json`, `--threads <n>`                              | Runs [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon)'s Rust analysis engine; `--json` saves one report per album folder. |
-| `aede note`    | `<entity> <name>` | `--text <str>`, `--file <path>`, `--append`, `--remove` | Attaches plain-text or Markdown notes to tracks, albums, or artists.         |
-| `aede rating`  | `<entity> <name>` | `<1-5>`, `--remove`                                     | Sets a personal star rating ($1\text{--}5$).                                 |
-| `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                              |
-| `aede notes`   | None              | `--export`, `--import`, `--output=<file>`               | Backs up or restores user annotations across systems.                        |
-| `aede rules`   | None              | `--export`, `--import`, `--output=<file>`               | Lists or transports reproducible decisions without copying fetched prose or listening history. |
-| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, conclusions, user annotations, remote sources and private account credentials. |
-| `aede restore` | `<file.json>`     | `--yes`                                                 | Restores vault state from a versioned Aède backup bundle.                    |
+| Command        | Arguments         | Key Options                                             | Description                                                                                                                               |
+| :------------- | :---------------- | :------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------- |
+| `aede import`  | `<path>`          | `--list`, `--pending`, `--forget`, `--source`           | Ingests external FlacCompagnon JSON reports for spectral analysis.                                                                        |
+| `aede analyze` | `[folder…]`       | `--json`, `--threads <n>`                               | Runs [FlacCompagnon](https://github.com/craft-and-code/FlacCompagnon)'s Rust analysis engine; `--json` saves one report per album folder. |
+| `aede note`    | `<entity> <name>` | `--text <str>`, `--file <path>`, `--append`, `--remove` | Attaches plain-text or Markdown notes to tracks, albums, or artists.                                                                      |
+| `aede rating`  | `<entity> <name>` | `<1-5>`, `--remove`                                     | Sets a personal star rating ($1\text{--}5$).                                                                                              |
+| `aede tag`     | `<entity> <name>` | `<tag_name>`, `--remove`                                | Assigns or removes custom tags.                                                                                                           |
+| `aede notes`   | None              | `--export`, `--import`, `--output=<file>`               | Backs up or restores user annotations across systems.                                                                                     |
+| `aede rules`   | None              | `--export`, `--import`, `--output=<file>`               | Lists or transports reproducible decisions without copying fetched prose or listening history.                                            |
+| `aede backup`  | `<file.json>`     | None                                                    | Bundles catalog, conclusions, user annotations, remote sources and private account credentials.                                           |
+| `aede restore` | `<file.json>`     | `--yes`                                                 | Restores vault state from a versioned Aède backup bundle.                                                                                 |
 
 `aede export --graph --output=graph.json` is the complete local-first export:
 the derived catalog, attributed source evidence, confidence and review states,
@@ -390,37 +390,37 @@ remain evidence and are not promoted into query results.
 
 ### Available Query Fields
 
-| Field                                                                  | Type                    | Description                       | Example Syntax                             |
-| :--------------------------------------------------------------------- | :---------------------- | :-------------------------------- | :----------------------------------------- |
-| `title`                                                                | Text                    | Track title                       | `title:Interstellar`                       |
-| `artist` / `albumartist`                                               | Text                    | Track performer or album artist   | `artist:Coltrane`                          |
-| `album`                                                                | Text                    | Album title                       | `album:"Kind of Blue"`                     |
-| `recording`                                                            | Text / ID              | Canonical recorded performance   | `recording:"So What"`                      |
-| `work`                                                                 | Text / ID              | Composition realised by it       | `work:"War Pigs"`                          |
-| `releasegroup`                                                         | Text / ID              | Album identity across editions   | `releasegroup:5c…`                          |
-| `genre`                                                                | Text                    | Musical genre                     | `genre:=Jazz`, `genre:Metal`               |
-| `label`                                                                | Text                    | Record label imprint              | `label:"Blue Note"`                        |
-| `year`                                                                 | Range / Number          | Release year                      | `year:1990..1999`, `year:1994`             |
-| `duration`                                                             | Duration                | Length in `mm:ss` or seconds      | `duration:..4:00`, `duration:3:30..5:00`   |
-| `size`                                                                 | Bytes                   | File size in bytes                | `size:>50000000`                           |
-| `codec` / `format`                                                     | Text                    | Codec name or container extension | `codec:flac`, `format:mp3`                 |
-| `bitrate` / `samplerate`                                               | Number                  | Stream parameters                 | `bitrate:>=320`, `samplerate:96000`       |
-| `lossless`                                                             | Boolean                 | Compression state                 | `lossless:true`, `-lossless`               |
-| `compilation`                                                          | Boolean                 | Multi-artist compilation flag     | `compilation:true`                         |
-| `played`                                                               | Counter                 | Play count                        | `played:0`, `played:>=10`                  |
-| `lyrics`                                                               | Text                    | Embedded or `.lrc` sidecar text   | `lyrics:train`                             |
-| `comment`                                                              | Text                    | Container ID3/Vorbis comment tag  | `comment:"vinyl rip"`                      |
-| **Credits**                                                            |                         |                                   |                                            |
-| `composer`, `lyricist`, `producer`, `engineer`, `conductor`, `remixer` | Text                    | Specific liner note credit role   | `composer:Rhoads`, `producer:"Rick Rubin"` |
-| `performing`                                                           | Text                    | Anyone audible on the recording   | `performing:"Zakk Wylde"`                  |
-| `instrument`                                                           | Text                    | Instrument or credit attribute    | `instrument:guitar`                         |
-| `guest` / `compilationartist`                                          | Text                    | Performing participation class    | `guest:"Zakk Wylde"`                       |
-| `contributor` / `with`                                                 | Text                    | Non-performing credit / co-performer | `with:"Zakk Wylde"`                      |
-| **Annotations**                                                        |                         |                                   |                                            |
-| `rating`                                                               | Numeric ($1\text{--}5$) | User star rating                  | `rating:>=4`, `album.rating:5`             |
-| `loved`                                                                | Boolean                 | Personal favorite status          | `loved`, `-loved`, `track.loved`           |
-| `tag`                                                                  | Text                    | User assigned tag                 | `tag:vinyl`, `album.tag:audiophile`        |
-| `note`                                                                 | Text                    | Markdown note content             | `note:remaster`, `artist.note:concert`     |
+| Field                                                                  | Type                    | Description                          | Example Syntax                             |
+| :--------------------------------------------------------------------- | :---------------------- | :----------------------------------- | :----------------------------------------- |
+| `title`                                                                | Text                    | Track title                          | `title:Interstellar`                       |
+| `artist` / `albumartist`                                               | Text                    | Track performer or album artist      | `artist:Coltrane`                          |
+| `album`                                                                | Text                    | Album title                          | `album:"Kind of Blue"`                     |
+| `recording`                                                            | Text / ID               | Canonical recorded performance       | `recording:"So What"`                      |
+| `work`                                                                 | Text / ID               | Composition realised by it           | `work:"War Pigs"`                          |
+| `releasegroup`                                                         | Text / ID               | Album identity across editions       | `releasegroup:5c…`                         |
+| `genre`                                                                | Text                    | Musical genre                        | `genre:=Jazz`, `genre:Metal`               |
+| `label`                                                                | Text                    | Record label imprint                 | `label:"Blue Note"`                        |
+| `year`                                                                 | Range / Number          | Release year                         | `year:1990..1999`, `year:1994`             |
+| `duration`                                                             | Duration                | Length in `mm:ss` or seconds         | `duration:..4:00`, `duration:3:30..5:00`   |
+| `size`                                                                 | Bytes                   | File size in bytes                   | `size:>50000000`                           |
+| `codec` / `format`                                                     | Text                    | Codec name or container extension    | `codec:flac`, `format:mp3`                 |
+| `bitrate` / `samplerate`                                               | Number                  | Stream parameters                    | `bitrate:>=320`, `samplerate:96000`        |
+| `lossless`                                                             | Boolean                 | Compression state                    | `lossless:true`, `-lossless`               |
+| `compilation`                                                          | Boolean                 | Multi-artist compilation flag        | `compilation:true`                         |
+| `played`                                                               | Counter                 | Play count                           | `played:0`, `played:>=10`                  |
+| `lyrics`                                                               | Text                    | Embedded or `.lrc` sidecar text      | `lyrics:train`                             |
+| `comment`                                                              | Text                    | Container ID3/Vorbis comment tag     | `comment:"vinyl rip"`                      |
+| **Credits**                                                            |                         |                                      |                                            |
+| `composer`, `lyricist`, `producer`, `engineer`, `conductor`, `remixer` | Text                    | Specific liner note credit role      | `composer:Rhoads`, `producer:"Rick Rubin"` |
+| `performing`                                                           | Text                    | Anyone audible on the recording      | `performing:"Zakk Wylde"`                  |
+| `instrument`                                                           | Text                    | Instrument or credit attribute       | `instrument:guitar`                        |
+| `guest` / `compilationartist`                                          | Text                    | Performing participation class       | `guest:"Zakk Wylde"`                       |
+| `contributor` / `with`                                                 | Text                    | Non-performing credit / co-performer | `with:"Zakk Wylde"`                        |
+| **Annotations**                                                        |                         |                                      |                                            |
+| `rating`                                                               | Numeric ($1\text{--}5$) | User star rating                     | `rating:>=4`, `album.rating:5`             |
+| `loved`                                                                | Boolean                 | Personal favorite status             | `loved`, `-loved`, `track.loved`           |
+| `tag`                                                                  | Text                    | User assigned tag                    | `tag:vinyl`, `album.tag:audiophile`        |
+| `note`                                                                 | Text                    | Markdown note content                | `note:remaster`, `artist.note:concert`     |
 
 ---
 

@@ -53,3 +53,9 @@ Repository-root cwd; all Rust checks use locked/offline resolution except explic
 | audit-desktop | `cargo audit --json --file desktop/Cargo.lock` | 0 | `8c491f96cc59520f6983ff9f2618b1f40b24e92060b3787991030f678c5d0cd5` |
 | deny-engine | `cargo deny --locked check` | 1 | `e600862d5ff50760f8d0117cd6962226029d18479b141ecdcb913d1fa5f82a28` |
 | deny-desktop | `cargo deny --manifest-path desktop/Cargo.toml --config desktop/deny.toml --locked check` | 1 | `7b1f2ffedc64f67fd38627afdfd4d2b91031755ad767faa6131853b8c23a048a` |
+
+## Native CI follow-up
+
+After the separately authorized push, [CI run 40027173576](https://github.com/craft-and-code/aede/actions/runs/40027173576) passes all six engine/App jobs on exact source `f81d5befed64a11a2524bc643e059882ba217bf6`. Windows runs 2,737 engine Rust cases across 52 suites, including both new Windows-only regressions and all five formerly failing cases, plus 53 App Rust cases, 38 Vitest cases and 2 Node cases. Windows desktop Clippy and the native build pass. Linux runs 2,936 engine Rust cases with one pre-existing ignored physical ALSA lifecycle test, which requires an explicitly selected real device. CLI jobs use Rust 1.89; macOS jobs also pass.
+
+[Dependency security run 40027174103](https://github.com/craft-and-code/aede/actions/runs/40027174103) succeeds with the documented GLib, paste and proc-macro-error findings still visible; that workflow success does not clear the separate failing cargo-deny controls. Native software CI now validates the corrected Windows paths. Interactive console/clipboard trials, physical output, installer acceptance and independent affected-path review remain separate. The 0.7.1 preparation supersedes the historical version-freeze scope above; v0.7.0 remains untouched, and a draft still does not satisfy the clients' published-stable prerequisite.
