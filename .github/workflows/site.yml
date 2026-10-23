@@ -69,6 +69,7 @@ jobs:
           name: aede-website
           path: dist-site/
           if-no-files-found: error
+          retention-days: 1
 
   deploy:
     if: github.event_name != 'pull_request'

@@ -108,6 +108,8 @@ Version-specific highlights live in `docs/releases/vVERSION.md`; the workflow us
 
 The `Site` workflow builds the complete publication into `dist-site/`: the Onde landing page, English counterpart, user manual, CLI reference, server guide, DSP guide and Rustdoc. Pull requests build and validate an artifact without publishing it. Pushes to the default branch and manual runs publish the same validated artifact to `gh-pages`.
 
+The temporary `aede-website` Actions artifact is retained for one day. This does not change the published website or files attached to Releases. The setting applies to new uploads; older artifacts keep their original expiration dates and must expire or be removed separately. CLI/App release build artifacts retain their separate seven-day policy.
+
 User-facing Markdown is the source of truth. English guides live in `docs/manual/`, `docs/cli/`, `docs/server/` and `docs/dsp/`; translated guides live under `docs/fr/`. The `docs/site-*.json` manifests map titles, descriptions, navigation groups and bilingual paths. Existing topic references are published directly from their Markdown, rather than copied into hand-maintained HTML. Rendering requires Python's standard library and no package installation.
 
 ```sh
