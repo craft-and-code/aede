@@ -14,6 +14,8 @@ use crate::ui::{self, Align, Table};
 
 #[path = "scan_report.rs"]
 mod report_output;
+#[path = "scan_root_identity.rs"]
+mod root_identity;
 
 pub fn scan(args: &Args) -> Res {
     run_scan(args, Watched::AndWhateverWasNamed, &mut |_| {})
@@ -63,13 +65,18 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
         Err(e) => return Err(e.into()),
     };
 
+    let unavailable_roots = unavailable_roots()?
+        .into_iter()
+        .map(|raw| root_identity::resolve(&raw).map(|identity| (raw, identity)))
+        .collect::<Result<Vec<_>, _>>()?;
     let roots = match watched {
-        Watched::AndWhateverWasNamed => resolve_roots(args, stored.as_ref())?,
+        Watched::AndWhateverWasNamed => resolve_roots(args, stored.as_ref(), &unavailable_roots)?,
         Watched::Only => stored
             .as_ref()
             .map(|c| c.roots.iter().map(PathBuf::from).collect())
             .unwrap_or_default(),
     };
+    root_identity::validate_selection(stored.as_ref(), &roots, &unavailable_roots)?;
     // A full read still needs the previous catalog as evidence for paths the
     // filesystem cannot currently expose. An unavailable folder is not empty.
     let previous = stored.as_ref();
@@ -91,7 +98,10 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
         // a statement that only held until the next scan would be forgotten
         // exactly when the shelf was rebuilt around it.
         same_artist: super::merge::stated(&dir),
-        unavailable_roots: unavailable_roots()?,
+        unavailable_roots: unavailable_roots
+            .iter()
+            .map(|(_, identity)| identity.clone())
+            .collect(),
     };
 
     let machine = args.has("json");
@@ -123,6 +133,7 @@ fn run_scan(args: &Args, watched: Watched, on_progress: &mut (dyn FnMut(Progress
             }
         }
     })?;
+    root_identity::validate_result(previous, &catalog, &unavailable_roots, &options.excluded)?;
     // Persist the watched-folder policy used for this traversal.
     catalog.excluded = options
         .excluded
@@ -205,7 +216,11 @@ mod tests;
 /// add to the catalog, not silently replace it — that mistake costs the user
 /// their whole catalog with no warning. `--replace` asks for the old
 /// behaviour explicitly.
-fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+fn resolve_roots(
+    args: &Args,
+    stored: Option<&Catalog>,
+    unavailable: &[(PathBuf, PathBuf)],
+) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut roots: Vec<PathBuf> = Vec::new();
 
     if !args.has("replace")
@@ -221,10 +236,16 @@ fn resolve_roots(args: &Args, stored: Option<&Catalog>) -> Result<Vec<PathBuf>, 
 
     for raw in &args.positionals {
         let path = PathBuf::from(raw);
-        if !path.is_dir() {
+        // An owned job may explicitly retain a root the host cannot expose.
+        // The declaration grants no permission to other missing paths.
+        let declared = unavailable.iter().find(|(raw, _)| raw == &path);
+        if !path.is_dir() && declared.is_none() {
             return Err(format!("\"{raw}\" is not a readable folder").into());
         }
-        roots.push(super::canonical(&path));
+        roots.push(match declared {
+            Some((_, identity)) => identity.clone(),
+            None => super::canonical(&path),
+        });
     }
 
     if roots.is_empty() {
@@ -473,19 +494,30 @@ fn tracks_under(catalog: &Catalog, root: &str) -> Vec<Id> {
 }
 
 fn unavailable_roots() -> Result<Vec<PathBuf>, String> {
-    if std::env::var("AEDE_DELEGATED_CHILD").as_deref() != Ok("1") {
+    if std::env::var("AEDE_DELEGATED_CHILD").as_deref() != Ok("1")
+        || !std::env::var_os("AEDE_DELEGATED_DATA_DIR")
+            .is_some_and(|path| Path::new(&path).is_absolute())
+    {
         return Ok(Vec::new());
     }
-    let Ok(input) = std::env::var("AEDE_UNAVAILABLE_ROOTS") else {
-        return Ok(Vec::new());
+    let input = match std::env::var("AEDE_UNAVAILABLE_ROOTS") {
+        Ok(input) => input,
+        Err(std::env::VarError::NotPresent) => return Ok(Vec::new()),
+        Err(std::env::VarError::NotUnicode(_)) => return Err("invalid unavailable roots".into()),
     };
     let value = aede_core::json::parse(&input).map_err(|_| "invalid unavailable roots")?;
     let aede_core::json::Json::Arr(rows) = value else {
         return Err("invalid unavailable roots".into());
     };
+    if rows.len() > 64 {
+        return Err("invalid unavailable roots".into());
+    }
     rows.iter()
         .map(|row| {
             row.as_str()
+                .filter(|path| {
+                    path.len() <= 4096 && !path.contains('\0') && Path::new(path).is_absolute()
+                })
                 .map(PathBuf::from)
                 .ok_or_else(|| "invalid unavailable root".into())
         })
