@@ -5,7 +5,7 @@
 //! catalog. On a library of 50,000 titles, that is the difference between
 //! several minutes and a few seconds.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,6 +15,9 @@ use crate::analysis;
 use crate::clock::{mtime_seconds, now_seconds};
 use crate::model::{self, Catalog, ScannedFile};
 use crate::tags::{self, RawTags};
+
+#[path = "scan_exclusions.rs"]
+mod retained_exclusions;
 
 /// Image file names recognised as album cover art, in order of preference.
 const COVER_NAMES: &[&str] = &["cover", "folder", "front", "albumart", "album", "artwork"];
@@ -46,7 +49,8 @@ pub struct ScanOptions {
     /// plain `aede scan` re-reads every watched root: an exclusion that had to
     /// be retyped would be forgotten exactly when it mattered.
     pub excluded: Vec<PathBuf>,
-    /// Roots explicitly known to be unmounted, even when an empty mountpoint remains.
+    /// Subtrees explicitly known to be unmounted, even when an empty mountpoint remains.
+    /// Only their intersection with the selected roots is retained.
     pub unavailable_roots: Vec<PathBuf>,
     /// Spellings the owner of the disk has said are one artist.
     ///
@@ -174,12 +178,9 @@ pub fn scan(
 
     // --- 1. Traversal ------------------------------------------------------
     let mut walker = Walker::new(options);
+    walker.mark_unavailable(&traversal_roots);
     for root in traversal_roots {
-        if options.unavailable_roots.contains(root) {
-            walker.failure(root, "watched volume is not mounted");
-        } else {
-            walker.walk(root)?;
-        }
+        walker.walk(root)?;
     }
     let Walker {
         mut audio_files,
@@ -188,6 +189,7 @@ pub fn scan(
         sidecars,
         failures: traversal_failures,
         inaccessible,
+        mut exclusions,
         ..
     } = walker;
     reports_found.sort();
@@ -352,14 +354,11 @@ pub fn scan(
             .iter()
             .filter(|file| {
                 !present.contains(file.path.as_str())
-                    && !options
-                        .excluded
-                        .iter()
-                        .any(|folder| crate::text::is_under(&file.path, &folder.to_string_lossy()))
                     && (Path::new(&file.path)
                         .ancestors()
                         .any(|ancestor| inaccessible.contains(ancestor))
                         || unavailable.contains(&file.path))
+                    && !exclusions.contains_file(&file.path)
             })
             .collect();
         let covers: HashMap<model::Id, &str> = if retained.is_empty() {
@@ -627,6 +626,10 @@ struct Walker<'a> {
     /// Native paths used for ancestor lookups. One failed subtree must not
     /// trigger a scan of every recorded failure for every previous file.
     inaccessible: HashSet<PathBuf>,
+    /// Explicit offline policy, including resolved targets for followed aliases.
+    /// Kept separately from traversal roots, which callers may deduplicate.
+    offline: HashSet<PathBuf>,
+    exclusions: retained_exclusions::Exclusions<'a>,
 }
 
 impl<'a> Walker<'a> {
@@ -640,7 +643,39 @@ impl<'a> Walker<'a> {
             visited: HashSet::new(),
             failures: Vec::new(),
             inaccessible: HashSet::new(),
+            offline: HashSet::new(),
+            exclusions: retained_exclusions::Exclusions::new(&options.excluded),
         }
+    }
+
+    fn mark_unavailable(&mut self, roots: &[&PathBuf]) {
+        let mut blocked = BTreeSet::new();
+        for unavailable in &self.options.unavailable_roots {
+            for root in roots {
+                if unavailable.starts_with(root.as_path()) {
+                    blocked.insert(unavailable.clone());
+                } else if root.starts_with(unavailable) {
+                    blocked.insert(root.to_path_buf());
+                }
+            }
+        }
+        for path in blocked {
+            let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if self.is_excluded(&canonical) || self.is_offline(&path) {
+                continue;
+            }
+            // An absent nested mountpoint will never appear in read_dir.
+            // Register its selected scope before walking so absence cannot
+            // erase its old files or retain an unselected parent's siblings.
+            self.failure(&path, "watched volume is not mounted");
+            self.offline.insert(path);
+            self.offline.insert(canonical);
+        }
+    }
+
+    fn is_offline(&self, path: &Path) -> bool {
+        path.ancestors()
+            .any(|ancestor| self.offline.contains(ancestor))
     }
 
     fn failure(&mut self, path: &Path, reason: impl Into<String>) {
@@ -668,6 +703,15 @@ impl<'a> Walker<'a> {
         // link is excluded too — the same reason every comparison against a
         // stored path in this program is made on a resolved one.
         if self.is_excluded(&canonical) {
+            return Ok(());
+        }
+        if self.is_offline(dir) {
+            return Ok(());
+        }
+        if self.is_offline(&canonical) {
+            // Previous files can use the followed alias spelling. Preserve
+            // that path too, without opening the declared offline target.
+            self.failure(dir, "watched volume is not mounted");
             return Ok(());
         }
         if !self.visited.insert(canonical) {
@@ -725,6 +769,23 @@ impl<'a> Walker<'a> {
 
             if file_type.is_symlink() && !self.options.follow_symlinks {
                 continue;
+            }
+            if file_type.is_symlink()
+                && (!self.options.excluded.is_empty() || !self.offline.is_empty())
+            {
+                // A file link can cross the same policy boundary as a directory
+                // link; its lexical parent cannot establish target policy.
+                let Some(identity) = self.exclusions.file_identity(&path) else {
+                    self.failure(&path, "cannot establish followed path identity");
+                    continue;
+                };
+                if self.is_excluded(&identity) {
+                    continue;
+                }
+                if self.is_offline(&identity) {
+                    self.failure(&path, "watched volume is not mounted");
+                    continue;
+                }
             }
             let file_type = if file_type.is_symlink() {
                 match std::fs::metadata(&path) {
@@ -827,5 +888,25 @@ fn cover_rank(name: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
+#[path = "scan_nested_tests.rs"]
+mod nested_tests;
+
+#[cfg(test)]
+#[path = "scan_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "scan_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "scan_alias_exclusion_tests.rs"]
+mod alias_exclusion_tests;
+
+#[cfg(test)]
+#[path = "scan_nested_test_support.rs"]
+mod nested_test_support;
+
+#[cfg(test)]
+#[path = "scan_file_alias_tests.rs"]
+mod file_alias_tests;
