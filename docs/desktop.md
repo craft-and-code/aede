@@ -12,6 +12,10 @@ Install the App package for your system from the [releases](https://github.com/c
 
 Folders can be added or removed while the server is running (outside an active app scan); a changed nonempty selection immediately launches a background replacement scan. While stopped, edits are saved for the next startup scan. Changing the port still requires stopping the server. Removing a folder never deletes music; removing all configured folders does not erase the retained catalog. An absent folder is retained during a scan. The App detects paths that no longer exist; it cannot yet detect a network mount that has disappeared while leaving an accessible empty mountpoint. Remount such volumes before scanning.
 
+New folder selections are refused before saving if their combined serialized scan request would exceed the administrative request budget, including when all volumes are absent. The previous selection and connection identity are preserved. An older oversized profile remains readable. Remove existing folders one at a time until the selection fits; each strict removal is saved even if more removals are still needed. Scanning remains refused while the selection exceeds the budget, and adding or replacing folders does not bypass admission.
+
+If an unavailable alias cannot be safely associated with its previously scanned paths, the scan refuses before publishing a replacement catalog. Reconnect the volume or select its real folder, then retry. Some combined changes, such as an unknown unavailable alias and other disappearing tracks, require this explicit recovery because the profile does not persist a historical alias-to-target map.
+
 The app listens only on `127.0.0.1`, always over HTTPS. An occupied port is an error, never a reason to adopt another server or fall back to HTTP. Remote/LAN hosting remains available through the [CLI HTTPS configuration](server/remote.md), outside this minimal local console.
 
 ## Connect Phémios on the same computer

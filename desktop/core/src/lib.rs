@@ -12,6 +12,26 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+// Keep desktop selections within the administrative scan endpoint's body budget,
+// including the duplicated paths if every selected volume becomes unavailable.
+const SCAN_BODY_LIMIT: usize = 16 * 1024;
+
+fn scan_payload(roots: &[String]) -> Result<Value, String> {
+    let mut payload = json!({
+        "folders":roots,"replace":true,"threads":1,"unavailable_folders":roots
+    });
+    if payload.to_string().len() > SCAN_BODY_LIMIT {
+        return Err("Sélection trop volumineuse pour scanner. Réduisez le nombre ou la longueur des dossiers.".into());
+    }
+    payload["unavailable_folders"] = json!(
+        roots
+            .iter()
+            .filter(|path| !std::path::Path::new(path).is_dir())
+            .collect::<Vec<_>>()
+    );
+    Ok(payload)
+}
+
 /// Public state, excluding passwords, session tokens and TLS private keys.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,9 +102,16 @@ impl Host {
             return Err("Arrêtez le serveur avant de modifier son port.".into());
         }
         let mut configuration = read(&self.root)?;
+        // Oversized legacy profiles need to support the UI's one-folder-at-a-time recovery.
+        let legacy_reduction = roots.len() < configuration.roots.len()
+            && roots.iter().all(|root| configuration.roots.contains(root))
+            && scan_payload(&configuration.roots).is_err();
         configuration.port = port;
         configuration.roots = roots;
         configuration.validate()?;
+        if !legacy_reduction {
+            scan_payload(&configuration.roots)?;
+        }
         save(&self.root, &configuration)?;
         self.status()
     }
@@ -167,10 +194,8 @@ impl Host {
         if configuration.roots.is_empty() {
             return Err("Ajoutez au moins un dossier avant de scanner.".into());
         }
-        self.request("POST", "/api/admin/v1/scan", Some(&json!({
-            "folders":configuration.roots,"replace":true,"threads":1,
-            "unavailable_folders":configuration.roots.iter().filter(|p| !std::path::Path::new(p).is_dir()).collect::<Vec<_>>()
-        })))
+        let payload = scan_payload(&configuration.roots)?;
+        self.request("POST", "/api/admin/v1/scan", Some(&payload))
     }
     /// Follow one admitted administrative task using its numeric identifier only.
     pub fn task(&mut self, id: u64, cancel: bool) -> Result<Value, String> {

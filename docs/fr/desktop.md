@@ -12,6 +12,10 @@ Choisissez le paquet **App** de votre système dans les [publications](https://g
 
 Les dossiers sont modifiables même quand le serveur fonctionne, en dehors d’un scan actif dans l’App. Seul le changement de port impose son arrêt. Le scan applique la sélection courante non vide. Retirer un dossier ne supprime jamais ses fichiers ; retirer tous les dossiers configurés n’efface pas le catalogue conservé. Un dossier absent est conservé pendant un scan. Cette première application détecte les chemins disparus, mais pas encore un volume réseau démonté qui laisse un point de montage vide accessible : remontez-le avant le scan.
 
+Une nouvelle sélection trop volumineuse pour la requête de scan est refusée avant son enregistrement, même en prévoyant l’absence de tous les volumes. La sélection précédente et l’identité de connexion sont conservées. Un ancien profil trop volumineux reste lisible. Retirez ses dossiers un par un jusqu’à obtenir une sélection admissible : chaque retrait strict est enregistré, même si d’autres restent nécessaires. Le scan demeure refusé tant que la sélection dépasse la limite ; ajouter ou remplacer des dossiers ne contourne pas cette validation.
+
+Si un alias indisponible ne peut pas être relié de façon sûre aux chemins précédemment scannés, le scan refuse de publier un catalogue de remplacement. Reconnectez le volume ou sélectionnez son dossier réel, puis réessayez. Certaines modifications combinées, par exemple un alias indisponible inconnu et d’autres pistes disparues, nécessitent cette récupération explicite : le profil ne conserve pas d’historique des cibles d’alias.
+
 Le serveur écoute uniquement sur `127.0.0.1`, en HTTPS. Un port occupé produit une erreur ; l’application n’adopte pas un autre serveur et ne se replie pas en HTTP. Pour un serveur distant ou LAN, utilisez la [configuration HTTPS de la CLI](server/remote.md).
 
 ## Relier Phémios sur le même ordinateur

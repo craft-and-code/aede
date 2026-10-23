@@ -132,3 +132,11 @@ fn symlink_and_world_readable_profiles_are_refused() {
 #[cfg(feature = "engine-tests")]
 #[path = "engine_tests.rs"]
 mod engine;
+
+#[path = "profile_creation_tests.rs"]
+mod profile_creation;
+#[path = "selection_tests.rs"]
+mod selection;
+
+#[path = "legacy_selection_tests.rs"]
+mod legacy_selection;

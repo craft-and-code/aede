@@ -126,19 +126,7 @@ pub(crate) fn read(root: &Path) -> Result<Configuration, String> {
 }
 pub(crate) fn save(root: &Path, config: &Configuration) -> Result<(), String> {
     config.validate()?;
-    if !root.exists() {
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder
-            .create(root)
-            .map_err(|_| "Création du profil impossible.")?;
-    }
-    admit(root, true)?;
+    prepare_root(root)?;
     let path = root.join("server.json");
     if path.exists() {
         admit(&path, false)?;
@@ -162,12 +150,30 @@ pub(crate) fn save(root: &Path, config: &Configuration) -> Result<(), String> {
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
+        #[cfg(test)]
+        test_support::before_initial_publication(root)?;
         fs::rename(&temporary, path)
     })();
     if result.is_err() {
         let _ = fs::remove_file(temporary);
     }
     result.map_err(|_| "Publication du profil impossible.".into())
+}
+
+fn prepare_root(root: &Path) -> Result<(), String> {
+    if !root.exists() {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder
+            .create(root)
+            .map_err(|_| "Création du profil impossible.")?;
+    }
+    admit(root, true)
 }
 
 pub(crate) struct ProfileLock(fs::File);
@@ -179,10 +185,8 @@ impl Drop for ProfileLock {
 }
 pub(crate) fn lock(root: &Path) -> Result<ProfileLock, String> {
     // Validate an existing profile before creating any file within it.
-    let config = read(root)?;
-    if !root.exists() {
-        save(root, &config)?;
-    }
+    read(root)?;
+    prepare_root(root)?;
     let path = root.join("desktop.lock");
     match fs::symlink_metadata(&path) {
         Ok(_) => admit(&path, false)?,
@@ -201,5 +205,15 @@ pub(crate) fn lock(root: &Path) -> Result<ProfileLock, String> {
         .map_err(|_| "Verrou du profil indisponible.")?;
     file.try_lock()
         .map_err(|_| "Une autre application Aède utilise déjà ce profil.".to_string())?;
-    Ok(ProfileLock(file))
+    let lock = ProfileLock(file);
+    // Only the exclusive owner may publish even the first default profile.
+    // Re-read after acquiring ownership rather than saving an earlier snapshot.
+    if !root.join("server.json").exists() {
+        save(root, &read(root)?)?;
+    }
+    Ok(lock)
 }
+
+#[cfg(test)]
+#[path = "configuration_test_support.rs"]
+pub(crate) mod test_support;

@@ -198,3 +198,9 @@ fn running_server_accepts_folder_edits_but_refuses_port_changes() {
         false
     );
 }
+
+#[path = "proxy_tests.rs"]
+mod proxy;
+
+#[path = "selection_engine_tests.rs"]
+mod selection;

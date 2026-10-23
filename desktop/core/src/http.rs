@@ -5,6 +5,7 @@ use std::time::Duration;
 pub(crate) fn agent(identity: &Identity) -> ureq::Agent {
     let certificate = ureq::tls::Certificate::from_der(&identity.certificate_der).to_owned();
     ureq::Agent::config_builder()
+        .proxy(None)
         .max_redirects(0)
         .timeout_global(Some(Duration::from_secs(15)))
         .http_status_as_error(false)
