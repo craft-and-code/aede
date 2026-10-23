@@ -17,7 +17,7 @@
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Aède — Lecteur audio, bibliothèque musicale et DSP"><meta name="twitter:description" content="Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel."><meta name="twitter:image" content="https://craft-and-code.github.io/aede/assets/og-image.png">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="stylesheet" href="styles.css">
-<script src="language.js"></script><script defer src="home-strings.js"></script><script defer src="translations.js"></script><script defer src="app.js"></script>
+<script src="language.js"></script><script defer src="home-strings.js"></script><script defer src="translations.js"></script><script defer src="sillons.js"></script><script defer src="app.js"></script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Aède", "url": "https://craft-and-code.github.io/aede/", "applicationCategory": "MultimediaApplication", "operatingSystem": "macOS, Linux, Windows", "description": "Aède, lecteur audio local et gestionnaire de musique : paroles, crédits, relations entre artistes, recherche, copie vérifiée et DSP. Découvrez la CLI, le serveur et le manuel.", "license": "https://www.mozilla.org/MPL/2.0/", "codeRepository": "https://github.com/craft-and-code/aede"}</script>
 </head><body>
 <a class="skip-link" href="#main">Aller au contenu</a>
@@ -38,8 +38,10 @@
         <p class="ae-deck">Écouter. Explorer. Préserver.</p>
         <div class="ae-stage" aria-label="Illustrations des fonctions">
           <div class="ae-scene ae-sound">
-            <canvas id="ae-sound-canvas" role="img" aria-label="Spectre et onde audio illustratifs"></canvas>
-            <p class="ae-scene-foot">Spectre & pulsations · Signal synthétique</p>
+            <button id="ae-sillons" class="ae-sillons cursor-interaction" type="button" aria-label="Sillons, sculpture interactive en 3D. Déplacez le pointeur pour soulever les anneaux. Cliquez ou appuyez sur Entrée pour une impulsion. Les flèches déplacent le relief, Échap le réinitialise.">
+              <canvas class="ae-sillons-fallback" aria-hidden="true"></canvas>
+            </button>
+            <p class="ae-scene-foot">Sillons · Effleurez le relief, cliquez pour une impulsion.</p>
           </div>
           <div class="ae-scene ae-graph" hidden>
             <canvas id="ae-graph-canvas" role="img" aria-label="Relations entre un album, un artiste, un musicien, un producteur, une piste, une œuvre et son compositeur"></canvas>

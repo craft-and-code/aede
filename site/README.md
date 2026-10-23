@@ -52,6 +52,10 @@ The first Markdown H1 supplies the article title fragment; manifest metadata sup
 
 `site/index.html` is the single French landing-page source. `site/home-translations.json` maps exact French strings to their English equivalents. The build translates text nodes, human-readable attributes and JSON-LD strings while preserving the HTML structure. `site/translations.js` uses the generated `home-strings.js` dictionary for dynamic landing-page labels; there is no second handwritten translation list. The generated English home uses localized documentation links and assets relative to its `/en/` path.
 
+The initial **Listen** illustration is Sillons: a pointer-reactive 3D ring surface, with a finite impulse on click, Enter or Space. Arrow keys move the relief; Escape restores its resting shape. The **Explore** graph and **Preserve** copy illustration retain their existing selectors and behaviour. `sillons.js` owns only the Sillons surface, independently of the remaining homepage interactions in `app.js`.
+
+Three.js 0.180.0 is pinned under `vendor/three-0.180.0/`, with its upstream MIT license and provenance. It is loaded only when the illustration is visible, from the site's own origin; visitors do not contact a CDN. A projected Canvas 2D version remains interactive if the module or WebGL is unavailable, including during context loss. Rendering stops when the illustration is hidden, the document is hidden or the gesture has settled. Reduced motion applies changes immediately without spring or impulse animation. This is an illustration, not a visualization of real playback or a microphone input.
+
 Language choices are explicit on documentation pages, point to the same guide in the other language, and save the shared `aede-language` preference. Navigation uses ordinary page links; scripts enhance the page but are not required to read it.
 
 Repository references use the published `main` branch, declared once as `REPOSITORY_BRANCH` in the publisher. The Markdown source link opens GitHub's editor for the page's selected language; unpublished local source changes become available there when pushed to that branch.
