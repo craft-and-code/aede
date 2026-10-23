@@ -4,6 +4,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 struct Fixture(PathBuf);
 
 impl Fixture {
+    fn raw_path(&self, parts: &[&str]) -> PathBuf {
+        // Joining onto a canonical Windows verbatim path removes `..` before admission.
+        let mut path = self.0.as_os_str().to_owned();
+        for part in parts {
+            path.push(std::path::MAIN_SEPARATOR_STR);
+            path.push(part);
+        }
+        PathBuf::from(path)
+    }
+
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let nonce = std::time::SystemTime::now()
@@ -52,7 +62,8 @@ fn absent_root_keeps_the_canonical_spelling_of_its_existing_parent() {
     let fixture = Fixture::new();
     let hop = fixture.0.join("hop");
     fs::create_dir(&hop).unwrap();
-    let root = hop.join("..").join("absent").join("child");
+    let root = fixture.raw_path(&["hop", "..", "absent", "child"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
     assert_eq!(
         resolve(&root).unwrap(),
         fixture.0.join("absent").join("child")
@@ -106,7 +117,8 @@ fn a_link_cycle_is_refused_with_actionable_identity_guidance() {
 #[test]
 fn an_absent_prefix_cannot_be_flattened_through_a_parent_component() {
     let fixture = Fixture::new();
-    let root = fixture.0.join("absent").join("..").join("other");
+    let root = fixture.raw_path(&["absent", "..", "other"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
     let error = resolve(&root).unwrap_err().to_string();
     assert!(
         error.contains("parent of an absent component is unknown"),
@@ -119,10 +131,114 @@ fn a_file_cannot_be_flattened_through_a_parent_component() {
     let fixture = Fixture::new();
     let file = fixture.0.join("file");
     fs::write(&file, b"fixture").unwrap();
-    let error = resolve(&file.join("..").join("absent"))
-        .unwrap_err()
-        .to_string();
+    let root = fixture.raw_path(&["file", "..", "absent"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
+    let error = resolve(&root).unwrap_err().to_string();
     assert!(error.contains("not a directory"), "{error}");
+}
+
+#[test]
+fn a_raw_existing_parent_can_resolve_to_an_existing_directory() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.0.join("hop")).unwrap();
+    let target = fixture.0.join("retained");
+    fs::create_dir(&target).unwrap();
+    let root = fixture.raw_path(&["hop", "..", "retained"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
+    assert_eq!(resolve(&root).unwrap(), target.canonicalize().unwrap());
+}
+
+#[test]
+fn a_raw_parent_after_multiple_missing_components_is_refused() {
+    let fixture = Fixture::new();
+    let root = fixture.raw_path(&["absent", "child", "..", "other"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
+    let error = resolve(&root).unwrap_err().to_string();
+    assert!(
+        error.contains("parent of an absent component is unknown"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_raw_file_ancestor_cannot_be_bypassed_when_the_target_exists() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("file"), b"fixture").unwrap();
+    fs::create_dir(fixture.0.join("retained")).unwrap();
+    let root = fixture.raw_path(&["file", "..", "retained"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
+    let error = resolve(&root).unwrap_err().to_string();
+    assert!(error.contains("not a directory"), "{error}");
+}
+
+#[test]
+fn a_raw_missing_ancestor_cannot_be_bypassed_when_the_target_exists() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.0.join("retained")).unwrap();
+    let root = fixture.raw_path(&["absent", "..", "retained"]);
+    assert!(root.components().any(|part| part == Component::ParentDir));
+    let error = resolve(&root).unwrap_err().to_string();
+    assert!(
+        error.contains("parent of an absent component is unknown"),
+        "{error}"
+    );
+}
+
+#[test]
+fn relative_file_parents_are_refused_before_canonicalization() {
+    // Cargo runs this binary's tests in the package directory; this file is read only.
+    assert!(Path::new("Cargo.toml").is_file());
+    let root = Path::new("Cargo.toml").join("..").join("Cargo.toml");
+    let error = resolve(&root).unwrap_err().to_string();
+    assert!(error.contains("not a directory"), "{error}");
+}
+
+#[test]
+fn relative_existing_directory_parents_keep_the_same_canonical_identity() {
+    assert!(Path::new("src").is_dir());
+    let root = Path::new("src").join("..").join("Cargo.toml");
+    assert_eq!(
+        resolve(&root).unwrap(),
+        Path::new("Cargo.toml").canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn an_empty_root_cannot_select_the_working_directory() {
+    assert!(resolve(Path::new("")).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_drive_relative_and_root_relative_file_parents_are_refused() {
+    let cwd = std::env::current_dir().unwrap();
+    let Component::Prefix(prefix) = cwd.components().next().unwrap() else {
+        panic!("the Windows package directory must have a native prefix");
+    };
+    // Prefix-only absolute resolution uses this drive's working directory.
+    let drive = match prefix.kind() {
+        std::path::Prefix::Disk(drive) | std::path::Prefix::VerbatimDisk(drive) => drive,
+        _ => panic!("this drive-relative case requires a package directory on a drive"),
+    };
+    let mut drive_relative = OsString::from(format!("{}:", char::from(drive)));
+    drive_relative.push(r"Cargo.toml\..\Cargo.toml");
+    let mut root_relative = OsString::new();
+    for part in cwd.components().skip(1) {
+        if part == Component::RootDir {
+            root_relative.push(std::path::MAIN_SEPARATOR_STR);
+        } else {
+            root_relative.push(part.as_os_str());
+            root_relative.push(std::path::MAIN_SEPARATOR_STR);
+        }
+    }
+    root_relative.push(r"Cargo.toml\..\Cargo.toml");
+    for raw in [drive_relative, root_relative] {
+        let path = PathBuf::from(raw);
+        assert!(!path.is_absolute());
+        assert!(path.components().any(|part| part == Component::ParentDir));
+        let error = resolve(&path).unwrap_err().to_string();
+        assert!(error.contains("not a directory"), "{error}");
+    }
 }
 
 #[test]

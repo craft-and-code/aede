@@ -33,7 +33,9 @@ fn path_only_selection_captures_its_own_current_original() {
     let fixture = Fixture::new();
     let selected = fixture.selected();
     let original = fs::read(&fixture.path).unwrap();
-    File::open(&fixture.path)
+    File::options()
+        .write(true)
+        .open(&fixture.path)
         .unwrap()
         .set_modified(selected.metadata.modified().unwrap() + Duration::from_secs(1))
         .unwrap();
@@ -63,16 +65,45 @@ fn selected_original_keeps_occurrences_and_refuses_relative_traversing_or_specia
     let expected =
         aede_core::user::PlaybackSource::from_metadata(&fs::metadata(&fixture.path).unwrap())
             .unwrap();
-    for path in [
-        PathBuf::from("relative.flac"),
-        fixture
-            .folder
-            .join("nested")
-            .join("..")
-            .join("Example.flac"),
-        fixture.folder.clone(),
+    let traversal = fixture.raw_path(&["nested", "..", "Example.flac"]);
+    assert!(
+        traversal
+            .components()
+            .any(|part| part == Component::ParentDir)
+    );
+    for (kind, path) in [
+        ("relative", PathBuf::from("relative.flac")),
+        ("traversing", traversal),
+        ("directory", fixture.folder.clone()),
     ] {
-        assert!(SelectedSource::from_expected(path, &expected).is_err());
+        assert!(
+            SelectedSource::from_expected(path, &expected).is_err(),
+            "{kind}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn raw_drive_unc_and_verbatim_traversals_are_refused_before_filesystem_access() {
+    let fixture = Fixture::new();
+    let expected =
+        aede_core::user::PlaybackSource::from_metadata(&fs::metadata(&fixture.path).unwrap())
+            .unwrap();
+    for raw in [
+        r"C:\Music\nested\..\Example.flac",
+        r"\\nas\music\nested\..\Example.flac",
+        r"\\?\C:\Music\nested\..\Example.flac",
+        r"\\?\UNC\nas\music\nested\..\Example.flac",
+    ] {
+        let path = PathBuf::from(raw);
+        assert!(path.is_absolute());
+        assert!(path.components().any(|part| part == Component::ParentDir));
+        let error = SelectedSource::from_expected(path, &expected).unwrap_err();
+        assert_eq!(
+            error, "device media needs a canonical absolute source path",
+            "{raw}"
+        );
     }
 }
 

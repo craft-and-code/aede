@@ -24,14 +24,14 @@ fn identity_error(path: &Path, reason: &str) -> Box<dyn Error> {
 }
 
 fn resolve_path(path: &Path) -> io::Result<PathBuf> {
-    if let Ok(resolved) = path.canonicalize() {
+    // Some platform canonicalizers erase file/.. or missing/.. if the final target exists.
+    // Inspect those ancestors before allowing a parent component to change identity.
+    if !path.components().any(|part| part == Component::ParentDir)
+        && let Ok(resolved) = path.canonicalize()
+    {
         return utf8_path(resolved);
     }
-    let absolute = std::path::absolute(path)?;
-    let mut pending: VecDeque<OsString> = absolute
-        .components()
-        .map(|part| part.as_os_str().to_owned())
-        .collect();
+    let mut pending = absolute_components(path)?;
     let mut resolved = PathBuf::new();
     let mut missing = false;
     let mut links = 0;
@@ -97,6 +97,37 @@ fn resolve_path(path: &Path) -> io::Result<PathBuf> {
     } else {
         resolved.canonicalize()?
     })
+}
+
+fn absolute_components(path: &Path) -> io::Result<VecDeque<OsString>> {
+    if path.as_os_str().is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "empty root path",
+        ));
+    }
+    let mut parts = path.components();
+    if path.is_absolute() {
+        return Ok(parts.map(|part| part.as_os_str().to_owned()).collect());
+    }
+    // Resolve only the base, never the unvalidated tail: Windows absolute/join
+    // can erase `..`. Prefix-only resolution retains per-drive/root-relative semantics.
+    let base = match parts.clone().next() {
+        Some(Component::Prefix(prefix)) => {
+            parts.next();
+            std::path::absolute(prefix.as_os_str())?
+        }
+        Some(Component::RootDir) => {
+            parts.next();
+            std::path::absolute(std::path::MAIN_SEPARATOR_STR)?
+        }
+        _ => std::env::current_dir()?,
+    };
+    Ok(base
+        .components()
+        .map(|part| part.as_os_str().to_owned())
+        .chain(parts.map(|part| part.as_os_str().to_owned()))
+        .collect())
 }
 
 fn utf8_path(path: PathBuf) -> io::Result<PathBuf> {

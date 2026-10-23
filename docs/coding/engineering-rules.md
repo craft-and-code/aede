@@ -129,6 +129,8 @@ Compare strings only when their spelling is part of the output contract, such as
 
 For CLI snapshots that include temporary native paths, replace the complete known fixture path with a stable reference spelling. Replacing only the folder prefix leaves `/` or `\` after the placeholder and makes the reference platform-dependent. Never replace backslashes throughout the output: tags, notes and other text must remain strictly checked. Cover Windows drive, UNC and verbatim spellings in the snapshot normalization regression.
 
+When testing rejection of raw `..` components, do not append them with `PathBuf::join` onto a canonical Windows verbatim path: that operation removes the traversal before the subject sees it. Construct the raw spelling through `OsString`, assert that `Component::ParentDir` is still present, then test admission. A legitimate existing-directory parent must remain a positive contrast. Preview assertions must use the exact canonical fixture path when canonicalization is the output contract. File-time mutation fixtures need a writable handle on Windows; never grant those rights to production source-audio readers.
+
 Passing on macOS or Linux does not establish native Windows compatibility; the Windows CI job must verify filesystem behaviour on Windows.
 
 ---

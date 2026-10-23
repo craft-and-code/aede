@@ -8,6 +8,16 @@ pub(super) struct Fixture {
     pub path: PathBuf,
 }
 impl Fixture {
+    pub fn raw_path(&self, parts: &[&str]) -> PathBuf {
+        // Preserve the traversal under test on Windows, including verbatim prefixes.
+        let mut path = self.folder.as_os_str().to_owned();
+        for part in parts {
+            path.push(std::path::MAIN_SEPARATOR_STR);
+            path.push(part);
+        }
+        PathBuf::from(path)
+    }
+
     pub fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let folder = std::env::temp_dir().join(format!(

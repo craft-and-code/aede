@@ -518,6 +518,7 @@ Complete guides to Aède's features and architecture:
 
 - [Current State](docs/coding/current-state.md) — Project status and active work
 - [Dependency Audit](docs/coding/dependency-audit.md) — RustSec policies, reproducible CLI/App checks, findings and coverage limits
+- [Windows Release Validation](docs/coding/windows-release-validation.md) — Native path fixtures, root-admission corrections, gate evidence and pending Windows acceptance
 - [Project Statistics](docs/manual/project-statistics.md) — Generated code measurements by crate and a rounded inventory of active unit tests
 - [DSP Review](docs/coding/dsp-review.md) — Playback startup correction, signal quality evidence and remaining DSP work
 - [Account Isolation](docs/coding/account-isolation.md) — Personal ownership boundaries, retention, revocation guards and verification limits

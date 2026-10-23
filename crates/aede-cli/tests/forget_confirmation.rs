@@ -44,7 +44,7 @@ fn noninteractive_forgetting_refuses_even_piped_yes_and_preserves_all_stores() {
             assert!(String::from_utf8_lossy(&output.stderr).contains("--yes"));
             let preview = String::from_utf8(output.stdout).unwrap();
             assert!(
-                preview.contains(fixture.data().to_str().unwrap()),
+                preview.contains(fixture.data().canonicalize().unwrap().to_str().unwrap()),
                 "{preview}"
             );
             assert!(preview.contains("to remove"), "{preview}");
@@ -154,7 +154,8 @@ fn confirmation_uses_the_explicit_data_directory_instead_of_the_environment_defa
         ]);
         assert!(output.status.success(), "{output:?}");
         assert!(
-            String::from_utf8_lossy(&output.stdout).contains(selected.data().to_str().unwrap())
+            String::from_utf8_lossy(&output.stdout)
+                .contains(selected.data().canonicalize().unwrap().to_str().unwrap())
         );
         assert_eq!(original.snapshot(), before);
         if command == "import" {

@@ -12,6 +12,8 @@ Persistent paths must be exactly representable as UTF-8. Roots that fail this co
 
 CLI folder filters, root exclusions and root removals apply the same lossless path contract, including the canonical target of a symbolic-link alias. They refuse an unrepresentable target before changing the catalog.
 
+Scan admission of declared unavailable roots inspects raw parent components before canonicalization. A path through a file or an unknown missing ancestor cannot use `..` to borrow the identity of an existing final target. Valid parents of existing directories and resolved aliases remain supported. Relative paths resolve their base separately from the raw tail, including Windows drive-relative and root-relative bases; the tail is not lexically flattened by `absolute` or verbatim-path joining. These guards preserve identity admission, not race-proof filesystem confinement.
+
 `text::file_name`, `text::folder` and `text::is_under` recognize native separators, including Windows drive, UNC and verbatim paths when tested on Unix. Verbatim paths accept only backslash separators. Ordinary Windows paths accept both separators. On Unix, backslashes inside a POSIX file name remain literal characters.
 
 Folder membership checks require a component boundary: `C:\Music-backup` is not inside `C:\Music`. Drive roots retain their separator (`C:\`, not the drive-relative `C:`). These are lexical helpers, not filesystem identity checks: they do not resolve symlinks, fold case, remove `..`, or equate ordinary and verbatim prefixes. CLI scopes and watched roots are canonicalized before comparison, as is the copy destination guard.
