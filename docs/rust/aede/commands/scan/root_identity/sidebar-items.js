@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_COMPONENTS","MAX_LINKS"],"fn":["excluded_file","identity_error","known_identity","resolve","resolve_path","utf8_path","validate_result","validate_selection"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_COMPONENTS","MAX_LINKS"],"fn":["absolute_components","excluded_file","identity_error","known_identity","resolve","resolve_path","utf8_path","validate_result","validate_selection"]};
