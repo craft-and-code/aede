@@ -495,7 +495,7 @@
 <a href=#495 id=495 data-nosnippet>495</a>        <span class="prelude-val">Some</span>(profile) =&gt; <span class="kw">match </span>ProfileLease::acquire(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>captured.owner, profile) {
 <a href=#496 id=496 data-nosnippet>496</a>            <span class="prelude-val">Ok</span>(lease) =&gt; <span class="prelude-val">Some</span>(lease),
 <a href=#497 id=497 data-nosnippet>497</a>            <span class="prelude-val">Err</span>(failure) =&gt; {
-<a href=#498 id=498 data-nosnippet>498</a>                send_failure(<span class="kw-2">&amp;mut </span>socket, failure).<span class="kw">await</span>;
+<a href=#498 id=498 data-nosnippet>498</a>                send_failure(<span class="kw-2">&amp;mut </span>socket, failure, <span class="kw-2">&amp;mut </span>shutdown).<span class="kw">await</span>;
 <a href=#499 id=499 data-nosnippet>499</a>                <span class="kw">return</span>;
 <a href=#500 id=500 data-nosnippet>500</a>            }
 <a href=#501 id=501 data-nosnippet>501</a>        },
@@ -504,7 +504,7 @@
 <a href=#504 id=504 data-nosnippet>504</a>    <span class="kw">let </span><span class="kw-2">mut </span>snapshot = <span class="kw">match </span>initial_state(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>captured, <span class="kw-2">&amp;</span>start).<span class="kw">await </span>{
 <a href=#505 id=505 data-nosnippet>505</a>        <span class="prelude-val">Ok</span>(initial) =&gt; initial,
 <a href=#506 id=506 data-nosnippet>506</a>        <span class="prelude-val">Err</span>(failure) =&gt; {
-<a href=#507 id=507 data-nosnippet>507</a>            send_failure(<span class="kw-2">&amp;mut </span>socket, failure).<span class="kw">await</span>;
+<a href=#507 id=507 data-nosnippet>507</a>            send_failure(<span class="kw-2">&amp;mut </span>socket, failure, <span class="kw-2">&amp;mut </span>shutdown).<span class="kw">await</span>;
 <a href=#508 id=508 data-nosnippet>508</a>            <span class="kw">return</span>;
 <a href=#509 id=509 data-nosnippet>509</a>        }
 <a href=#510 id=510 data-nosnippet>510</a>    };
@@ -791,7 +791,7 @@
 <a href=#791 id=791 data-nosnippet>791</a>        }
 <a href=#792 id=792 data-nosnippet>792</a>    }
 <a href=#793 id=793 data-nosnippet>793</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(failure) = failure {
-<a href=#794 id=794 data-nosnippet>794</a>        send_failure(<span class="kw-2">&amp;mut </span>socket, failure).<span class="kw">await</span>;
+<a href=#794 id=794 data-nosnippet>794</a>        send_failure(<span class="kw-2">&amp;mut </span>socket, failure, <span class="kw-2">&amp;mut </span>shutdown).<span class="kw">await</span>;
 <a href=#795 id=795 data-nosnippet>795</a>    } <span class="kw">else </span>{
 <a href=#796 id=796 data-nosnippet>796</a>        <span class="kw">let _</span>=send_json(<span class="kw-2">&amp;mut </span>socket,<span class="macro">serde_json::json!</span>({<span class="string">"type"</span>:<span class="string">"saved"</span>,<span class="string">"profile"</span>:start.profile,<span class="string">"revision"</span>:snapshot.revision,<span class="string">"completed"</span>:completed})).<span class="kw">await</span>;
 <a href=#797 id=797 data-nosnippet>797</a>        send_close(<span class="kw-2">&amp;mut </span>socket).<span class="kw">await</span>;
