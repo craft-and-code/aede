@@ -3,8 +3,8 @@ name: Release
 # Builds distinct CLI and desktop App artifacts for every platform into a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.7.2
-#     git push origin v0.7.2
+#     git tag v0.7.3
+#     git push origin v0.7.3
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
@@ -32,6 +32,9 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
             label: Linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            label: Linux-ARM64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             label: Windows-x64
@@ -50,9 +53,19 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install the musl toolchain
+      - name: Install the musl toolchain and FFmpeg
         if: endsWith(matrix.target, '-musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools ffmpeg
+          echo 'AEDE_REQUIRE_FFMPEG=1' >> "$GITHUB_ENV"
+          # ring's C sources and the final ARM64 executable need the same libc.
+          if [ '${{ matrix.target }}' = 'aarch64-unknown-linux-musl' ]; then
+            echo 'CC_aarch64_unknown_linux_musl=musl-gcc' >> "$GITHUB_ENV"
+            echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc' >> "$GITHUB_ENV"
+          fi
 
       # A tag says which version this is; so does the manifest. When the two
       # disagree, somebody is about to publish `v0.2.0` of a program that
@@ -80,6 +93,30 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Verify Linux architecture, static linkage and startup
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary='target/${{ matrix.target }}/release/aede'
+          case '${{ matrix.target }}' in
+            aarch64-unknown-linux-musl) machine='AArch64' ;;
+            x86_64-unknown-linux-musl) machine='Advanced Micro Devices X86-64' ;;
+            *) echo '::error::Unexpected Linux release target'; exit 1 ;;
+          esac
+          file "$binary"
+          readelf --file-header "$binary" | grep -F "$machine"
+          if readelf --program-headers "$binary" | grep -q 'INTERP'; then
+            echo '::error::The Linux archive must not require a dynamic loader'
+            exit 1
+          fi
+          if readelf --dynamic "$binary" | grep -q '(NEEDED)'; then
+            echo '::error::The Linux archive must not require shared libraries'
+            exit 1
+          fi
+          "$binary" --version --json
+          "$binary" help > /dev/null
 
       # One archive per platform, named so the Releases page needs no legend,
       # holding the binary and the two files somebody unpacking it will want:
@@ -245,6 +282,7 @@ jobs:
           | --- | --- |
           | **macOS** (M1 and later) | `aede-CLI-*-macOS-AppleSilicon.tar.gz` |
           | **Linux** (x86_64, musl-compatible) | `aede-CLI-*-Linux-x86_64.tar.gz` — statically linked, no glibc to match |
+          | **Linux** (ARM64 / aarch64, musl-compatible) | `aede-CLI-*-Linux-ARM64.tar.gz` — statically linked; 64-bit ARM Linux only |
           | **Windows** (x64) | `aede-CLI-*-Windows-x64.zip` |
 
           The **App** packages are separate: `aede-App-*-macOS-AppleSilicon.dmg`,
@@ -253,6 +291,9 @@ jobs:
           start its local HTTPS server and export its public connection for Phémios.
           The App uses its own private data directory, separate from ordinary CLI data.
           See the desktop-server guide in the project documentation.
+          Linux ARM64 is a CLI archive for headless use; no ARM64 Linux App
+          installer or 32-bit ARM archive is included. Choose the architecture
+          reported by `uname -m` on the machine that will run Aède.
 
           Windows archives are built and tested on a native Windows runner.
           Windows terminal playback controls are implemented; interactive

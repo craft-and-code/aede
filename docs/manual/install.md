@@ -10,9 +10,14 @@ The release workflow prepares the following archives. Download an actually publi
 | --- | --- | --- |
 | macOS, Apple Silicon | `macOS-AppleSilicon` | Native CPAL output when compatible, ffplay fallback |
 | Linux, x86_64 | `Linux-x86_64` | Release archive uses musl and needs ffplay for playback |
+| Linux, ARM64 / aarch64 | `Linux-ARM64` | musl CLI for 64-bit ARM; needs ffplay for local playback |
 | Windows, x64 | `Windows-x64` | Native output with ffplay fallback and console transport keys implemented; console/device acceptance pending; local writer delegation remains Unix-only |
 
-Future releases do not include a prebuilt macOS Intel archive. There is no packaged Linux ARM/Raspberry Pi release or published Docker image in the current workflow. Building on another target requires its own validation. The server provides a catalog API, [authenticated native PCM playback](../server/playback.md) and [Subsonic/OpenSubsonic original-file streaming](../server/subsonic.md). Remote access requires the explicit [HTTPS configuration](../server/remote.md); no browser/mobile player or validated NAS deployment is supplied.
+Future releases do not include a prebuilt macOS Intel archive. The workflow also prepares a Linux ARM64 CLI for 64-bit ARM systems, including some NAS and Raspberry Pi hosts. It does not prepare 32-bit ARM archives, a Linux ARM64 App or a Docker image. Building on another target requires its own validation. The server provides a catalog API, [authenticated native PCM playback](../server/playback.md) and [Subsonic/OpenSubsonic original-file streaming](../server/subsonic.md). Remote access requires the explicit [HTTPS configuration](../server/remote.md); no browser/mobile player or validated NAS deployment is supplied.
+
+On Linux, run `uname -m` on the machine that will run Aède: `x86_64` maps to `Linux-x86_64`, while `aarch64` or `arm64` maps to `Linux-ARM64`. `armv7l` identifies a 32-bit ARM system, which cannot use either archive. An `exec format error` can indicate an architecture mismatch; inspect the executable with `file ./aede`. The musl archives are statically linked without a matching glibc requirement; kernel compatibility and NAS restrictions still need target-host acceptance.
+
+Check the operating system with `uname -s` too: `Linux` is required for either Linux archive, while `Darwin` means macOS and needs a macOS archive. Launching a file from a mounted NAS share still runs it on the computer running the terminal. To execute Aède on the NAS itself, connect to that host over SSH and check its operating system and processor there.
 
 ## Run a downloaded executable
 

@@ -54,7 +54,7 @@ Do not delete lock files or edit live JSON stores. CLI and server writers coordi
 
 ## NAS, Raspberry Pi and containers
 
-The architecture separates music, persistent catalog data and clients, making a small always-on host a relevant deployment target. The implemented catalog, HTTPS and native audio contracts do not establish a tested NAS appliance. No Aède container image is built or published; NAS packages, Raspberry Pi deployment, reboot handling and target-device performance still need validation. Published Linux release builds currently target x86_64, not Linux aarch64.
+The architecture separates music, persistent catalog data and clients, making a small always-on host a relevant deployment target. The implemented catalog, HTTPS and native audio contracts do not establish a tested NAS appliance. No Aède container image is built or published; NAS packages, Raspberry Pi deployment, reboot handling and target-device performance still need validation. From 0.7.3, the release workflow prepares statically linked musl CLI archives for Linux x86_64 and ARM64/aarch64. Choose an actually available download matching the destination host in the [installation guide](../manual/install.md); ARM64 packaging does not certify a particular NAS.
 
 The [operating guide](../operating.md#docker-image-on-a-linux-host-procedure-only) describes a future Linux-container procedure, including stable paths, permissions and backups. Its placeholder image is not something you can pull today. Remote access requires the explicit account-backed [HTTPS listener](remote.md); the default HTTP listener remains local.
 

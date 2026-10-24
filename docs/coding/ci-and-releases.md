@@ -96,11 +96,13 @@ This downloads actions and a container image. It approximates the GitHub environ
 
 ## Prepare a release
 
-The Release workflow builds macOS Apple Silicon, Linux x86_64 musl and Windows x64 archives. Future releases do not include macOS Intel archives. Tests for every target must pass before a draft release is created. Linux archives require ffplay for playback; GNU source builds support native ALSA output. Windows console playback controls are implemented, with native console/output acceptance still pending; local writer delegation remains Unix-only.
+The Release workflow builds macOS Apple Silicon, Linux x86_64 musl, Linux ARM64 musl and Windows x64 CLI archives. The desktop App matrix remains macOS Apple Silicon, Linux x86_64 and Windows x64. Future releases do not include macOS Intel archives. Tests for every target must pass before a draft release is created. Linux archives require ffplay for playback; GNU source builds support native ALSA output. Windows console playback controls are implemented, with native console/output acceptance still pending; local writer delegation remains Unix-only.
 
-Run Release manually from GitHub Actions to build downloadable artifacts without creating a release. This is the rehearsal for packaging on all three targets.
+The ARM64 CLI target is `aarch64-unknown-linux-musl`, labelled `Linux-ARM64`, on GitHub’s native `ubuntu-22.04-arm` runner. The workflow uses Rust 1.89, the locked dependency graph and the native musl C compiler for both C dependencies and final linking. Linux jobs require FFmpeg conversion regressions, execute Cargo tests on the target architecture, and reject an unexpected ELF machine, a dynamic loader or shared-library requirements before checking executable startup. They use the baseline target CPU, without `target-cpu=native`, to avoid requiring the runner’s newer ARM instruction set. Native runner availability is documented by [GitHub](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). This is software coverage, not acceptance on every NAS or physical audio device.
 
-For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.7.2`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
+Run Release manually from GitHub Actions to build downloadable artifacts without creating a release. This is the rehearsal for packaging on all four CLI targets and three App platforms.
+
+For a release, commit the intended version and matching lockfile, verify CI, then push the matching version tag (currently `v0.7.3`). The tag must match the workspace version. The workflow attaches archives and SHA-256 checksums to a **draft**. Review its notes and downloads before publishing it in GitHub Releases. Builds are unsigned.
 
 Version-specific highlights live in `docs/releases/vVERSION.md`; the workflow uses them when present and adds download instructions and the commit history. New versions without a notes file receive a reminder to write highlights.
 

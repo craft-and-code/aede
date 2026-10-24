@@ -10,9 +10,14 @@ Le processus de publication prépare les archives suivantes. Télécharger un fi
 | --- | --- | --- |
 | macOS, Apple Silicon | `macOS-AppleSilicon` | Sortie CPAL native compatible, sinon ffplay |
 | Linux, x86_64 | `Linux-x86_64` | Archive musl, ffplay nécessaire à la lecture |
+| Linux, ARM64 / aarch64 | `Linux-ARM64` | CLI musl pour ARM 64 bits ; ffplay nécessaire à la lecture locale |
 | Windows, x64 | `Windows-x64` | Sortie native avec repli ffplay et touches console implémentées ; validation console/périphérique à faire ; délégation locale encore Unix seulement |
 
-Les prochaines versions ne proposeront plus d’archive précompilée pour les Mac Intel. Aucune archive Linux ARM/Raspberry Pi ni image Docker publiée dans le processus actuel. Compiler une autre cible exige une validation spécifique. Le serveur propose une API de catalogue, la [lecture PCM native authentifiée](../server/playback.md) et la [diffusion du fichier original Subsonic/OpenSubsonic](../server/subsonic.md). L’accès distant exige la [configuration HTTPS](../server/remote.md) explicite ; aucun lecteur web/mobile ni déploiement NAS validé n’est fourni.
+Les prochaines versions ne proposeront plus d’archive précompilée pour les Mac Intel. Le processus prépare aussi une CLI Linux ARM64 pour les systèmes ARM 64 bits, notamment certains NAS et Raspberry Pi. Il ne prépare ni archive ARM 32 bits, ni App Linux ARM64, ni image Docker. Compiler une autre cible exige une validation spécifique. Le serveur propose une API de catalogue, la [lecture PCM native authentifiée](../server/playback.md) et la [diffusion du fichier original Subsonic/OpenSubsonic](../server/subsonic.md). L’accès distant exige la [configuration HTTPS](../server/remote.md) explicite ; aucun lecteur web/mobile ni déploiement NAS validé n’est fourni.
+
+Sous Linux, lancer `uname -m` sur la machine qui exécutera Aède : `x86_64` correspond à `Linux-x86_64`, `aarch64` ou `arm64` à `Linux-ARM64`. `armv7l` désigne un système ARM 32 bits, incompatible avec ces deux archives. L’erreur `exec format error` peut indiquer une architecture incompatible : vérifier le fichier avec `file ./aede`. Les archives musl sont liées statiquement, sans version de glibc à faire correspondre ; la compatibilité avec le noyau et les restrictions du NAS doit encore être vérifiée.
+
+Vérifier aussi le système avec `uname -s` : les archives Linux demandent `Linux`, tandis que `Darwin` désigne macOS et nécessite une archive macOS. Lancer un fichier depuis un partage NAS monté exécute toujours ce fichier sur l’ordinateur qui utilise le terminal. Pour exécuter Aède sur le NAS lui-même, se connecter à cet hôte en SSH et y vérifier le système et le processeur.
 
 ## Lancer un exécutable téléchargé
 

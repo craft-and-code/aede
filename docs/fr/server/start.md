@@ -56,7 +56,7 @@ Ne supprimez pas les fichiers de verrouillage et ne modifiez pas les JSON pendan
 
 ## NAS, Raspberry Pi et conteneurs
 
-La séparation entre musique, catalogue persistant et clients rend pertinent un petit hôte toujours allumé. Les contrats de catalogue, HTTPS et audio natif implémentés ne constituent pas un appareil NAS validé. Aucune image de conteneur Aède n’est construite ou publiée ; les paquets NAS, le déploiement Raspberry Pi, le redémarrage de l’hôte et les performances sur ces appareils restent à valider. Les versions Linux publiées ciblent actuellement x86_64, pas Linux aarch64.
+La séparation entre musique, catalogue persistant et clients rend pertinent un petit hôte toujours allumé. Les contrats de catalogue, HTTPS et audio natif implémentés ne constituent pas un appareil NAS validé. Aucune image de conteneur Aède n’est construite ou publiée ; les paquets NAS, le déploiement Raspberry Pi, le redémarrage de l’hôte et les performances sur ces appareils restent à valider. À partir de la 0.7.3, le processus de publication prépare des archives CLI musl liées statiquement pour Linux x86_64 et ARM64/aarch64. Choisir un téléchargement réellement disponible correspondant à l’hôte dans le [guide d’installation](../manual/install.md) ; cette archive ARM64 ne certifie pas un modèle de NAS.
 
 Le [guide d’exploitation](../../operating.md#docker-image-on-a-linux-host-procedure-only) décrit une procédure pour un futur conteneur Linux, avec chemins stables, permissions et sauvegardes. Son nom d’image fictif ne désigne pas une image disponible au téléchargement. L’accès distant exige l’[écoute HTTPS](remote.md) explicite avec comptes ; l’écoute HTTP par défaut reste locale.
 
