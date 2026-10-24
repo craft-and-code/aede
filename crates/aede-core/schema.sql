@@ -621,3 +621,15 @@ CREATE TABLE user_listening_count (
     last_played INTEGER NOT NULL,
     PRIMARY KEY (owner, track_reference)
 ) WITHOUT ROWID;
+
+-- Personal JSON format 3: old name-based rows receive deterministic migration IDs.
+-- IDs are not account credentials and never bypass owner-scoped resolution.
+CREATE TABLE collection (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    name TEXT NOT NULL,
+    expression TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+-- The JSON reader also enforces one normalized name per owner.

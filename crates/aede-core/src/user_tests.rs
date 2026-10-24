@@ -690,7 +690,9 @@ fn importing_the_same_backup_twice_changes_nothing() {
         ms_played: 1000,
         completed: true,
     });
-    source.save_collection(LOCAL_USER, "metal", "genre:metal", 10);
+    source
+        .save_collection(LOCAL_USER, "metal", "genre:metal", 10)
+        .unwrap();
 
     let mut into = UserData::default();
     merge(&mut into, source.clone());
@@ -712,7 +714,11 @@ fn a_saved_query_holds_the_question_and_not_the_answer() {
     // A collection that stored its result would be a playlist. Keeping the
     // expression is what makes it answer with what the library holds now.
     let mut data = UserData::default();
-    assert!(!data.save_collection(LOCAL_USER, "Metal", "genre:metal", 10));
+    assert!(
+        !data
+            .save_collection(LOCAL_USER, "Metal", "genre:metal", 10)
+            .unwrap()
+    );
     assert_eq!(
         data.collection(LOCAL_USER, "metal")
             .map(|c| c.expression.as_str()),
@@ -720,7 +726,8 @@ fn a_saved_query_holds_the_question_and_not_the_answer() {
         "found whatever the case it was typed in"
     );
     assert!(
-        data.save_collection(LOCAL_USER, "metal", "genre:metal loved", 20),
+        data.save_collection(LOCAL_USER, "metal", "genre:metal loved", 20)
+            .unwrap(),
         "saving over one says so"
     );
     assert_eq!(data.collections.len(), 1, "one name, one collection");

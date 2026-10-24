@@ -15,7 +15,10 @@ fn personal_selectors_reject_oversized_names_and_references_before_store_reads()
         let name = "x".repeat(257);
         let read = collection(
             State(state.clone()),
-            Ok(Query(NameQuery { name: name.clone() })),
+            Ok(Query(NameQuery {
+                name: name.clone(),
+                ..Default::default()
+            })),
             request("/api/admin/v1/collection", ""),
         )
         .await
@@ -25,7 +28,10 @@ fn personal_selectors_reject_oversized_names_and_references_before_store_reads()
         assert_eq!(read.code, "invalid_query");
         let delete = delete_collection(
             State(state.clone()),
-            Ok(Query(NameQuery { name })),
+            Ok(Query(NameQuery {
+                name,
+                ..Default::default()
+            })),
             request("/api/admin/v1/collection", ""),
         )
         .await
@@ -115,12 +121,12 @@ fn every_personal_write_preserves_notes_when_the_cached_catalog_is_stale() {
             if operation == "delete" {
                 let path = user::user_path(&state.data_dir);
                 let mut data = user::load(&path).unwrap().unwrap();
-                data.save_collection(LOCAL_USER, "saved", "loved", 1);
+                data.save_collection(LOCAL_USER, "saved", "loved", 1).unwrap();
                 user::save(&data, &path).unwrap();
             }
             match operation {
                 "collection" => {
-                    let _ = save_collection(State(state.clone()), Ok(Query(NameQuery { name: "saved".into() })),
+                    let _ = save_collection(State(state.clone()), Ok(Query(NameQuery { name: "saved".into() , ..Default::default() })),
                         request("/api/admin/v1/collection?name=saved", r#"{"expression":"loved"}"#))
                         .await.unwrap();
                 }
@@ -134,7 +140,7 @@ fn every_personal_write_preserves_notes_when_the_cached_catalog_is_stale() {
                         .await.unwrap();
                 }
                 _ => {
-                    delete_collection(State(state.clone()), Ok(Query(NameQuery { name: "saved".into() })),
+                    delete_collection(State(state.clone()), Ok(Query(NameQuery { name: "saved".into() , ..Default::default() })),
                         request("/api/admin/v1/collection?name=saved", "")).await.unwrap();
                 }
             }
@@ -236,6 +242,7 @@ fn personal_updates_refuse_unreadable_catalogs_and_busy_stores_without_changing_
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "saved".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection", r#"{"expression":"loved"}"#),
         )
@@ -250,6 +257,7 @@ fn personal_updates_refuse_unreadable_catalogs_and_busy_stores_without_changing_
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "saved".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection", r#"{"expression":"loved"}"#),
         )
@@ -263,6 +271,7 @@ fn personal_updates_refuse_unreadable_catalogs_and_busy_stores_without_changing_
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "saved".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection", r#"{"expression":"loved"}"#),
         )
@@ -556,6 +565,7 @@ fn history_and_collections_are_owned_by_the_local_profile() {
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "Metal".into(),
+                ..Default::default()
             })),
             request(
                 "/api/admin/v1/collection?name=Metal",
@@ -577,6 +587,7 @@ fn history_and_collections_are_owned_by_the_local_profile() {
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "metal".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection?name=metal", ""),
         )
@@ -799,14 +810,18 @@ fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
         let state = state();
         let path = user::user_path(&state.data_dir);
         let mut data = UserData::default();
-        data.save_collection(LOCAL_USER, "Original", "loved", 10);
-        data.save_collection(LOCAL_USER, "Taken", "rating>=2", 11);
-        data.save_collection("other", "Other owner", "loved", 12);
+        data.save_collection(LOCAL_USER, "Original", "loved", 10)
+            .unwrap();
+        data.save_collection(LOCAL_USER, "Taken", "rating>=2", 11)
+            .unwrap();
+        data.save_collection("other", "Other owner", "loved", 12)
+            .unwrap();
         user::save(&data, &path).unwrap();
         let rename = collection_updates::rename(
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "Original".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection", r#"{"name":"Renamed"}"#),
         )
@@ -825,7 +840,10 @@ fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
         ] {
             let failure = collection_updates::rename(
                 State(state.clone()),
-                Ok(Query(NameQuery { name: old.into() })),
+                Ok(Query(NameQuery {
+                    name: old.into(),
+                    ..Default::default()
+                })),
                 request(
                     "/api/admin/v1/collection",
                     &serde_json::json!({"name":new}).to_string(),
@@ -854,6 +872,7 @@ fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
             State(state.clone()),
             Ok(Query(NameQuery {
                 name: "renamed".into(),
+                ..Default::default()
             })),
             request("/api/admin/v1/collection", r#"{"name":"RENAMED"}"#),
         )
@@ -861,6 +880,151 @@ fn collection_rename_keeps_rule_and_creation_time_and_refuses_collisions() {
         .unwrap();
         assert_eq!(casing.0.name, "RENAMED");
         assert_eq!(casing.0.created_at, 10);
+        cleanup(&state);
+    });
+}
+
+#[test]
+fn collection_ids_follow_renames_and_never_select_another_owners_collection() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let state = state();
+        let path = user::user_path(&state.data_dir);
+        let mut data = UserData::default();
+        data.save_collection(LOCAL_USER, "Original", "loved", 10)
+            .unwrap();
+        data.save_collection("other", "Foreign", "loved", 11)
+            .unwrap();
+        let id = data.collections[0].id.clone();
+        let foreign = data.collections[1].id.clone();
+        user::save(&data, &path).unwrap();
+        let selector = |id: &str| {
+            Ok(Query(NameQuery {
+                id: Some(id.into()),
+                ..Default::default()
+            }))
+        };
+        let renamed = collection_updates::rename(
+            State(state.clone()),
+            selector(&id),
+            request("/api/admin/v1/collection", r#"{"name":"Renamed"}"#),
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed.0.id, id);
+        assert_eq!(renamed.0.name, "Renamed");
+        let read = collection(
+            State(state.clone()),
+            selector(&id),
+            request("/api/admin/v1/collection", ""),
+        )
+        .await
+        .unwrap();
+        assert_eq!(read.0.id, id);
+        assert_eq!(read.0.name, "Renamed");
+        assert_eq!(read.0.expression, "loved");
+        assert_eq!(read.0.created_at, 10);
+        let albums = collection_albums(
+            State(state.clone()),
+            selector(&id),
+            request("/api/admin/v1/collection/albums", ""),
+        )
+        .await
+        .unwrap();
+        assert_eq!(albums.0["items"], serde_json::json!([]));
+        let before = std::fs::read(&path).unwrap();
+        for invalid in [
+            NameQuery {
+                id: Some("bad".into()),
+                ..Default::default()
+            },
+            NameQuery {
+                id: Some(id.clone()),
+                name: "Renamed".into(),
+            },
+        ] {
+            assert_eq!(
+                collection(
+                    State(state.clone()),
+                    Ok(Query(invalid)),
+                    request("/api/admin/v1/collection", "")
+                )
+                .await
+                .err()
+                .unwrap()
+                .status,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            collection(
+                State(state.clone()),
+                selector(&foreign),
+                request("/api/admin/v1/collection", "")
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            collection_updates::rename(
+                State(state.clone()),
+                selector(&foreign),
+                request("/api/admin/v1/collection", r#"{"name":"Stolen"}"#)
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            delete_collection(
+                State(state.clone()),
+                selector(&foreign),
+                request("/api/admin/v1/collection", "")
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            delete_collection(
+                State(state.clone()),
+                selector(&id),
+                request("/api/admin/v1/collection", "")
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+        let recreated = save_collection(
+            State(state.clone()),
+            Ok(Query(NameQuery {
+                name: "Renamed".into(),
+                ..Default::default()
+            })),
+            request("/api/admin/v1/collection", r#"{"expression":"loved"}"#),
+        )
+        .await
+        .unwrap();
+        assert_ne!(recreated.0.id, id);
+        assert_eq!(
+            collection(
+                State(state.clone()),
+                selector(&id),
+                request("/api/admin/v1/collection", "")
+            )
+            .await
+            .err()
+            .unwrap()
+            .status,
+            StatusCode::NOT_FOUND
+        );
         cleanup(&state);
     });
 }

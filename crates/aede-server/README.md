@@ -368,3 +368,7 @@ All routes below require a named administrator and retain exact-login ownership.
 ### Shared source review
 
 `GET` and `PATCH /api/admin/v1/source-review` expose stored MusicBrainz candidates and the existing durable accept/reject/undo rules to administrators. `source_review` advertises support. The [review contract](../../docs/server/source-review.md) documents paging, exact selectors, optimistic revisions, authentication and the separate `fetch_artist_summary_links` biography task. No browse initiates external enrichment or changes audio tags.
+
+### Stable collection selectors
+
+The `collection_identity` capability adds `id` to every collection view. GET/PATCH/DELETE collection and GET collection/albums accept exactly one owner-scoped `id` or compatible `name`; PUT continues by name. Persistent IDs survive renames, and deleted IDs never redirect to a recreated name. See [identity, format-3 migration and downgrade limits](../../docs/server/presentation.md#stable-collection-identity).

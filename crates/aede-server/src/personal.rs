@@ -174,7 +174,29 @@ struct RefQuery {
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NameQuery {
+    #[serde(default)]
     name: String,
+    #[serde(default)]
+    id: Option<String>,
+}
+
+impl NameQuery {
+    fn validate(&self) -> Result<(), ApiError> {
+        match (&self.id, self.name.is_empty()) {
+            (Some(id), true) if user::valid_collection_id(id) => Ok(()),
+            (None, _) => validate_collection_name(&self.name),
+            _ => Err(invalid_query(
+                "provide exactly one valid collection id or name",
+            )),
+        }
+    }
+
+    fn find<'a>(&self, data: &'a UserData, owner: &str) -> Option<&'a user::Collection> {
+        match &self.id {
+            Some(id) => data.collection_by_id(owner, id),
+            None => data.collection(owner, &self.name),
+        }
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -753,6 +775,7 @@ async fn reset_history(
 
 #[derive(Serialize)]
 struct CollectionView {
+    id: String,
     name: String,
     expression: String,
     created_at: u64,
@@ -763,6 +786,7 @@ struct CollectionView {
 
 fn collection_view(collection: &user::Collection) -> CollectionView {
     CollectionView {
+        id: collection.id.clone(),
         name: collection.name.clone(),
         expression: collection.expression.clone(),
         created_at: collection.created_at,
@@ -779,12 +803,12 @@ async fn collection(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
-    validate_collection_name(&query.name)?;
+    query.validate()?;
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, _catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        let prepared = data
-            .collection(&owner.id, &query.name)
+        let prepared = query
+            .find(&data, &owner.id)
             .map(collection_view)
             .map(Json)
             .ok_or_else(|| {
@@ -814,7 +838,12 @@ async fn save_collection(
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
     let query = parsed_query(input)?;
-    validate_collection_name(&query.name)?;
+    query.validate()?;
+    if query.id.is_some() {
+        return Err(invalid_query(
+            "creating or replacing a collection requires its name",
+        ));
+    }
     let input: CollectionRequest = json_body(request).await?;
     if input.expression.trim().is_empty() || input.expression.len() > 8192 {
         return Err(error(
@@ -841,7 +870,8 @@ async fn save_collection(
                     "a collection already has this name",
                 ));
             }
-            data.save_collection(&owner.id, &query.name, &input.expression, now);
+            data.save_collection(&owner.id, &query.name, &input.expression, now)
+                .map_err(|_| unavailable())?;
             data.collection(&owner.id, &query.name)
                 .map(collection_view)
                 .ok_or_else(|| {
@@ -873,11 +903,15 @@ async fn delete_collection(
     owner.require_mutation()?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
-    validate_collection_name(&query.name)?;
+    query.validate()?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         locked_update(&data_dir, &state, &owner, |_, data| {
-            data.forget_collection(&owner.id, &query.name)
+            let id = query.find(data, &owner.id).map(|row| row.id.clone());
+            let before = data.collections.len();
+            data.collections
+                .retain(|row| !(row.owner == owner.id && Some(&row.id) == id.as_ref()));
+            (before != data.collections.len())
                 .then_some(StatusCode::NO_CONTENT)
                 .ok_or_else(|| {
                     error(
@@ -906,12 +940,12 @@ async fn collection_albums(
     let owner = PersonalOwner::from_request(&state, &request)?;
     empty_body(&body(request).await?)?;
     let query = parsed_query(input)?;
-    validate_collection_name(&query.name)?;
+    query.validate()?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         let (_guard, catalog, data) = locked_personal(&state)?;
         owner.recheck(&state)?;
-        let saved = data.collection(&owner.id, &query.name).ok_or_else(|| {
+        let saved = query.find(&data, &owner.id).ok_or_else(|| {
             error(
                 StatusCode::NOT_FOUND,
                 "collection_not_found",

@@ -199,7 +199,8 @@ fn manual_listens_refuse_non_track_references_before_changing_the_store() {
 fn collection_edits_refuse_listing_options_instead_of_silently_ignoring_them() {
     let library = PersonalLibrary::new();
     let mut data = library.data();
-    data.save_collection(LOCAL_USER, "Été — 音楽", "title:Song", 1);
+    data.save_collection(LOCAL_USER, "Été — 音楽", "title:Song", 1)
+        .unwrap();
     library.save(&data);
     let before = library.bytes();
     let output = library.dir.join("ignored.json");
@@ -279,7 +280,8 @@ fn favourites_show_a_filled_heart_and_removed_favourites_show_no_heart() {
 fn query_and_collection_exports_honour_and_validate_the_requested_window() {
     let library = PersonalLibrary::new();
     let mut data = library.data();
-    data.save_collection(LOCAL_USER, "All songs", "title:Song", 1);
+    data.save_collection(LOCAL_USER, "All songs", "title:Song", 1)
+        .unwrap();
     library.save(&data);
     let before = library.bytes();
 
@@ -436,7 +438,8 @@ fn note_append_requires_supplied_text_and_refuses_removal_without_mutation() {
 fn catalog_selections_refuse_an_output_file_without_a_machine_format() {
     let library = PersonalLibrary::new();
     let mut data = library.data();
-    data.save_collection(LOCAL_USER, "All songs", "title:Song", 1);
+    data.save_collection(LOCAL_USER, "All songs", "title:Song", 1)
+        .unwrap();
     library.save(&data);
     let before = library.bytes();
     let path = library.dir.join("should-not-be-ignored.json");

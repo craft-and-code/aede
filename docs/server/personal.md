@@ -73,7 +73,7 @@ Replace the illustrative track token. Returns HTTP 201 with one event view using
 
 ## GET /api/admin/v1/collection
 
-Required nonempty `name`, no body/pagination. Names match case/accent-insensitively.
+Exactly one nonempty `name` or opaque `id`, no body/pagination. Names match case/accent-insensitively. Collection responses include `id`; see [stable identity and migration](presentation.md#stable-collection-identity). ID selectors also apply to PATCH, DELETE and collection album evaluation. PUT retains its name selector.
 
 ```sh
 curl --get 'http://127.0.0.1:8787/api/admin/v1/collection' \

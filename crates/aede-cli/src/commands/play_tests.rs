@@ -269,7 +269,8 @@ fn a_saved_collection_plays_its_current_query_result_in_catalog_order() {
         ..Default::default()
     };
     let mut data = user::UserData::default();
-    data.save_collection(user::LOCAL_USER, "Blue songs", "title:Blue", 1);
+    data.save_collection(user::LOCAL_USER, "Blue songs", "title:Blue", 1)
+        .unwrap();
     user::save(&data, &user::user_path(&root)).unwrap();
     let args = Args::parse([
         "play".to_string(),
@@ -370,7 +371,8 @@ fn an_explicit_collection_name_disambiguates_a_track_title() {
         ..Default::default()
     };
     let mut data = user::UserData::default();
-    data.save_collection(user::LOCAL_USER, "Favorites", "title:Other", 1);
+    data.save_collection(user::LOCAL_USER, "Favorites", "title:Other", 1)
+        .unwrap();
     user::save(&data, &user::user_path(&root)).unwrap();
     let args = Args::parse([
         "play".to_string(),

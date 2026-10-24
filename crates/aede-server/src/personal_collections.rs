@@ -13,14 +13,14 @@ pub(super) async fn rename(
     let owner = PersonalOwner::from_request(&state, &request)?;
     owner.require_mutation()?;
     let query = parsed_query(input)?;
-    validate_collection_name(&query.name)?;
+    query.validate()?;
     let edit: Rename = json_body(request).await?;
     validate_collection_name(&edit.name)?;
     let data_dir = state.data_dir.clone();
     spawn_personal(state.inspection_slots.clone(), move || {
         locked_update(&data_dir, &state, &owner, |_, data| {
-            let old = data
-                .collection(&owner.id, &query.name)
+            let old = query
+                .find(data, &owner.id)
                 .ok_or_else(|| {
                     error(
                         StatusCode::NOT_FOUND,

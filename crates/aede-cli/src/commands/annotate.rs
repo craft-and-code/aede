@@ -946,7 +946,7 @@ pub fn collection(args: &Args) -> Res {
         // collection that only fails when somebody opens it is a trap left for
         // later.
         aede_core::query::parse(expression)?;
-        let replaced = data.save_collection(&owner, &name, expression, now);
+        let replaced = data.save_collection(&owner, &name, expression, now)?;
         write(args, &mut data, &catalog)?;
         println!(
             "{} {} {}: {}",

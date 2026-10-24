@@ -25,8 +25,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::model::{Catalog, EntityKind, Id};
 use crate::text;
 
+#[path = "user_collections.rs"]
+mod collections;
 #[path = "user_history.rs"]
 mod history;
+pub use collections::valid_collection_id;
 #[path = "user_identity.rs"]
 mod identity;
 #[path = "user_preferences.rs"]
@@ -53,7 +56,7 @@ pub use relink::{Relink, RelinkSummary};
 /// The two change for different reasons and at different times, so they are
 /// counted separately. Reading a newer file must fail loudly rather than lose
 /// what it did not understand.
-pub const USER_FORMAT_VERSION: u32 = 2;
+pub const USER_FORMAT_VERSION: u32 = 3;
 
 /// Name of the user file inside the data folder.
 pub const USER_FILE: &str = "user.json";
@@ -389,6 +392,8 @@ pub struct PlayCount {
 /// playable the day it is written, with nothing built for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Collection {
+    /// Opaque persistent identity, retained across name and rule edits.
+    pub id: String,
     /// Whose collection it is.
     pub owner: UserRef,
     /// What it is called, as typed.
@@ -817,7 +822,13 @@ impl UserData {
     /// Returns `true` when a collection was replaced, which the caller says out
     /// loud: overwriting somebody's saved query in silence is how they find out
     /// a week later.
-    pub fn save_collection(&mut self, owner: &str, name: &str, expression: &str, now: u64) -> bool {
+    pub fn save_collection(
+        &mut self,
+        owner: &str,
+        name: &str,
+        expression: &str,
+        now: u64,
+    ) -> Result<bool, String> {
         let wanted = text::normalize(name);
         if let Some(existing) = self
             .collections
@@ -826,16 +837,21 @@ impl UserData {
         {
             existing.expression = expression.to_string();
             existing.updated_at = now;
-            return true;
+            return Ok(true);
+        }
+        let id = format!("collection-{}", crate::accounts::random_token()?);
+        if self.collections.iter().any(|row| row.id == id) {
+            return Err("collection identifier collision".into());
         }
         self.collections.push(Collection {
+            id,
             owner: owner.to_string(),
             name: name.to_string(),
             expression: expression.to_string(),
             created_at: now,
             updated_at: now,
         });
-        false
+        Ok(false)
     }
 
     /// Drops a saved query; `false` when there was none by that name.
@@ -875,6 +891,7 @@ pub fn user_path(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// An exclusive temporary output prevents an existing temporary symlink from
 /// being followed; a symlink at the final path is refused.
 pub fn save(data: &UserData, path: &std::path::Path) -> Result<(), crate::store::StoreError> {
+    collections::validate(data)?;
     preferences::validate(&data.client_preferences)?;
     history::validate(data)?;
     playlists::validate(data)?;
@@ -1022,6 +1039,7 @@ pub fn to_json(data: &UserData) -> crate::json::Json {
         .iter()
         .map(|c| {
             let mut o = Json::obj();
+            o.set("id", c.id.as_str().into());
             o.set("owner", c.owner.as_str().into());
             o.set("name", c.name.as_str().into());
             o.set("query", c.expression.as_str().into());
@@ -1107,7 +1125,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
         .map_err(|_| crate::store::StoreError::Invalid("personal store byte limit exceeded"))?;
     use crate::store::StoreError;
     let found = value.field_u32("format_version").unwrap_or(0);
-    if !matches!(found, 1 | USER_FORMAT_VERSION) {
+    if !matches!(found, 1 | 2 | USER_FORMAT_VERSION) {
         return Err(StoreError::Version {
             found,
             expected: USER_FORMAT_VERSION,
@@ -1279,22 +1297,7 @@ pub fn from_json(value: &crate::json::Json) -> Result<UserData, crate::store::St
             last_played: row.field_u64("last_played").unwrap_or(0),
         });
     }
-    for row in value
-        .get("collections")
-        .and_then(|v| v.as_arr())
-        .unwrap_or(&[])
-    {
-        let (Some(name), Some(expression)) = (row.field_str("name"), row.field_str("query")) else {
-            continue;
-        };
-        data.collections.push(Collection {
-            owner: read_owner(row)?,
-            name,
-            expression,
-            created_at: row.field_u64("created_at").unwrap_or(0),
-            updated_at: row.field_u64("updated_at").unwrap_or(0),
-        });
-    }
+    data.collections = collections::read(value)?;
     for row in value
         .get("set_aside")
         .and_then(crate::json::Json::as_arr)
@@ -1515,22 +1518,7 @@ pub fn merge(into: &mut UserData, incoming: UserData) -> Merge {
         }
     }
 
-    for collection in incoming.collections {
-        let owner = collection.owner.clone();
-        match into.collections.iter_mut().find(|c| {
-            c.owner == owner && text::normalize(&c.name) == text::normalize(&collection.name)
-        }) {
-            Some(existing) if existing.updated_at >= collection.updated_at => report.kept += 1,
-            Some(existing) => {
-                *existing = collection;
-                report.collections += 1;
-            }
-            None => {
-                into.collections.push(collection);
-                report.collections += 1;
-            }
-        }
-    }
+    collections::merge(into, incoming.collections, &mut report);
     // A decision has no versions to arbitrate: it was taken or it was not, so
     // importing the same backup twice must not file it twice.
     for aside in incoming.set_aside {

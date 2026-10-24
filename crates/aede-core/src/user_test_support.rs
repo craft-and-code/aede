@@ -11,7 +11,7 @@ pub(super) fn owner_scoped_rows() -> [(&'static str, crate::json::Json); 7] {
         ),
         ("plays", r#"{"track":"track:/music/01.flac","at":10,"ms_played":1000,"completed":true}"#),
         ("counts", r#"{"track":"track:/music/01.flac","count":1,"completed_count":1,"last_played":10}"#),
-        ("collections", r#"{"name":"Private selection","query":"genre:jazz"}"#),
+        ("collections", r#"{"id":"collection-0000000000000000000000000000000000000000000000000000000000000000","name":"Private selection","query":"genre:jazz"}"#),
         ("set_aside", r#"{"release_group":"example-release-group","title":"Example release"}"#),
         ("same_artist", r#"{"spelling":"example alias","filed_as":"example artist"}"#),
     ]
