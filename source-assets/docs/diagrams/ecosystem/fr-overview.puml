@@ -1,0 +1,45 @@
+@startuml fr-overview
+!pragma layout smetana
+skinparam backgroundColor #15191D
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 16
+skinparam defaultFontColor #EDF2EE
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam componentStyle uml2
+skinparam ArrowColor #96A79F
+skinparam ArrowFontColor #D0DDD5
+skinparam ArrowFontSize 13
+skinparam packageStyle rectangle
+skinparam packageBackgroundColor #1E2528
+skinparam packageBorderColor #52655D
+skinparam packageFontColor #F1F5F2
+skinparam packageFontSize 19
+skinparam componentBackgroundColor #273035
+skinparam componentBorderColor #6A7F73
+skinparam componentFontColor #EDF2EE
+skinparam nodesep 30
+skinparam ranksep 35
+hide stereotype
+
+title Trois applications, des moteurs partagés
+component "FlacCompagnon\nApp + CLI" as Flac
+component "Aède\nCLI + API + App" as Aede
+component "Phémios\nApp" as Phemios
+component "flaccompagnon-core\nAnalyse / intégrité / rapports" as FCore #3B4930
+component "aede-audio\nDécodage / files PCM / sortie minimale" as AAudio #3B4930
+component "aede-dsp\nTraitement du signal audio" as ADsp #3B4930
+Flac -[hidden]right-> Aede
+Aede -[hidden]right-> Phemios
+Flac -[#D8F36A]-> FCore : analyse
+Aede -[#D8F36A]-> FCore : analyse
+Flac -[#D8F36A]-> AAudio : lecture minimale
+Aede -[#D8F36A]-> AAudio : décodage / PCM
+Phemios -[#D8F36A]-> AAudio : files PCM
+AAudio --> ADsp
+Phemios -[#71CDE1,dashed]left-> Aede : HTTPS / WSS
+legend bottom
+Flèche pleine : utilise la bibliothèque cible.
+Pointillés bleus : connexion ou processus à l’exécution.
+endlegend
+@enduml

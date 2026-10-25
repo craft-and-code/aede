@@ -1189,6 +1189,18 @@
       "navigation": false
     },
     {
+      "slug": "manual/ecosystem",
+      "section": "manual",
+      "command": null,
+      "source": {
+        "en": "docs/manual/ecosystem.md",
+        "fr": "docs/fr/manual/ecosystem.md"
+      },
+      "explainer": null,
+      "noindex": false,
+      "navigation": true
+    },
+    {
       "slug": "manual/project-statistics",
       "section": "manual",
       "command": null,

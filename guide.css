@@ -127,3 +127,13 @@ body.guide-document[data-section="cli"] { --guide-accent:#d8f36a; }
 .guide-footer-logo { height:23px; width:auto; vertical-align:middle; }
 .guide-app-intro { margin:28px 0; padding:22px; border:1px solid var(--guide-border); border-radius:12px; background:var(--guide-panel); }
 .guide-app-intro h2 { margin-top:0; }
+
+/* Architecture is readable at first glance; detailed crate graphs expand on demand. */
+.ecosystem-diagram { margin: 26px 0 12px; padding: 14px; background: #15191d; border: 1px solid var(--guide-border); border-radius: 12px; }
+.ecosystem-diagram a { display: block; }
+.ecosystem-diagram img { display: block; width: 100%; height: auto; }
+.ecosystem-diagram figcaption { margin-top: 12px; color: var(--guide-muted); font-size: 13px; }
+.ecosystem-detail { margin: 22px 0 34px; border: 1px solid var(--guide-border); border-radius: 10px; padding: 16px; }
+.ecosystem-detail > summary { cursor: pointer; color: var(--guide-accent); font-weight: 600; }
+.ecosystem-detail .ecosystem-diagram { padding: 0; border: 0; }
+.ecosystem-detail > p:last-child { margin-bottom: 0; }
