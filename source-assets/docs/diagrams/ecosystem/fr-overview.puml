@@ -23,8 +23,8 @@ skinparam ranksep 35
 hide stereotype
 
 title Trois applications, des moteurs partagés
-component "FlacCompagnon\nApp + CLI" as Flac
-component "Aède\nCLI + API + App" as Aede
+component "FlacCompagnon\nApp + flaccompagnon-cli" as Flac
+component "Aède\nApp + aede-cli + API" as Aede
 component "Phémios\nApp" as Phemios
 component "flaccompagnon-core\nAnalyse / intégrité / rapports" as FCore #3B4930
 component "aede-audio\nDécodage / files PCM / sortie minimale" as AAudio #3B4930
