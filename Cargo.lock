@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "aede-accounts"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "argon2",
  "serde_json",
@@ -18,7 +18,7 @@ dependencies = [
 
 [[package]]
 name = "aede-audio"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aede-dsp",
  "cpal",
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aede-cli"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aede-audio",
  "aede-core",
@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "aede-core"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aede-accounts",
  "aede-audio",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "aede-devices"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aede-core",
  "hyper",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "aede-dsp"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "biquad",
  "ebur128",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "aede-moods"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "rustfft",
  "serde",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "aede-server"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "aede-core",
  "aede-devices",

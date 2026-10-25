@@ -54,7 +54,7 @@ Aède uses a two-tier parsing architecture. The primary containers use native Ru
 
 ## Desktop server application
 
-Version 0.7.4 prepares separate **CLI** and **App** downloads. The [Aède desktop server](docs/desktop.md) uses the same engine behind a minimal SolidJS/Tauri console: local folders, explicit scans, HTTPS and a public connection profile for Phémios. It stores an isolated private library and stops its owned server on exit. It is intended first for same-machine testing; remote HTTPS remains a CLI feature. See [desktop development](desktop/README.md). See the [0.7.4 release notes](docs/releases/v0.7.4.md) and [desktop dependency findings](docs/coding/desktop-dependencies.md).
+Version 0.7.5 prepares separate **CLI** and **App** downloads. The [Aède desktop server](docs/desktop.md) uses the same engine behind a minimal SolidJS/Tauri console: local folders, explicit scans, HTTPS and a public connection profile for Phémios. It stores an isolated private library and stops its owned server on exit. It is intended first for same-machine testing; remote HTTPS remains a CLI feature. See [desktop development](desktop/README.md). See the [0.7.5 release notes](docs/releases/v0.7.5.md) and [desktop dependency findings](docs/coding/desktop-dependencies.md).
 
 ## 📦 Installation & System Dependencies
 
@@ -84,7 +84,7 @@ sudo apt update && sudo apt install -y build-essential pkg-config libssl-dev lib
 sudo pacman -S base-devel rust alsa-lib ffmpeg
 ```
 
-Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.7.4 release notes](docs/releases/v0.7.4.md) provide the next draft highlights. The [v0.7.3 notes](docs/releases/v0.7.3.md), [v0.7.2 notes](docs/releases/v0.7.2.md), [v0.7.1 notes](docs/releases/v0.7.1.md), [v0.7.0 notes](docs/releases/v0.7.0.md), [v0.6.1 notes](docs/releases/v0.6.1.md), [v0.6.0 notes](docs/releases/v0.6.0.md), [v0.5.0 notes](docs/releases/v0.5.0.md), [v0.4.0 notes](docs/releases/v0.4.0.md) and [v0.3.0 notes](docs/releases/v0.3.0.md) remain available.
+Downloadable archives are prepared as drafts by the [Release workflow](.github/workflows/release.yml). See [local CI and release preparation](docs/coding/ci-and-releases.md) for Rust 1.89 checks, GitHub logs and the publication procedure. The [v0.7.5 release notes](docs/releases/v0.7.5.md) provide the next draft highlights. The [v0.7.4 notes](docs/releases/v0.7.4.md), [v0.7.3 notes](docs/releases/v0.7.3.md), [v0.7.2 notes](docs/releases/v0.7.2.md), [v0.7.1 notes](docs/releases/v0.7.1.md), [v0.7.0 notes](docs/releases/v0.7.0.md), [v0.6.1 notes](docs/releases/v0.6.1.md), [v0.6.0 notes](docs/releases/v0.6.0.md), [v0.5.0 notes](docs/releases/v0.5.0.md), [v0.4.0 notes](docs/releases/v0.4.0.md) and [v0.3.0 notes](docs/releases/v0.3.0.md) remain available.
 
 ### Building & Installing from Source
 
