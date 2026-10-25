@@ -13,14 +13,14 @@
 <a href=#13 id=13 data-nosnippet>13</a>    <span class="kw">let </span>owner = PersonalOwner::from_request(<span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;
 <a href=#14 id=14 data-nosnippet>14</a>    owner.require_mutation()<span class="question-mark">?</span>;
 <a href=#15 id=15 data-nosnippet>15</a>    <span class="kw">let </span>query = parsed_query(input)<span class="question-mark">?</span>;
-<a href=#16 id=16 data-nosnippet>16</a>    validate_collection_name(<span class="kw-2">&amp;</span>query.name)<span class="question-mark">?</span>;
+<a href=#16 id=16 data-nosnippet>16</a>    query.validate()<span class="question-mark">?</span>;
 <a href=#17 id=17 data-nosnippet>17</a>    <span class="kw">let </span>edit: Rename = json_body(request).<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#18 id=18 data-nosnippet>18</a>    validate_collection_name(<span class="kw-2">&amp;</span>edit.name)<span class="question-mark">?</span>;
 <a href=#19 id=19 data-nosnippet>19</a>    <span class="kw">let </span>data_dir = state.data_dir.clone();
 <a href=#20 id=20 data-nosnippet>20</a>    spawn_personal(state.inspection_slots.clone(), <span class="kw">move </span>|| {
 <a href=#21 id=21 data-nosnippet>21</a>        locked_update(<span class="kw-2">&amp;</span>data_dir, <span class="kw-2">&amp;</span>state, <span class="kw-2">&amp;</span>owner, |<span class="kw">_</span>, data| {
-<a href=#22 id=22 data-nosnippet>22</a>            <span class="kw">let </span>old = data
-<a href=#23 id=23 data-nosnippet>23</a>                .collection(<span class="kw-2">&amp;</span>owner.id, <span class="kw-2">&amp;</span>query.name)
+<a href=#22 id=22 data-nosnippet>22</a>            <span class="kw">let </span>old = query
+<a href=#23 id=23 data-nosnippet>23</a>                .find(data, <span class="kw-2">&amp;</span>owner.id)
 <a href=#24 id=24 data-nosnippet>24</a>                .ok_or_else(|| {
 <a href=#25 id=25 data-nosnippet>25</a>                    error(
 <a href=#26 id=26 data-nosnippet>26</a>                        StatusCode::NOT_FOUND,

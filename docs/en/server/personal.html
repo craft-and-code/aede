@@ -46,7 +46,7 @@
 </code></pre>
 <p>Replace the illustrative track token. Returns HTTP 201 with one event view using the fields above and updated all-time count. This <strong>records an event supplied by the client</strong>; it does not play or verify listening. Every accepted POST increments its count, including delayed events outside the newest retained log. It is not idempotent: repeating a lost submission can double-count. Wrong-kind/malformed track gives 400, absent track 404, duration/date bounds 400. No audio streaming route exists behind this endpoint.</p>
 <h2 id="get-apiadminv1collection">GET /api/admin/v1/collection<a class="heading-link" href="#get-apiadminv1collection" aria-label="GET /api/admin/v1/collection">#</a></h2>
-<p>Required nonempty <code>name</code>, no body/pagination. Names match case/accent-insensitively.</p>
+<p>Exactly one nonempty <code>name</code> or opaque <code>id</code>, no body/pagination. Names match case/accent-insensitively. Collection responses include <code>id</code>; see <a href="presentation.html#stable-collection-identity">stable identity and migration</a>. ID selectors also apply to PATCH, DELETE and collection album evaluation. PUT retains its name selector.</p>
 <pre><code class="language-sh">curl --get &#x27;http://127.0.0.1:8787/api/admin/v1/collection&#x27; \
   --data-urlencode &#x27;name=Favourites&#x27; -H &quot;Authorization: Bearer $AEDE_ADMIN_TOKEN&quot;
 </code></pre>

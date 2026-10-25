@@ -946,7 +946,7 @@
 <a href=#946 id=946 data-nosnippet>946</a>        // collection that only fails when somebody opens it is a trap left for
 <a href=#947 id=947 data-nosnippet>947</a>        // later.
 <a href=#948 id=948 data-nosnippet>948</a>        </span>aede_core::query::parse(expression)<span class="question-mark">?</span>;
-<a href=#949 id=949 data-nosnippet>949</a>        <span class="kw">let </span>replaced = data.save_collection(<span class="kw-2">&amp;</span>owner, <span class="kw-2">&amp;</span>name, expression, now);
+<a href=#949 id=949 data-nosnippet>949</a>        <span class="kw">let </span>replaced = data.save_collection(<span class="kw-2">&amp;</span>owner, <span class="kw-2">&amp;</span>name, expression, now)<span class="question-mark">?</span>;
 <a href=#950 id=950 data-nosnippet>950</a>        write(args, <span class="kw-2">&amp;mut </span>data, <span class="kw-2">&amp;</span>catalog)<span class="question-mark">?</span>;
 <a href=#951 id=951 data-nosnippet>951</a>        <span class="macro">println!</span>(
 <a href=#952 id=952 data-nosnippet>952</a>            <span class="string">"{} {} {}: {}"</span>,
