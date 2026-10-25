@@ -3,8 +3,8 @@ name: Release
 # Builds distinct CLI and desktop App artifacts for every platform into a
 # GitHub Release. Trigger by pushing a version tag:
 #
-#     git tag v0.7.3
-#     git push origin v0.7.3
+#     git tag v0.7.4
+#     git push origin v0.7.4
 #
 # or run it manually from the Actions tab (workflow_dispatch), which builds the
 # binaries without publishing anything.
