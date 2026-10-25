@@ -1,0 +1,49 @@
+@startuml en-phemios
+!pragma layout smetana
+skinparam backgroundColor #15191D
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 16
+skinparam defaultFontColor #EDF2EE
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam componentStyle uml2
+skinparam ArrowColor #96A79F
+skinparam ArrowFontColor #D0DDD5
+skinparam ArrowFontSize 13
+skinparam packageStyle rectangle
+skinparam packageBackgroundColor #1E2528
+skinparam packageBorderColor #52655D
+skinparam packageFontColor #F1F5F2
+skinparam packageFontSize 19
+skinparam componentBackgroundColor #273035
+skinparam componentBorderColor #6A7F73
+skinparam componentFontColor #EDF2EE
+skinparam nodesep 30
+skinparam ranksep 35
+hide stereotype
+
+title Phémios
+package "Phémios" {
+component "phemios\nMusic desktop App" as PApp
+component "phemios-core\nNative playback orchestration" as PCore
+component "phemios-cd\nAudio CDs / CUE images" as PCd
+component "phemios-transfer\nPortable-device transfers" as PTransfer
+}
+package "Aède · shared foundation" {
+component "aede-audio\nDecode / PCM queues / minimal output" as AAudio #3B4930
+component "aede-dsp\nAudio signal processing" as ADsp #3B4930
+}
+PApp --> PCore
+PApp --> PCd
+PApp --> PTransfer
+PCore --> PCd
+PCore -[#D8F36A]-> AAudio : queue
+AAudio --> ADsp
+component "aede-server\nHTTPS / WSS" as AServer
+PCore -[#71CDE1,dashed]-> AServer : API
+PApp -[#71CDE1,dashed]-> AServer : via native bridge
+legend bottom
+Solid arrow: uses the target library.
+Blue dashed arrow: runtime connection or process.
+endlegend
+@enduml

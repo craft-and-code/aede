@@ -336,7 +336,8 @@
     "Version 0.7.5 en préparation · téléchargements CLI et App séparés à la publication.": "Version 0.7.5 in preparation · separate CLI and App downloads at release.",
     "Découvrir l’application serveur": "Explore the server app",
     "Sillons, sculpture interactive en 3D. Déplacez le pointeur pour soulever les anneaux. Cliquez ou appuyez sur Entrée pour une impulsion. Les flèches déplacent le relief, Échap le réinitialise.": "Sillons, an interactive 3D sculpture. Move the pointer to lift the rings. Click or press Enter for an impulse. Arrow keys move the relief; Escape resets it.",
-    "Sillons · Effleurez le relief, cliquez pour une impulsion.": "Sillons · Hover over the relief; click for an impulse."
+    "Sillons · Effleurez le relief, cliquez pour une impulsion.": "Sillons · Hover over the relief; click for an impulse.",
+    "Architecture partagée": "Shared architecture"
   },
   "fr": {}
 }

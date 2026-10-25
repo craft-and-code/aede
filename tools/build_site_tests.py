@@ -150,6 +150,21 @@ class LinkTests(unittest.TestCase):
 
 
 class HomeTests(unittest.TestCase):
+    def test_ecosystem_guides_publish_localized_diagrams_and_editable_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "site"
+            builder.build(builder.ROOT, destination, builder.BASE_URL)
+            for language in ("en", "fr"):
+                page = (destination / f"docs/{language}/manual/ecosystem.html").read_text(encoding="utf-8")
+                self.assertEqual(page.count('<details class="ecosystem-detail">'), 3)
+                for kind in ("overview", "aede", "flaccompagnon", "phemios"):
+                    name = f"{language}-{kind}"
+                    self.assertIn(f'assets/architecture/{name}.svg', page)
+                    self.assertNotIn(f'assets/architecture/{"fr" if language == "en" else "en"}-{kind}.svg', page)
+                    source = Path("docs/diagrams/ecosystem") / f"{name}.puml"
+                    self.assertEqual((destination / "source-assets" / source).read_bytes(), (builder.ROOT / source).read_bytes())
+            self.assertEqual([], checker.check(destination))
+
     def test_documentation_explains_the_app_when_its_guide_is_published(self):
         pages = builder.load_pages(builder.ROOT)
         for language, phrase in (("fr", "sans Terminal"), ("en", "without a terminal")):

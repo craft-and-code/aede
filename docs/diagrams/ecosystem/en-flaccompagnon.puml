@@ -1,0 +1,47 @@
+@startuml en-flaccompagnon
+!pragma layout smetana
+skinparam backgroundColor #15191D
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 16
+skinparam defaultFontColor #EDF2EE
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam componentStyle uml2
+skinparam ArrowColor #96A79F
+skinparam ArrowFontColor #D0DDD5
+skinparam ArrowFontSize 13
+skinparam packageStyle rectangle
+skinparam packageBackgroundColor #1E2528
+skinparam packageBorderColor #52655D
+skinparam packageFontColor #F1F5F2
+skinparam packageFontSize 19
+skinparam componentBackgroundColor #273035
+skinparam componentBorderColor #6A7F73
+skinparam componentFontColor #EDF2EE
+skinparam nodesep 30
+skinparam ranksep 35
+hide stereotype
+
+title FlacCompagnon
+package "FlacCompagnon" {
+component "flaccompagnon\nDesktop App" as FApp
+component "flaccompagnon-cli\nCommand-line analysis" as FCli
+component "flaccompagnon-services\nTags / conversion / organization" as FServices
+component "flaccompagnon-core\nAnalysis / integrity / reports" as FCore #3B4930
+}
+package "Aède · shared foundation" {
+component "aede-audio\nDecode / PCM queues / minimal output" as AAudio #3B4930
+component "aede-dsp\nAudio signal processing" as ADsp #3B4930
+}
+AAudio --> ADsp : output
+FApp --> FServices
+FApp --> FCore
+FCli --> FCore
+FServices --> FCore
+FApp -[#D8F36A]-> AAudio : output
+FCore -[#D8F36A]-> AAudio : decode
+legend bottom
+Solid arrow: uses the target library.
+Blue dashed arrow: runtime connection or process.
+endlegend
+@enduml

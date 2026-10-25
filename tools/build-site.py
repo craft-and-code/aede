@@ -687,7 +687,7 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
     # Copy images/files linked from Markdown. Generated pages reference these
     # source assets without requiring handwritten copies in site/.
     for asset in (root / "docs").rglob("*"):
-        if asset.is_file() and asset.suffix.lower() in (".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf"):
+        if asset.is_file() and asset.suffix.lower() in (".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".pdf", ".puml"):
             target = destination / "source-assets" / asset.relative_to(root)
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(asset, target)
     (destination / ".nojekyll").touch()

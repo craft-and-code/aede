@@ -1,5 +1,7 @@
 # Shared audio foundation
 
+For a bilingual component overview of the three applications, see the [shared architecture guide](../manual/ecosystem.md).
+
 `crates/aede-audio` is the catalogue-independent PCM foundation used by Aède, Phémios and FlacCompagnon. It reuses `aede-dsp`; it does not introduce another DSP implementation or depend on an application, an analysis engine, a catalogue, an account, HTTP or Tauri.
 
 ## Feature boundaries

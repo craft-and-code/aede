@@ -103,3 +103,13 @@ Canonical metadata, language alternates, `sitemap.xml`, `robots.txt` and `.nojek
 The signup form posts directly to the configured email relay. Visitor addresses are not stored in the public repository or browser storage. Changing a recipient or privacy statement requires updating the authored landing page and the corresponding Markdown information pages together. A local preview and an intercepted browser submission cannot confirm activation or delivery of the external email service; that is verified by its recipient confirmation flow.
 
 FormSubmit activation is a recipient-side setup step. Initially, the form action contains the recipient address; that address remains readable in the public HTML until it is replaced. After the recipient activates the form, use FormSubmit’s “Invisible emails” identifier in the action (`https://formsubmit.co/<identifier>`) instead of the address. This identifier is intended for public form submissions; it is distinct from the private activation link and from an Email Link URL under `/el/`. Never publish the activation link or disguise a plaintext recipient address with client-side encoding. The visitor-facing signup stays a single email field and button. Contact and data requests use the maintainer-provided FormSubmit Email Link.
+
+## Shared architecture diagrams
+
+The bilingual [ecosystem guide](../docs/manual/ecosystem.md) has a compact shared-library overview and three expandable application component diagrams. Editable PlantUML sources live in `docs/diagrams/ecosystem/`; checked-in SVG/PNG assets live in `site/assets/architecture/`. Regenerate them locally with an official PlantUML JAR and Java:
+
+```sh
+python3 tools/render-ecosystem-diagrams.py --jar /path/to/plantuml.jar
+```
+
+Rendering uses Smetana and the SANDBOX security profile; source diagrams are not sent to a remote service. PlantUML is an optional authoring tool, not a website-build/runtime dependency. The normal site workflow publishes the checked-in assets on a push to main, without an Aède version/tag change. Update the shared node/edge definitions and both translations together when the crate architecture changes.
