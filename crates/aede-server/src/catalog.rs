@@ -74,6 +74,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "mood_audio_features",
         "collection_rename",
         "collection_identity",
+        "label_logos",
         "album_track_pages",
         "track_catalog_pages",
         "catalog_added_dates",

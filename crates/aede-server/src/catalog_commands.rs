@@ -41,6 +41,8 @@ struct NavigationDetail {
     origin: Option<ArtistOrigin>,
     #[serde(skip_serializing_if = "Option::is_none")]
     biography: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logo: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -83,6 +85,7 @@ enum BrowseItem {
         name: String,
         mbid: Option<String>,
         release_count: usize,
+        logo: bool,
     },
     Work {
         reference: String,
@@ -419,6 +422,16 @@ async fn detail(
                 .as_ref()
                 .filter(|_| kind == EntityKind::Label)
                 .and_then(|sources| label_biography(catalog, &requested, sources)),
+            logo: (kind == EntityKind::Label).then(|| {
+                sources
+                    .as_ref()
+                    .and_then(|sources| {
+                        requested.resolve(catalog).and_then(|id| {
+                            crate::artwork::label_logo(catalog, sources, id, &state.data_dir)
+                        })
+                    })
+                    .is_some()
+            }),
         })
     })
     .await
@@ -685,6 +698,7 @@ fn browse_item(catalog: &Catalog, kind: EntityKind, id: Id) -> Result<BrowseItem
                 name: label.name.clone(),
                 mbid: label.mbid.clone(),
                 release_count: catalog.releases_of_label(id).len(),
+                logo: false,
             }
         }
         EntityKind::Work => {
@@ -781,11 +795,27 @@ fn browse_page(
         rows.reverse();
     }
     let total = rows.len();
+    let sources = if kind == EntityKind::Label {
+        Some(crate::inspection::held_sources(&state.data_dir)?)
+    } else {
+        None
+    };
     let items = rows
         .into_iter()
         .skip(options.offset)
         .take(options.limit)
-        .map(|id| browse_item(catalog, kind, id))
+        .map(|id| {
+            let mut item = browse_item(catalog, kind, id)?;
+            if let BrowseItem::Label { logo, .. } = &mut item {
+                *logo = sources
+                    .as_ref()
+                    .and_then(|sources| {
+                        crate::artwork::label_logo(catalog, sources, id, &state.data_dir)
+                    })
+                    .is_some();
+            }
+            Ok(item)
+        })
         .collect::<Result<_, _>>()?;
     Ok(Page::new(
         items,

@@ -93,12 +93,41 @@ pub(super) fn beside(folder: PathBuf, kind: Kind) -> Option<Source> {
         })
 }
 
+/// Match the explicit label-enrichment destinations without trusting name-only source claims.
+pub(super) fn label_logo(
+    catalog: &Catalog,
+    sources: &aede_core::sources::Sources,
+    id: Id,
+    data_dir: &Path,
+) -> Option<Source> {
+    use aede_core::sources::LabelIdentityResolution;
+    let label = catalog.label(id)?;
+    let sourced = match sources.label_identity(catalog, id) {
+        Some(
+            LabelIdentityResolution::Confirmed { mbid, .. }
+            | LabelIdentityResolution::Agrees { mbid, .. }
+            | LabelIdentityResolution::Accepted { mbid, .. },
+        ) => Some(mbid),
+        _ => None,
+    };
+    [label.mbid.as_deref(), sourced.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|mbid| aede_core::musicbrainz::valid_id(mbid))
+        .filter_map(|mbid| coverart::asset_destination(data_dir, EntityKind::Label, mbid))
+        .find_map(|folder| beside(folder, Kind::Logo))
+}
+
 fn select(catalog: &Catalog, data_dir: &Path, parameters: &Parameters) -> Result<Source, ApiError> {
     let entity = EntityRef::parse_token(&parameters.reference)
         .ok_or_else(|| invalid_query("invalid artwork reference"))?;
     let id = entity.resolve(catalog).ok_or_else(unavailable)?;
     let selected = match (entity.kind, parameters.kind.as_str()) {
         (EntityKind::Release, "cover") => catalog.release(id).and_then(candidate),
+        (EntityKind::Label, "logo") => {
+            let sources = crate::inspection::held_sources(data_dir)?;
+            label_logo(catalog, &sources, id, data_dir)
+        }
         (EntityKind::Artist, "banner" | "background" | "portrait" | "logo") => {
             let kind = match parameters.kind.as_str() {
                 "banner" => Kind::Banner,
@@ -249,3 +278,7 @@ impl hyper::body::Body for ArtworkBody {
 #[cfg(test)]
 #[path = "artwork_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "label_logo_tests.rs"]
+mod label_logo_tests;
