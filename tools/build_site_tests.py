@@ -157,7 +157,7 @@ class HomeTests(unittest.TestCase):
             for language in ("en", "fr"):
                 page = (destination / f"docs/{language}/manual/ecosystem.html").read_text(encoding="utf-8")
                 self.assertEqual(page.count('<details class="ecosystem-detail">'), 3)
-                for kind in ("overview", "aede", "flaccompagnon", "phemios"):
+                for kind in ("overview", "aede", "flaccompagnon", "phemios", "complete"):
                     name = f"{language}-{kind}"
                     self.assertIn(f'assets/architecture/{name}.svg', page)
                     self.assertNotIn(f'assets/architecture/{"fr" if language == "en" else "en"}-{kind}.svg', page)

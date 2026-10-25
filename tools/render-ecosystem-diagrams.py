@@ -64,10 +64,10 @@ def node(alias, language):
 
 def diagram(kind, language):
     fr = language == "fr"
-    title = ("Trois applications, des moteurs partagés" if fr else "Three applications, shared engines") if kind == "overview" else {"aede": "Aède", "flaccompagnon": "FlacCompagnon", "phemios": "Phémios"}[kind]
+    title = ("Trois applications, des moteurs partagés" if fr else "Three applications, shared engines") if kind == "overview" else {"aede": "Aède", "flaccompagnon": "FlacCompagnon", "phemios": "Phémios", "complete": "Écosystème complet" if fr else "Complete ecosystem"}[kind]
     lines = [f"@startuml {language}-{kind}", STYLE, f"title {title}"]
     if kind == "overview":
-        for alias, label in [("Flac", "FlacCompagnon\\nApp + CLI"), ("Aede", "Aède\\nCLI + API + App"), ("Phemios", "Phémios\\nApp")]:
+        for alias, label in [("Flac", "FlacCompagnon\\nApp + flaccompagnon-cli"), ("Aede", "Aède\\nApp + aede-cli + API"), ("Phemios", "Phémios\\nApp")]:
             lines.append(f'component "{label}" as {alias}')
         lines += [node(alias, language) for alias in ("FCore", "AAudio", "ADsp")]
         lines += ["Flac -[hidden]right-> Aede", "Aede -[hidden]right-> Phemios", 'Flac -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Aede -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Flac -[#D8F36A]-> AAudio : ' + ("lecture minimale" if fr else "minimal playback"), 'Aede -[#D8F36A]-> AAudio : ' + ("décodage / PCM" if fr else "decoding / PCM"), 'Phemios -[#D8F36A]-> AAudio : ' + ("files PCM" if fr else "PCM queues"), "AAudio --> ADsp", 'Phemios -[#71CDE1,dashed]left-> Aede : HTTPS / WSS']
@@ -76,19 +76,23 @@ def diagram(kind, language):
             "flaccompagnon": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore"]), ("Aède · socle partagé" if fr else "Aède · shared foundation", ["AAudio", "ADsp"])],
             "aede": [("Console desktop" if fr else "Desktop console", ["AApp", "AConsole"]), ("Moteur Aède" if fr else "Aède engine", ["ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("FlacCompagnon", ["FCore"])],
             "phemios": [("Phémios", ["PApp", "PCore", "PCd", "PTransfer"]), ("Aède · socle partagé" if fr else "Aède · shared foundation", ["AAudio", "ADsp"])],
+            "complete": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore"]), ("Aède", ["AApp", "AConsole", "ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("Phémios", ["PApp", "PCore", "PCd", "PTransfer"])],
         }
         for label, aliases in groups[kind]:
             lines += [f'package "{label}" {{'] + [node(alias, language) for alias in aliases] + ["}"]
         if kind == "flaccompagnon":
             lines.append("AAudio --> ADsp : output")
-        for edge in EDGES[kind]:
+        edges = list(dict.fromkeys(edge for application in EDGES.values() for edge in application)) if kind == "complete" else EDGES[kind]
+        for edge in edges:
             source, target, *label = edge
             color = " -[#D8F36A]-> " if (source.startswith("F") != target.startswith("F") or source.startswith("P") != target.startswith("P")) else " --> "
             lines.append(source + color + target + (" : " + label[0] if label else ""))
-        if kind == "aede":
+        if kind in ("aede", "complete"):
             lines.append('AConsole -[#71CDE1,dashed]right-> ACli : ' + ("lance un processus" if fr else "starts a process"))
         if kind == "phemios":
             lines += ['component "aede-server\\nHTTPS / WSS" as AServer', "PCore -[#71CDE1,dashed]-> AServer : API", 'PApp -[#71CDE1,dashed]-> AServer : ' + ("via le pont natif" if fr else "via native bridge")]
+        if kind == "complete":
+            lines += ["PCore -[#71CDE1,dashed]-> AServer : HTTPS / WSS", 'PApp -[#71CDE1,dashed]-> AServer : ' + ("via le pont natif" if fr else "via native bridge")]
     lines += ["legend bottom", ("Flèche pleine : utilise la bibliothèque cible." if fr else "Solid arrow: uses the target library."), ("Pointillés bleus : connexion ou processus à l’exécution." if fr else "Blue dashed arrow: runtime connection or process."), "endlegend", "@enduml", ""]
     return "\n".join(lines)
 
@@ -104,13 +108,13 @@ def main():
     assets.mkdir(parents=True, exist_ok=True)
     command = [args.java, "-Djava.awt.headless=true", "-DPLANTUML_SECURITY_PROFILE=SANDBOX", "-jar", str(args.jar.resolve())]
     for language in ("en", "fr"):
-        for kind in ("overview", "aede", "flaccompagnon", "phemios"):
+        for kind in ("overview", "aede", "flaccompagnon", "phemios", "complete"):
             source = sources / f"{language}-{kind}.puml"
             source.write_text(diagram(kind, language), encoding="utf-8")
             subprocess.run(command + ["--check-syntax", str(source)], check=True)
             for extension in ("svg", "png"):
                 subprocess.run(command + ["--format", extension, "--output-dir", str(assets), str(source)], check=True)
-    print("Eight bilingual diagrams validated and rendered locally.")
+    print("Ten bilingual diagrams validated and rendered locally.")
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ FormSubmit activation is a recipient-side setup step. Initially, the form action
 
 ## Shared architecture diagrams
 
-The bilingual [ecosystem guide](../docs/manual/ecosystem.md) has a compact shared-library overview and three expandable application component diagrams. Editable PlantUML sources live in `docs/diagrams/ecosystem/`; checked-in SVG/PNG assets live in `site/assets/architecture/`. Regenerate them locally with an official PlantUML JAR and Java:
+The bilingual [ecosystem guide](../docs/manual/ecosystem.md) has a compact shared-library overview, three expandable application component diagrams and a complete ecosystem diagram at the end. Each crate belongs to its maintaining project; FlacCompagnon's CLI is `flaccompagnon-cli`, not `aede-cli`. Editable PlantUML sources live in `docs/diagrams/ecosystem/`; checked-in SVG/PNG assets live in `site/assets/architecture/`. Regenerate them locally with an official PlantUML JAR and Java:
 
 ```sh
 python3 tools/render-ecosystem-diagrams.py --jar /path/to/plantuml.jar
