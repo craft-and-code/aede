@@ -57,7 +57,7 @@ pub fn run(
     // supply the exact lookup that completes its missing Wikipedia bridge.
     artist_links::complete(transport, backoff, held, path, asked, catalog)?;
     let (wanted, again) = (asked.names, asked.again);
-    let targets = targets(held, wanted, asked.scope, again, catalog);
+    let targets = targets(held, wanted, asked.scope, again, catalog, langs);
     println!("{}", ui::section("Summaries"));
     if targets.is_empty() {
         // A name that reached nothing is its own answer, and not the general
@@ -70,7 +70,7 @@ pub fn run(
                 ui::dim(&super::fetch::nothing_named(
                     wanted,
                     asked.scope,
-                    self::targets(held, wanted, asked.scope, true, catalog).len()
+                    self::targets(held, wanted, asked.scope, true, catalog, langs).len()
                 ))
             );
             return Ok(());
@@ -109,6 +109,7 @@ pub fn run(
         return Ok(());
     }
 
+    let requested_languages = langs;
     let langs: Vec<&str> = langs.iter().map(String::as_str).collect();
     let (mut stored, mut empty, mut failed) = (0usize, 0usize, 0usize);
     let mut pending = queue(&targets);
@@ -142,7 +143,7 @@ pub fn run(
             // An entity with no article in any language asked for is a real
             // answer, and recording it is what stops the next run asking again.
             empty += 1;
-            store(held, target, None);
+            store(held, target, None, requested_languages);
             sources::save(held, path)?;
             done += 1;
             continue;
@@ -168,14 +169,26 @@ pub fn run(
             super::fetch::report_failed(&target.name, &why);
             continue;
         }
+        if summary_doc
+            .get("lang")
+            .is_some_and(|language| language.as_str() != Some(article.lang.as_str()))
+        {
+            failed += 1;
+            done += 1;
+            super::fetch::report_failed(
+                &target.name,
+                &"Wikipedia returned a different article language; existing biography retained",
+            );
+            continue;
+        }
         match wikipedia::prose(&summary_doc, &article) {
             Some(prose) => {
                 stored += 1;
-                store(held, target, Some(prose));
+                store(held, target, Some(prose), requested_languages);
             }
             None => {
                 empty += 1;
-                store(held, target, None);
+                store(held, target, None, requested_languages);
             }
         }
         sources::save(held, path)?;
@@ -203,14 +216,21 @@ pub fn run(
 /// A record with an empty summary is not a wasted row: "asked, and there is no
 /// article" is exactly what the layer exists to keep apart from "never asked",
 /// and without it every run would ask about the same artists forever.
-fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::sources::Prose>) {
+fn store(
+    held: &mut sources::Sources,
+    target: &Target,
+    prose: Option<aede_core::sources::Prose>,
+    langs: &[String],
+) {
     let facts = match target.entity.kind {
         aede_core::model::EntityKind::Artist => Facts::Artist(aede_core::sources::ArtistFacts {
             summary: prose,
+            summary_languages: langs.to_vec(),
             ..Default::default()
         }),
         aede_core::model::EntityKind::Label => Facts::Label(aede_core::sources::LabelFacts {
             summary: prose,
+            summary_languages: langs.to_vec(),
             ..Default::default()
         }),
         _ => return,
@@ -236,8 +256,12 @@ fn store(held: &mut sources::Sources, target: &Target, prose: Option<aede_core::
 /// `fetch` prints this to offer the second pass at the moment it becomes
 /// possible, and an offer that counted differently from the run it offers is
 /// worse than no offer at all.
-pub fn waiting(held: &sources::Sources, catalog: Option<&aede_core::model::Catalog>) -> usize {
-    targets(held, &[], &super::fetch::EVERYTHING, false, catalog).len()
+pub fn waiting(
+    held: &sources::Sources,
+    catalog: Option<&aede_core::model::Catalog>,
+    langs: &[String],
+) -> usize {
+    targets(held, &[], &super::fetch::EVERYTHING, false, catalog, langs).len()
 }
 
 /// Who to ask about: artists and labels MusicBrainz gave a Wikidata link for.
@@ -252,6 +276,7 @@ fn targets(
     scope: &super::fetch::Scope,
     again: bool,
     catalog: Option<&aede_core::model::Catalog>,
+    langs: &[String],
 ) -> Vec<Target> {
     let mut targets = Vec::new();
     let empty = aede_core::model::Catalog::default();
@@ -278,9 +303,28 @@ fn targets(
         };
         let entity = record.entity();
         if !again
-            && held
-                .get(&entity, wikipedia::SOURCE)
-                .is_some_and(|cached| cached.source_id.as_deref() == Some(id.as_str()))
+            && held.get(&entity, wikipedia::SOURCE).is_some_and(|cached| {
+                if cached.source_id.as_deref() != Some(id.as_str()) {
+                    return false;
+                }
+                if held
+                    .review_for(cached)
+                    .is_some_and(|review| review.decision == sources::ReviewDecision::Rejected)
+                {
+                    return true;
+                }
+                let (summary, completed) = match &cached.facts {
+                    Facts::Artist(facts) => (&facts.summary, &facts.summary_languages),
+                    Facts::Label(facts) => (&facts.summary, &facts.summary_languages),
+                    _ => return false,
+                };
+                // A preferred-language legacy extract is already sufficient. An English
+                // fallback or empty answer is complete only for its recorded preference.
+                completed == langs
+                    || summary
+                        .as_ref()
+                        .is_some_and(|prose| Some(&prose.lang) == langs.first())
+            })
         {
             continue;
         }
@@ -325,3 +369,7 @@ pub fn preferred_langs(locale: Option<&str>) -> Vec<String> {
 #[cfg(test)]
 #[path = "summaries_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "summary_language_tests.rs"]
+mod language_tests;

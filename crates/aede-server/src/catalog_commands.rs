@@ -390,11 +390,20 @@ fn label_biography(
     requested: &EntityRef,
     sources: &Sources,
 ) -> Option<serde_json::Value> {
-    sources.about(requested).filter(|record| sources.is_trusted(catalog, record)).find_map(|record| {
-        let Facts::Label(facts) = &record.facts else { return None; };
-        let prose = facts.summary.as_ref()?;
-        Some(serde_json::json!({"text":prose.text,"url":prose.url,"lang":prose.lang,"licence":prose.licence,"source":record.source}))
-    })
+    // Wikipedia follows the requested language; Discogs retains its original-language fallback.
+    let (record, prose) = sources
+        .about(requested)
+        .filter(|record| sources.is_trusted(catalog, record))
+        .filter_map(|record| {
+            let Facts::Label(facts) = &record.facts else {
+                return None;
+            };
+            facts.summary.as_ref().map(|prose| (record, prose))
+        })
+        .min_by_key(|(record, _)| record.source != aede_core::wikipedia::SOURCE)?;
+    Some(
+        serde_json::json!({"text":prose.text,"url":prose.url,"lang":prose.lang,"licence":prose.licence,"source":record.source}),
+    )
 }
 
 async fn detail(

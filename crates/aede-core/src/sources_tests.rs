@@ -833,6 +833,7 @@ fn a_round_trip_keeps_every_field() {
             discogs: None,
             homepage: None,
             discography_fetched_at: Some(1_700_000_455),
+            summary_languages: Vec::new(),
             discography: vec![KnownRelease {
                 mbid: "c9fdb94c".to_string(),
                 title: "Kind of Blue".to_string(),
@@ -2915,4 +2916,50 @@ fn a_recent_discogs_biography_for_another_validated_label_is_not_trusted() {
     assert_eq!(held, before);
     held.records[1].source_id = Some("12345".into());
     assert!(held.is_trusted(&catalog, &held.records[1]));
+}
+
+#[test]
+fn completed_biography_languages_round_trip_without_becoming_biographical_content() {
+    for kind in [EntityKind::Artist, EntityKind::Label] {
+        let facts = match kind {
+            EntityKind::Artist => Facts::Artist(ArtistFacts {
+                summary_languages: vec!["fr".into(), "en".into()],
+                ..Default::default()
+            }),
+            EntityKind::Label => Facts::Label(LabelFacts {
+                summary_languages: vec!["fr".into(), "en".into()],
+                ..Default::default()
+            }),
+            _ => unreachable!(),
+        };
+        assert!(
+            facts.is_empty(),
+            "language completion metadata is not a biography"
+        );
+        let mut layer = Sources::default();
+        layer.set(record("language fixture", "wikipedia", facts));
+        assert_eq!(from_json(&to_json(&layer)).unwrap(), layer);
+    }
+}
+
+#[test]
+fn malformed_biography_language_completion_is_refused_instead_of_claiming_a_cached_answer() {
+    for marker in [
+        "null",
+        "true",
+        "[1]",
+        "[\"fr_FR\"]",
+        "[\"fr\",\"fr\"]",
+        "[\"fr\",\"de\",\"en\"]",
+    ] {
+        for kind in ["artist", "label"] {
+            let text = format!(
+                r#"{{"format_version":{SOURCES_FORMAT_VERSION},"records":[{{"entity":"{kind}:language fixture","source":"wikipedia","confidence":"identified","fetched_at":1,"facts":{{"summary_languages":{marker}}}}}]}}"#
+            );
+            assert!(
+                from_json(&crate::json::parse(&text).unwrap()).is_err(),
+                "invalid {kind} language context: {marker}"
+            );
+        }
+    }
 }

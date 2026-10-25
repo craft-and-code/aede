@@ -595,3 +595,53 @@ fn label_album_count_order_is_applied_before_pagination_and_refuses_other_kinds(
         server.abort();
     });
 }
+
+#[test]
+fn label_biographies_prefer_localized_wikipedia_over_discogs_and_keep_the_original_fallback() {
+    use aede_core::sources::{LabelFacts, Prose};
+    let state = sample_state();
+    let catalog = state.catalog.blocking_read();
+    let catalog = catalog.as_ref().unwrap();
+    let reference = EntityRef::of(catalog, EntityKind::Label, 0).unwrap();
+    let mut sources = Sources::default();
+    for (provider, language, text, id) in [
+        ("discogs", "en", "Original label profile.", "42"),
+        ("wikipedia", "fr", "Biographie du label.", "Q111"),
+    ] {
+        sources.set(SourceRecord {
+            key: reference.key.clone(),
+            source: provider.into(),
+            source_id: Some(id.into()),
+            fetched_at: 1,
+            confidence: Confidence::Identified,
+            facts: Facts::Label(LabelFacts {
+                summary: Some(Prose {
+                    text: text.into(),
+                    url: "https://example.org/attributed-fixture".into(),
+                    lang: language.into(),
+                    licence: "Fixture attribution".into(),
+                }),
+                ..Default::default()
+            }),
+        });
+    }
+    let selected = label_biography(catalog, &reference, &sources).unwrap();
+    assert_eq!(selected["source"], "wikipedia");
+    assert_eq!(selected["lang"], "fr");
+    assert_eq!(selected["licence"], "Fixture attribution");
+    sources.set_review(SourceReview {
+        entity: reference.clone(),
+        source: "wikipedia".into(),
+        source_id: Some("Q111".into()),
+        decision: ReviewDecision::Rejected,
+        reviewed_at: 2,
+    });
+    let fallback = label_biography(catalog, &reference, &sources).unwrap();
+    assert_eq!(fallback["source"], "discogs");
+    assert_eq!(fallback["lang"], "en");
+    assert_eq!(
+        sources.records.len(),
+        2,
+        "neither source is deleted or translated"
+    );
+}

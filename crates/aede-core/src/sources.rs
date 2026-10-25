@@ -291,6 +291,9 @@ pub struct ArtistFacts {
     /// not prose. It comes from an encyclopaedia, and it is stored as one
     /// inseparable value for the reason written on the type.
     pub summary: Option<Prose>,
+    /// Completed Wikipedia language preference, including a fallback or an empty answer.
+    /// Empty on legacy records; this is cache context, not biographical content.
+    pub summary_languages: Vec<String>,
     /// Every record the source credits to this artist — see [`KnownRelease`].
     ///
     /// **On the artist, and deliberately not on the releases.** A release key
@@ -687,10 +690,20 @@ impl Facts {
     /// exists to keep them apart.
     pub fn is_empty(&self) -> bool {
         match self {
-            Facts::Artist(a) => a == &ArtistFacts::default(),
+            Facts::Artist(a) => {
+                a == &ArtistFacts {
+                    summary_languages: a.summary_languages.clone(),
+                    ..Default::default()
+                }
+            }
             Facts::Release(r) => r == &ReleaseFacts::default(),
             Facts::Track(t) => t == &TrackFacts::default(),
-            Facts::Label(l) => l == &LabelFacts::default(),
+            Facts::Label(l) => {
+                l == &LabelFacts {
+                    summary_languages: l.summary_languages.clone(),
+                    ..Default::default()
+                }
+            }
         }
     }
 }
@@ -714,6 +727,9 @@ pub struct LabelFacts {
     pub discogs: Option<String>,
     /// Credited prose reached through that Wikidata link.
     pub summary: Option<Prose>,
+    /// Completed Wikipedia language preference, including a fallback or an empty answer.
+    /// Empty on legacy records; this is cache context, not biographical content.
+    pub summary_languages: Vec<String>,
     /// Original Discogs markup, so an unchanged profile can reuse resolved
     /// label names without repeating every linked-label lookup.
     pub summary_markup: Option<String>,
@@ -2633,6 +2649,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     );
                 }
                 Facts::Artist(a) => {
+                    if !a.summary_languages.is_empty() {
+                        facts.set("summary_languages", strings(&a.summary_languages));
+                    }
                     if let Some(id) = &a.lookup_mbid {
                         facts.set("lookup_mbid", id.clone().into());
                     }
@@ -2789,6 +2808,9 @@ pub fn to_json(sources: &Sources) -> Json {
                     facts.set("relationships_complete", rel.relationships_complete.into());
                 }
                 Facts::Label(label) => {
+                    if !label.summary_languages.is_empty() {
+                        facts.set("summary_languages", strings(&label.summary_languages));
+                    }
                     if let Some(id) = &label.lookup_mbid {
                         facts.set("lookup_mbid", id.clone().into());
                     }
@@ -2872,6 +2894,31 @@ pub fn to_json(sources: &Sources) -> Json {
         ),
     );
     root
+}
+
+fn read_summary_languages(facts: Option<&Json>) -> Result<Vec<String>, crate::store::StoreError> {
+    use crate::store::StoreError;
+    let Some(value) = facts.and_then(|facts| facts.get("summary_languages")) else {
+        return Ok(Vec::new());
+    };
+    let rows = value
+        .as_arr()
+        .ok_or(StoreError::Invalid("summary languages must be an array"))?;
+    if rows.len() > 2 {
+        return Err(StoreError::Invalid("too many summary languages"));
+    }
+    let mut languages = Vec::new();
+    for row in rows {
+        let code = row
+            .as_str()
+            .filter(|code| code.len() == 2 && code.bytes().all(|byte| byte.is_ascii_lowercase()))
+            .ok_or(StoreError::Invalid("invalid summary language"))?;
+        if languages.iter().any(|previous| previous == code) {
+            return Err(StoreError::Invalid("duplicate summary language"));
+        }
+        languages.push(code.to_string());
+    }
+    Ok(languages)
 }
 
 /// Reads back what [`to_json`] wrote.
@@ -3025,6 +3072,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                     .unwrap_or_default(),
                 // All four or none: a row that lost its attribution somewhere
                 // is a row this build will not repeat.
+                summary_languages: read_summary_languages(facts)?,
                 summary: facts.and_then(|f| f.get("summary")).and_then(|p| {
                     Some(Prose {
                         text: p.field_str("text")?,
@@ -3167,6 +3215,7 @@ pub fn from_json(value: &Json) -> Result<Sources, crate::store::StoreError> {
                 wikidata: facts.and_then(|f| f.field_str("wikidata")),
                 discogs: facts.and_then(|f| f.field_str("discogs")),
                 summary_markup: facts.and_then(|f| f.field_str("summary_markup")),
+                summary_languages: read_summary_languages(facts)?,
                 summary: facts.and_then(|f| f.get("summary")).and_then(|p| {
                     Some(Prose {
                         text: p.field_str("text")?,

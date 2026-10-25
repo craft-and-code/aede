@@ -1442,7 +1442,7 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
         // pass is available. An announcement made only on the path that has
         // just done work is an announcement nobody who finished first ever
         // sees.
-        offer_next_steps(&catalog, &held, &data_dir);
+        offer_next_steps(&catalog, &held, &data_dir, &asked.langs);
         return Ok(());
     }
 
@@ -1639,13 +1639,18 @@ pub fn run_with(args: &Args, transport: &mut dyn Ask, backoff: &[std::time::Dura
             )
         );
     }
-    offer_next_steps(&catalog, &held, &data_dir);
+    offer_next_steps(&catalog, &held, &data_dir, &asked.langs);
     println!("  {}", ui::dim(&path.display().to_string()));
     Ok(())
 }
 
-fn offer_next_steps(catalog: &Catalog, held: &sources::Sources, data_dir: &std::path::Path) {
-    offer_summaries(catalog, held);
+fn offer_next_steps(
+    catalog: &Catalog,
+    held: &sources::Sources,
+    data_dir: &std::path::Path,
+    langs: &[String],
+) {
+    offer_summaries(catalog, held, langs);
     offer_discography(catalog, held);
     offer_covers(catalog, held);
     offer_identify(catalog, held);
@@ -1665,8 +1670,8 @@ fn offer_next_steps(catalog: &Catalog, held: &sources::Sources, data_dir: &std::
 /// The count comes from the pass's own `targets`, counted rather than derived a
 /// second time: an offer that disagreed with the run it offers would be worse
 /// than no offer.
-fn offer_summaries(catalog: &Catalog, held: &sources::Sources) {
-    let door = super::summaries::waiting(held, Some(catalog));
+fn offer_summaries(catalog: &Catalog, held: &sources::Sources, langs: &[String]) {
+    let door = super::summaries::waiting(held, Some(catalog), langs);
     if door == 0 {
         return;
     }

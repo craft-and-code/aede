@@ -611,7 +611,7 @@ fn redirected_artist_lookups_keep_trust_and_explicit_review_decisions() {
                 "a saved artist claim must remain usable after canonical retagging"
             );
             assert_eq!(
-                super::super::summaries::waiting(&reloaded, Some(&retagged)),
+                super::super::summaries::waiting(&reloaded, Some(&retagged), &["en".into()]),
                 usize::from(allowed)
             );
             assert_eq!(
@@ -622,7 +622,7 @@ fn redirected_artist_lookups_keep_trust_and_explicit_review_decisions() {
                 "a redirect must not remove consent or rejection"
             );
             assert_eq!(
-                super::super::summaries::waiting(&saved, Some(&catalog)),
+                super::super::summaries::waiting(&saved, Some(&catalog), &["en".into()]),
                 usize::from(allowed)
             );
         }

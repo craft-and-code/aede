@@ -74,7 +74,7 @@ use aede_core::model::EntityKind;
 use aede_core::sources::{ArtistFacts, Confidence, LabelFacts, Prose, Sources};
 
 /// The options a pass reads, as `fetch` gathers them.
-fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
+pub(super) fn asked(again: bool) -> crate::commands::fetch::Asked<'static> {
     crate::commands::fetch::Asked {
         scope: &crate::commands::fetch::EVERYTHING,
         names: &[],
@@ -298,8 +298,15 @@ fn malformed_provider_documents_preserve_biographies_and_remain_retryable() {
             let path = sources::sources_path(&dir);
             let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
             if previous {
-                let target =
-                    targets(&layer, &[], &crate::commands::fetch::EVERYTHING, true, None).remove(0);
+                let target = targets(
+                    &layer,
+                    &[],
+                    &crate::commands::fetch::EVERYTHING,
+                    true,
+                    None,
+                    &["en".into()],
+                )
+                .remove(0);
                 store(
                     &mut layer,
                     &target,
@@ -309,6 +316,7 @@ fn malformed_provider_documents_preserve_biographies_and_remain_retryable() {
                         lang: "en".into(),
                         licence: wikipedia::LICENCE.into(),
                     }),
+                    &["en".into()],
                 );
             }
             sources::save(&layer, &path).expect("initial sources");
@@ -630,9 +638,13 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
     let dir = sandbox("waiting");
     let path = sources::sources_path(&dir);
 
-    assert_eq!(waiting(&held(None), None), 0, "no link, nothing to offer");
+    assert_eq!(
+        waiting(&held(None), None, &["en".into()]),
+        0,
+        "no link, nothing to offer"
+    );
     let mut layer = held(Some("https://www.wikidata.org/wiki/Q11649"));
-    assert_eq!(waiting(&layer, None), 1);
+    assert_eq!(waiting(&layer, None, &["en".into()]), 1);
 
     let mut transport = Canned {
         answers: vec![Ok(ENTITY.to_string()), Ok(SUMMARY.to_string())],
@@ -649,7 +661,7 @@ fn what_fetch_offers_is_exactly_what_this_pass_would_ask() {
     )
     .expect("the pass ran");
     assert_eq!(
-        waiting(&layer, None),
+        waiting(&layer, None, &["en".into()]),
         0,
         "once it has been read, the offer stops being made"
     );

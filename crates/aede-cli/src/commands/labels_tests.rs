@@ -241,7 +241,7 @@ fn a_redirected_known_label_lookup_keeps_its_identity_and_review() {
                         assert_eq!(resolved[0].mbid, returned);
                     }
                     assert_eq!(
-                        super::super::summaries::waiting(&held, Some(&catalog)),
+                        super::super::summaries::waiting(&held, Some(&catalog), &["en".into()]),
                         usize::from(retained != Some(sources::ReviewDecision::Rejected)),
                         "only a usable identity can supply the biography link"
                     );

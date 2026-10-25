@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "Q11649": {
+      "id": "Q11649",
+      "type": "item",
+      "sitelinks": {
+        "frwiki": {
+          "site": "frwiki",
+          "title": "Nirvana (groupe)",
+          "badges": [
+            "Q17437796"
+          ],
+          "url": "https://fr.wikipedia.org/wiki/Nirvana_(groupe)"
+        },
+        "enwiki": {
+          "site": "enwiki",
+          "title": "Nirvana (band)",
+          "badges": [
+            "Q17437796"
+          ],
+          "url": "https://en.wikipedia.org/wiki/Nirvana_(band)"
+        }
+      }
+    }
+  }
+}
