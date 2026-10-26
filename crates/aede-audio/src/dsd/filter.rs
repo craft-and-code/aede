@@ -114,3 +114,7 @@ impl ListeningFilter {
         true
     }
 }
+
+#[cfg(test)]
+#[path = "filter_tests.rs"]
+mod tests;

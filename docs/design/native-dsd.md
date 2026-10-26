@@ -45,6 +45,31 @@ Fixtures under `crates/aede-audio/tests/fixtures` contain real DSF/DFF-encoded s
 
 Both the DSD64 mono and DSD128 stereo reference pairs cover the complete native path: exact listening-frame count, seek in PCM frames, authenticated server format/consumption ACKs, wideband analysis and Rust spectrogram rate/labels. Stereo uses different known tones per channel. Tail and cancellation cases also cover both rates, channel separation across buffer wraps, partial final DSF bytes, listening-filter drain and terminal late read failure. A faster-than-real-time synthetic decode on one host is a software throughput observation, not a guarantee for a DAC, another platform or concurrent collection processing.
 
+## Specification and signal-processing qualification
+
+File-format conformance, conversion fidelity and native-device transport are separate contracts. Sony DSF 1.01 defines blocked channels, bit declarations, source sample counts and zero block padding. Philips DSDIFF 1.5 defines big-endian chunks, even padding, the required version/properties and MSB-first interleaved channel bytes. The parser checks those structural fields for its admitted profile, skips bounded unknown DFF chunks and refuses unsupported compression/layouts. Neither specification prescribes this project's PCM FIR design or certifies its listening quality. An unsupported valid profile is a capability limit, not proof that its source is malformed.
+
+The signal-processing basis is low-pass filtering **before** each decimation, rather than averaging or discarding DSD bits. [Analog Devices MT-022, pp. 4–6](https://www.analog.com/media/en/training-seminars/tutorials/MT-022.pdf) explains the anti-alias and noise-shaping requirement. [Reiss and Sandler, DAFx 2004](https://dafx.de/paper-archive/2004/P_372.PDF) concerns processing a one-bit stream directly; it does not make PCM conversion a native-DSD output route, nor provide a normative PCM filter. Our independently derived FIR stays in `aede-audio/src/dsd/filter.rs`, shared by both clients.
+
+`filter_tests.rs` evaluates the actual FIR transfer functions independently of bit packing. The following are project engineering bounds, not SACD or ISO certification thresholds:
+
+| Stage | Passband contract | Stopband contract | Current analytical observation |
+| --- | --- | --- | --- |
+| DSD64/128 to source-clock/8 measurement PCM | Less than 0.01 dB deviation over DC–75 kHz | Below −75 dB from the output Nyquist to the source Nyquist | Stopband peak approximately −79 dB on the checked grid |
+| Measurement PCM to 88.2 kHz listening PCM | Less than 0.01 dB deviation over DC–20 kHz | Below −90 dB from 44.1 kHz to the input Nyquist | Approximately −97 dB at 44.1 kHz; 20 kHz deviation below 0.001 dB |
+
+These observations evaluate the f64 coefficient response on a finite grid (50 Hz passband steps and 4,097 stopband points). They are not measurements of complete f32 decoder THD+N, integrated aliased noise, a real modulator or a DAC. The existing encoded-tone tests separately exercise the bit reader, convolution, phase/drain and channel pipeline. Before calling the decoder production-qualified, retain independent higher-order-modulator and real-file references, swept/multitone signals, impulses, silence/idle patterns, near-overload levels and full end-to-end noise/distortion measurements for both rates and profiles. Compare levels and alignment explicitly; sample-for-sample identity with a different FIR is not expected. Authenticity thresholds need their own real-library validation after a filter change.
+
+The amplitude convention is explicit: a source bit maps to −1/+1 and the FIR has unity DC gain. There is no hidden +6 dB boost or clipping in the measurement profile. A 50% modulation sine therefore has approximately 0.5 PCM peak (−6.02 dB relative to PCM peak 1), not an automatically normalized peak of 1. [Weiss's public Saracon manual, §3.3.4](https://weiss.ch/wp-content/uploads/2023/02/saracon-manual-win.pdf) documents a +6 dB DSD-to-PCM convention and warns about overload; that convention is not applied silently here. No vendor coefficients or implementation are used. Do not label these raw PCM levels as SACD-calibrated dB without an explicit conversion/reference convention.
+
+Full format coverage remains a separate sequence:
+
+1. Qualify higher source clocks and the 48 kHz family before extending the shared capability predicate and its listening/measurement filters.
+2. Add multichannel layouts with explicit channel IDs/masks and independent channel references. DSF and DFF have different orders; channel count alone is insufficient. DSDIFF's historical ITU reference does not replace a current layout review; [ITU-R BS.775-4](https://www.itu.int/rec/R-REC-BS.775-4-202212-I) is the current published recommendation.
+3. Treat DST decompression, SACD/ISO parsing and DoP/native-DSD device transport as distinct implementations and acceptance scopes. DSDIFF 1.5 §3.4 describes DST frames and CRC; this raw-bit decoder does not decode them. No full Scarlet Book or ISO conformance is claimed from the public container documents or engineering tutorials.
+
+FlacCompagnon's `decode/dsd_native.rs` is only an analysis visitor over Aède's measurement decoder. Its spectral authenticity checks remain analysis-domain code. Its broader legacy DFF metadata parser still serves compatibility profiles, while sharing the mandatory DFF prefix reader; it is not another DSD-to-PCM FIR. Moving new common decoding/filter behavior into that visitor would violate the shared boundary.
+
 ## Integration and release order
 
 Aède's catalogue recognizes DSF/DFF by signature and scans their extensions, reads bounded optional ID3 and retains the genuine one-bit clock/depth. Ordinary playback reuses the shared listening decoder and existing PCM transport, so Phémios needs no second DSD decoder or new account mechanism.
