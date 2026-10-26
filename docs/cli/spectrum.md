@@ -1,8 +1,10 @@
 # spectrum — Create spectrograms beside the selected music
 
-spectrum draws spectrogram images beside selected catalogued music using FFmpeg with FlacCompagnon's filter and colour map. A spectrogram shows frequency content over time; a visual cutoff can inform an investigation but is not by itself proof that audio was transcoded.
+The candidate spectrum implementation draws images beside selected catalogued music using FlacCompagnon's shared Rust FFT and PNG renderer. A spectrogram shows frequency content over time; a visual cutoff can inform an investigation but is not by itself proof that audio was transcoded.
 
-Half-size images are the default; --size full uses the full drawing size. Existing pictures are skipped unless --full is supplied, including when only the size changed. --dry-run lists planned outputs without drawing, and --threads controls concurrent work.
+Native PCM and the admitted DSF/DFF DSD64/128 mono/stereo profile need no FFmpeg executable. Codecs and 32-bit FLAC modes outside the available native decoders retain optional external decoding only; FFT and rendering stay in Rust. See the delivery boundary in the detailed guide below.
+
+Half-size images are the default; --size full uses the full drawing size. Current version-stamped pictures are reused unless --full is supplied, including when only the size changed. Historical unstamped images regenerate once; freshness compares source size and the full modification timestamp. --dry-run lists planned outputs without drawing, and --threads controls concurrent work.
 
 Invalid `--threads` values are refused before work, including empty selections, already-current pictures and `--dry-run` previews.
 

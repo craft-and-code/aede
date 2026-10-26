@@ -25,7 +25,25 @@ pub fn skip_id3v2(file: &mut File) -> Result<u64, TagError> {
 
 /// Reads the ID3v2 tag at the head of the file, if any.
 pub fn read_id3v2(file: &mut File, tags: &mut RawTags) -> Result<(), TagError> {
-    let header = read_at_most(file, 0, 10)?;
+    read_id3v2_bounded(file, 0, None, tags)
+}
+
+pub(super) fn read_id3v2_at(
+    file: &mut File,
+    offset: u64,
+    available: u64,
+    tags: &mut RawTags,
+) -> Result<(), TagError> {
+    read_id3v2_bounded(file, offset, Some(available), tags)
+}
+
+fn read_id3v2_bounded(
+    file: &mut File,
+    offset: u64,
+    available: Option<u64>,
+    tags: &mut RawTags,
+) -> Result<(), TagError> {
+    let header = read_at_most(file, offset, available.unwrap_or(10).min(10) as usize)?;
     if header.len() < 10 || &header[..3] != b"ID3" {
         return Ok(());
     }
@@ -35,8 +53,10 @@ pub fn read_id3v2(file: &mut File, tags: &mut RawTags) -> Result<(), TagError> {
     if size == 0 || size > 64 * 1024 * 1024 {
         return Ok(());
     }
-
-    let body = read_at_most(file, 10, size)?;
+    if available.is_some_and(|available| size as u64 + 10 > available) {
+        return Err(TagError::Malformed("ID3 exceeds its container"));
+    }
+    let body = read_at_most(file, offset + 10, size)?;
     parse_tag_body(&body, major, flags, tags);
     Ok(())
 }

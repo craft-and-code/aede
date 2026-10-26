@@ -6,8 +6,8 @@
 //! answer to a question already answered, and the two would drift.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use aede_core::model::Catalog;
 use aede_core::{ffmpeg, spectrum};
@@ -66,7 +66,7 @@ pub fn spectrum(args: &Args) -> Res {
 
     if dry_run {
         let mut t = Table::new(&["Picture", "Track"]);
-        for (audio, picture, _) in work.iter().take(20) {
+        for (audio, picture) in work.iter().take(20) {
             t.push(vec![
                 ui::literal(&picture.display().to_string()),
                 ui::literal(aede_core::text::file_name(&audio.display().to_string())),
@@ -80,26 +80,26 @@ pub fn spectrum(args: &Args) -> Res {
         return Ok(());
     }
 
-    // Resolved once, before the first file: a thousand tracks would otherwise
-    // mean a thousand failed lookups before the first picture.
-    let program = ffmpeg::find().ok_or_else(|| ffmpeg::missing("spectrum"))?;
+    // Resolve only if a codec actually needs the optional fallback. Native
+    // PCM/DSD batches do not even probe an external executable.
+    let program = OnceLock::new();
 
-    // One ffmpeg per track, several at a time. Drawing a spectrogram decodes
-    // the whole file and runs an FFT over it — seconds per track, hours over a
-    // library — and the work is embarrassingly parallel because no two
-    // pictures share anything. The same answer the scan gives to the same
-    // question, down to `--threads` meaning the same thing.
     let total = work.len();
     let threads = aede_core::scan::resolve_threads(requested_threads).min(total.max(1));
-    draw_pictures(work, threads, |audio, picture, caption| {
-        spectrum::render(&program, audio, picture, size, Some(caption))
+    draw_pictures(work, threads, |audio, picture| {
+        spectrum::render_cancellable(audio, picture, size, &|| false, &|| {
+            program
+                .get_or_init(ffmpeg::find)
+                .clone()
+                .ok_or_else(|| ffmpeg::missing("decoding this spectrogram format"))
+        })
     })
 }
 
 fn draw_pictures(
-    work: Vec<(PathBuf, PathBuf, String)>,
+    work: Vec<(PathBuf, PathBuf)>,
     threads: usize,
-    draw: impl Fn(&Path, &Path, &str) -> Result<(), String> + Sync,
+    draw: impl Fn(&Path, &Path) -> Result<(), String> + Sync,
 ) -> Res {
     let total = work.len();
     let queue = Mutex::new(work);
@@ -110,9 +110,9 @@ fn draw_pictures(
         for _ in 0..threads {
             scope.spawn(|| {
                 // A poisoned lock must not abandon the rest of the work:
-                // one ffmpeg that panicked is not a reason to stop drawing.
-                while let Some((audio, picture, caption)) = super::take_queued(&queue) {
-                    if let Err(said) = draw(&audio, &picture, &caption) {
+                // one worker that panicked is not a reason to stop drawing.
+                while let Some((audio, picture)) = super::take_queued(&queue) {
+                    if let Err(said) = draw(&audio, &picture) {
                         failures
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -160,15 +160,11 @@ fn draw_pictures(
     Ok(())
 }
 
-/// The pictures that have to be drawn: `(track, picture, caption)`.
+/// The pictures that have to be drawn: `(track, picture)`.
 ///
 /// Everything already drawn and still current is left out here rather than
 /// skipped later, so the count on screen is the work and not the library.
-fn to_draw(
-    catalog: &Catalog,
-    scope: &[String],
-    everything: bool,
-) -> Vec<(PathBuf, PathBuf, String)> {
+fn to_draw(catalog: &Catalog, scope: &[String], everything: bool) -> Vec<(PathBuf, PathBuf)> {
     catalog
         .files
         .iter()
@@ -177,7 +173,7 @@ fn to_draw(
             let audio = PathBuf::from(&file.path);
             let picture = spectrum::picture_for(&audio);
             let wanted = everything || spectrum::out_of_date(&audio, &picture);
-            wanted.then(|| (audio, picture, spectrum::caption(&file.properties)))
+            wanted.then_some((audio, picture))
         })
         .collect()
 }

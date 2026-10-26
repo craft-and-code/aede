@@ -1,42 +1,22 @@
-//! Spectrogram pictures, drawn by ffmpeg, one per track.
-//!
-//! A spectrogram is the last arbiter when the provenance of a file is in
-//! doubt: a lossless container filled from an MP3 shows a wall at 16 kHz that
-//! no tag will ever mention. Aède does not decode and will not draw one
-//! itself — it hands the file to ffmpeg and puts the picture where the person
-//! looking for it will find it, beside the music.
-//!
-//! **The filter and the layout are FlacCompagnon's**, deliberately and to the
-//! character. The two programs are used together on the same library, and a
-//! spectrogram that differed in gain or colour map from one tool to the other
-//! would be unreadable *as a pair* — the whole point of looking at two is to
-//! compare them. The frame size no longer has to match: see [`Size`].
-//! `--size full` still draws FlacCompagnon's own dimensions, character for
-//! character, for whoever wants the two side by side; the default is half of
-//! that. A smaller plotted graph can reduce storage use, but the encoded PNG
-//! size depends on its content and compression.
-//!
-//! The folder is another thing that does not match: it is `spectrograms`, in
-//! English like everything else here, where FlacCompagnon writes `spectres`.
-//! Matching a *picture* is what makes the pair comparable; matching a *folder
-//! name* buys nothing, and a French word in an otherwise English codebase is a
-//! seam nobody would guess at.
-
-use std::path::{Path, PathBuf};
-use std::process::Command;
+//! Shared native spectrogram measurements and PNG rendering, with atomic publication.
+//! Native PCM and the admitted wideband DSD profile need no external program.
+//! A named compatibility decoder remains optional for unsupported codecs only;
+//! it never computes the FFT or renders a picture. Source files remain read-only.
 
 use crate::tags::AudioProperties;
+use flaccompagnon_core::spectrogram::{
+    self as engine, AnalysisOptions, ImageLabels, RenderOptions,
+};
+use std::path::{Path, PathBuf};
+mod cache;
+mod legacy;
+mod measure;
+mod native;
 
 /// Folder written beside the audio, holding one picture per track.
 pub const FOLDER: &str = "spectrograms";
 
-/// How large the plotted spectrogram graph is drawn.
-///
-/// [`Size::Full`] is FlacCompagnon's own graph, `1800x940`, for putting the
-/// two tools' pictures side by side. [`Size::Half`] is the default, `900x470`:
-/// halving both graph dimensions quarters the plotted pixel count. FFmpeg adds
-/// legend margins to the final image. Encoded PNG size depends on content and
-/// compression, so there is no fixed storage ratio or library-size guarantee.
+/// Plotted graph dimensions; shared renderer margins surround this area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Size {
     /// A `1800x940` plotted graph, matching FlacCompagnon.
@@ -55,11 +35,11 @@ impl Size {
         }
     }
 
-    /// The `WxH` fed to ffmpeg's `showspectrumpic`.
-    fn dimensions(self) -> &'static str {
+    /// Plot dimensions, excluding the surrounding frame.
+    pub fn dimensions(self) -> (u32, u32) {
         match self {
-            Size::Full => "1800x940",
-            Size::Half => "900x470",
+            Size::Full => (1800, 940),
+            Size::Half => (900, 470),
         }
     }
 
@@ -72,19 +52,6 @@ impl Size {
     }
 }
 
-/// The ffmpeg filter, character for character as FlacCompagnon draws it,
-/// except for the frame size, which [`Size`] now chooses.
-///
-/// `legend=1` draws the labelled frequency axis, whose top is the Nyquist
-/// limit — without it the picture is pretty and says nothing, because there is
-/// no way to tell 16 kHz from 22 kHz by eye.
-fn filter(size: Size) -> String {
-    format!(
-        "showspectrumpic=s={}:mode=combined:legend=1:color=intensity:scale=log:gain=3",
-        size.dimensions()
-    )
-}
-
 /// Where the picture of a file belongs: `<its folder>/spectrograms/<name>.png`.
 pub fn picture_for(audio: &Path) -> PathBuf {
     let folder = audio.parent().unwrap_or_else(|| Path::new("."));
@@ -95,49 +62,19 @@ pub fn picture_for(audio: &Path) -> PathBuf {
     folder.join(FOLDER).join(format!("{stem}.png"))
 }
 
-/// `true` when the picture has to be drawn: it is missing, or it is older than
-/// the music it describes.
-///
-/// Both dates are read from the **disk**, not from the catalog. The catalog
-/// remembers when it last read a file, which is a different fact and the wrong
-/// one here: the question is whether this picture was drawn from the bytes that
-/// are there now, and a library edited since the last scan would otherwise keep
-/// pictures of music nobody has any more.
-///
-/// The modification date rather than a checksum, because it is the same test
-/// the incremental scan uses, and because a picture is cheap to redraw and
-/// expensive to verify. A run over a library that has not changed draws nothing
-/// at all, which is what makes the command safe to repeat.
+/// Whether the image lacks the current renderer/source stamp. Historical images
+/// remain viewable but regenerate once; source nanoseconds and size are retained.
+/// Changing size alone keeps the existing CLI contract: request `--full` to redraw.
 pub fn out_of_date(audio: &Path, picture: &Path) -> bool {
-    let Some(drawn) = modified(picture) else {
-        return true;
-    };
-    // A track whose date cannot be read is left alone rather than redrawn on
-    // every run: an unreadable date is not evidence that anything changed.
-    modified(audio).is_some_and(|music| drawn < music)
+    if !audio.is_file() {
+        return !picture.is_file();
+    }
+    !cache::current(audio, picture)
 }
 
-fn modified(path: &Path) -> Option<u64> {
-    std::fs::metadata(path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_secs())
-}
-
-/// The line drawn across the top of the picture.
-///
-/// The legend already carries the frequency axis; this says in words what the
-/// file claims to be, so that a picture kept on its own — sent to somebody,
-/// looked at a year later — still answers "at what sample rate?".
-///
-/// The whole string is embedded in an ffmpeg `drawtext` expression, and part of
-/// it comes from the file itself, so it is restricted to a character set that
-/// cannot end the argument, start another filter, or escape the expression.
-/// See the test: this is the one function here with an attacker on the other
-/// side of it.
+/// Legacy ASCII caption formatter retained for Rust API compatibility.
+/// New pictures use the shared renderer's actual decoded properties and UTF-8
+/// labels. These old hints never define a DSD image's frequency axis.
 pub fn caption(properties: &AudioProperties) -> String {
     let depth = match (properties.bit_depth, properties.bitrate_kbps) {
         (Some(bits), _) => format!("{bits}-bit"),
@@ -159,72 +96,138 @@ pub fn caption(properties: &AudioProperties) -> String {
         .collect()
 }
 
-/// Draws the picture for one file.
-///
-/// Two attempts: with the caption, then without. `drawtext` needs a font, and
-/// an installation that has none fails the whole filter graph — losing the
-/// picture over a line of text would be a poor trade, and the legend still
-/// carries the axis that matters.
-///
-/// Both attempts write inside a private temporary directory beside the
-/// destination. Only a completed picture replaces the old one; destination
-/// links and special files are refused before rendering and publication.
+/// Compatibility entry point. The decoder path is only consulted for unsupported
+/// codecs. Labels now come from decoded properties and optional file metadata;
+/// the old preformatted caption argument is retained for source compatibility.
 pub fn render(
     ffmpeg: &str,
     audio: &Path,
     picture: &Path,
     size: Size,
-    caption: Option<&str>,
+    _caption: Option<&str>,
 ) -> Result<(), String> {
-    render_with(picture, size, caption, |filter, output| {
-        run(ffmpeg, audio, filter, output)
-    })
+    render_cancellable(audio, picture, size, &|| false, &|| Ok(ffmpeg.to_string()))
 }
 
-fn render_with(
+/// Generate with cooperative cancellation and a lazy optional legacy decoder.
+/// The resolver is never called for ordinary native PCM or admitted DSF/DFF.
+/// An in-progress OS read or PNG encoding cannot be forcibly interrupted; a
+/// cancelled job is checked before publication and preserves the previous image.
+pub fn render_cancellable(
+    audio: &Path,
     picture: &Path,
     size: Size,
-    caption: Option<&str>,
-    mut render: impl FnMut(&str, &Path) -> Result<(), String>,
+    cancelled: &dyn Fn() -> bool,
+    external: &dyn Fn() -> Result<String, String>,
 ) -> Result<(), String> {
-    let output = crate::copy::TemporaryOutput::new(picture)?;
-    let base = filter(size);
-    let with_text = caption.map(|text| {
-        format!(
-            "{base},drawtext=text='{text}':fontcolor=white:fontsize=24:\
-             x=14:y=12:box=1:boxcolor=black@0.55"
-        )
-    });
-    if let Some(with_text) = &with_text
-        && render(with_text, output.path()).is_ok()
+    admit(cancelled)?;
+    crate::copy::validate_source(audio)?;
+    let identity = cache::Input::read(audio)?;
+    if picture
+        .canonicalize()
+        .is_ok_and(|p| audio.canonicalize().is_ok_and(|source| source == p))
     {
-        return output.publish();
+        return Err("spectrogram output must differ from its source".into());
     }
-    render(&base, output.path())?;
-    output.publish()
+    publish_with(picture, cancelled, |output| {
+        let (width, height) = size.dimensions();
+        let options = AnalysisOptions {
+            width,
+            height,
+            ..Default::default()
+        };
+        let tags = crate::tags::read(audio).map_err(|e| e.to_string())?;
+        identity.unchanged(audio)?;
+        let codec = tags.properties.codec.as_str();
+        let legacy_required = matches!(codec, "opus" | "ape" | "wavpack" | "musepack" | "speex");
+        let (data, info, decoder) = if codec == "flac" && tags.properties.bit_depth == Some(32) {
+            match native::analyze(audio, &options, cancelled) {
+                Ok((data, info)) => (data, info, "native-flac32"),
+                Err(error) => {
+                    admit(cancelled)?;
+                    identity.unchanged(audio)?;
+                    let program = external().map_err(|missing| {
+                        format!("32-bit FLAC native decoder: {error}; {missing}")
+                    })?;
+                    let (data, info) = legacy::analyze(audio, &options, &program, cancelled)?;
+                    (data, info, "ffmpeg")
+                }
+            }
+        } else if legacy_required {
+            admit(cancelled)?;
+            let program = external()?;
+            let (data, info) = legacy::analyze(audio, &options, &program, cancelled)?;
+            (data, info, "ffmpeg")
+        } else {
+            match engine::analyze_file(audio, &options, None, cancelled) {
+                Ok((data, info)) => (data, info, "native"),
+                Err(error)
+                    if !matches!(
+                        codec,
+                        "dsd"
+                            | "pcm"
+                            | "pcm_float"
+                            | "flac"
+                            | "vorbis"
+                            | "mp3"
+                            | "mp2"
+                            | "mp1"
+                            | "fl32"
+                            | "fl64"
+                    ) =>
+                {
+                    admit(cancelled)?;
+                    identity.unchanged(audio)?;
+                    let program = external()?;
+                    let (data, info) = legacy::analyze(audio, &options, &program, cancelled)
+                        .map_err(|fallback| {
+                            format!("native decoder: {error}; external decoder: {fallback}")
+                        })?;
+                    (data, info, "ffmpeg")
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        };
+        admit(cancelled)?;
+        identity.unchanged(audio)?;
+        let labels = ImageLabels {
+            generator: "Aède".into(),
+            title: tags.first("title").map(str::to_owned).unwrap_or_else(|| {
+                audio
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            }),
+            artist: tags.first("artist").unwrap_or("").to_string(),
+            audio_description: engine::audio_description(&info),
+        };
+        let bytes = engine::render_png(&data, &labels, &RenderOptions::default())
+            .map_err(|e| e.to_string())?;
+        admit(cancelled)?;
+        identity.unchanged(audio)?;
+        let bytes = cache::stamp(bytes, identity.clone(), decoder)?;
+        std::fs::write(output, bytes).map_err(|e| e.to_string())?;
+        admit(cancelled)?;
+        identity.unchanged(audio)
+    })
 }
-
-fn run(ffmpeg: &str, audio: &Path, filter: &str, picture: &Path) -> Result<(), String> {
-    let output = Command::new(ffmpeg)
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(audio)
-        .args(["-lavfi", filter, "-frames:v", "1"])
-        .arg(picture)
-        .output()
-        .map_err(|e| format!("ffmpeg could not be run: {e}"))?;
-    if output.status.success() {
-        return Ok(());
+fn admit(cancelled: &dyn Fn() -> bool) -> Result<(), String> {
+    if cancelled() {
+        return Err("spectrogram generation cancelled".into());
     }
-    let said = String::from_utf8_lossy(&output.stderr);
-    let last: Vec<&str> = said.lines().filter(|l| !l.trim().is_empty()).collect();
-    Err(last
-        .iter()
-        .rev()
-        .take(2)
-        .rev()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" — "))
+    Ok(())
+}
+fn publish_with(
+    picture: &Path,
+    cancelled: &dyn Fn() -> bool,
+    render: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    admit(cancelled)?;
+    let output = crate::copy::TemporaryOutput::new(picture)?;
+    render(output.path())?;
+    admit(cancelled)?;
+    output.publish()
 }
 
 #[cfg(test)]

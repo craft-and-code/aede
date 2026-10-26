@@ -1,50 +1,42 @@
-# Spectrograms: The Ultimate Acoustic Truth
+# Spectrograms and decoded audio
 
-A spectrogram is a visual diagnostic tool when a file’s origin is uncertain. Metadata can be incorrect or misleading. A FLAC file transcoded from MP3 may still report lossless codec or container properties, while its spectrum can provide additional clues about its audio history. A spectral cutoff around 16 kHz alone does not prove transcoding: the original material and earlier processing can also limit bandwidth. Neither a spectrogram nor tags alone guarantee a lossless origin or establish complete provenance.
-
-Aède provides the microscope to see exactly what you are archiving.
+A spectrogram shows measured frequency content over time. A cutoff can help investigate a file, but it does not prove a lossy origin: recordings, mastering and earlier filtering can also limit bandwidth. A picture is neither a checksum nor an integrity verdict.
 
 ```sh
-aede spectrum                       # reveal the acoustic truth of the entire catalog
-aede spectrum ~/Music/Ozzy          # focus the microscope on a specific shelf
-aede spectrum --dry-run             # preview the effort without drawing a single pixel
-aede spectrum --full                # fiercely redraw everything, overriding current files
-aede spectrum --size full           # match FlacCompagnon's exact dimensions for direct comparison
+aede spectrum "$HOME/Music/Example Artist" --dry-run
+aede spectrum "$HOME/Music/Example Artist"
+aede spectrum --size full --full
 ```
 
-## The Physical Toll of Acoustic Analysis
+Without folders, the command covers the catalogue. A named folder limits work to its catalogued files. `--threads` selects concurrent workers; the server's library-generation sequence uses one spectrogram worker. Decode and FFT work still compete for CPU and I/O, so a large collection should be processed deliberately.
 
-**With no folder specified, Aède meticulously analyzes the entire library.** For a vast CDthèque, this is a monumental mathematical effort. Every single track must be fully decoded, and an intricate Fast Fourier Transform (FFT) is swept across the audio. At several seconds per track, a sprawling archive of tens of thousands of tracks requires hours to visualize, regardless of how many processor cores are engaged.
+## Shared Rust measurements and rendering
 
-Because of this physical toll, running `--dry-run` first is the archivist's standard habit to gauge the exact scope of the operation. Naming a specific folder (e.g., `~/Music/Ozzy`) is the surgical way to focus the heavy lifting strictly on newly acquired or suspicious rips.
+The candidate implementation reuses FlacCompagnon's independent Rust spectrogram engine through `flaccompagnon-core`. Decoding, measuring and rendering remain separate. The shared default uses a Hann window, mean channel power and peak pixel aggregation, with calibrated dBFS/bin, decoded-rate frequency limits and labels. Opposed stereo channels are not summed to mono before FFT, so their spectrum does not disappear through phase cancellation. A new render is not claimed to be pixel-identical to the historical FFmpeg filter.
 
-There is zero penalty for stopping halfway through a massive run. If you cancel the command, Aède elegantly picks up exactly where it left off on the next run, leaving everything already drawn perfectly intact.
+Native PCM formats and uncompressed DSF/DFF DSD64/128 mono/stereo need no FFmpeg executable or external font installation. DSD uses the wideband measurement decoder at 352.8/705.6 kHz PCM, independently of its 88.2 kHz listening profile and listening low-pass. The graph never uses the original one-bit clock as the PCM Nyquist limit.
 
-## Visual Provenance and FlacCompagnon
+Opus, APE, WavPack, Musepack and Speex retain an optional external decoder. AAC/ALAC and other compressed WAV/AIFF profiles may also use it if native decoding fails. For 32-bit FLAC, Aède first reuses its existing Rust reader; currently unsupported correlated-stereo modes retain the external compatibility decoder. Only this compatibility decoding uses FFmpeg; FFT, levels, labels and PNG encoding remain Rust. The external decoder supplies a bounded, self-describing float WAV stream without forcing catalogue rate/channel hints. Its actual output properties define the image. No FFprobe process is required. Missing FFmpeg affects those selected codecs, not ordinary native files; discovery is lazy and reused within the CLI batch.
 
-Each rendered image is deposited as a PNG into a dedicated `spectrograms/` subdirectory, sitting immediately beside the master audio files it describes.
+Higher-rate or multichannel uncompressed DSD remains outside the first shared native profile; FlacCompagnon's explicit optional compatibility path is separate from native admission. DST-compressed DFF and SACD ISO are not promised by that fallback. The FLAC 32-bit correlated-stereo guard is intentional: the [upstream decoder issue](https://github.com/pdeljanov/Symphonia/issues/585) involves a 33-bit side channel, so changing a version number alone is not evidence that this profile can be safely admitted.
 
-FFmpeg writes into a private temporary directory beside the destination. A successful render is published by replacing the final picture; a failed render leaves an existing picture intact. Aède refuses destination links and special files before rendering and again before publication. This uses the same temporary-output policy as playlist/copy writes, not a filesystem sandbox against hostile concurrent parent-directory replacement. Failures do not abandon other selected tracks, but the final command and its administrative task report failure rather than success. Completed images remain available.
+The source is decoded twice with bounded buffers: first to count real frames, then to place FFT windows on the exact timeline. No complete-track PCM buffer or temporary converted audio is created. Memory also includes the bounded FFT and plotted image. Labels use optional source metadata and actual decoded properties; unknown precision stays unknown.
 
-Crucially, these are drawn using the **exact same ffmpeg filter and colour map as [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**. This is a deliberate, uncompromising design choice. An archivist often relies on both tools, and spectrograms that differ in gain or colour mapping from one program to the other would be impossible to read _as a pair_. We ensure the acoustic reality looks mathematically identical across your entire forensic suite.
+## Images, freshness and publication
 
-## Frame Size and Storage Footprint
+Each PNG goes beside the source in `spectrograms/<track stem>.png`. Plot dimensions exclude the shared renderer's labels/margins:
 
-The dimensions of the frame are left to the curator's discretion:
+- `--size half` (default): 900×470 plotted pixels.
+- `--size full`: 1800×940 plotted pixels, matching the shared detailed preset.
 
-- **`--size half` (The Default):** Draws a picture at `900x470`—exactly a quarter of the pixels of FlacCompagnon's original `1800x940`. These smaller dimensions can reduce storage use, but the encoded PNG size and the amount saved depend on the image content and compression. There is no fixed quarter-size guarantee and no guarantee that an archive of thousands of tracks will remain within megabytes rather than gigabytes.
-- **`--size full`:** Reproduces the exact FlacCompagnon dimensions for flawless, pixel-perfect side-by-side analysis.
+Changing size alone preserves the existing image; use `--full` to redraw deliberately. Encoded PNG size depends on its content and compression.
 
-Note that switching the `--size` flag does not automatically redraw what is already safely in the vault. An image is only redrawn when it is missing or out of date. To force a library-wide resize, you must use `aede spectrum --full`.
+A small versioned source stamp is stored near the PNG header. Freshness checks read at most eight KiB and compare the renderer profile, source size and full modification timestamp, including nanoseconds. They do not hash the entire music file. Historical unstamped PNGs remain viewable and regenerate once on the next generation pass. Renderer/measurement policy changes must bump the stamp generation. A matching stamp is a freshness heuristic, not authentication of the image or source.
 
-## Orchestration and Dependencies
+Rendering writes into an isolated temporary directory, then publishes one complete PNG atomically. The previous image survives decoder errors, changed inputs and cooperative cancellation. Destination links and special files are refused before work and publication. The output cannot replace the source path. This is not a filesystem sandbox against an OS process concurrently replacing parent directories.
 
-Aède harnesses your machine's full potential by running several tracks concurrently. Because drawing a picture requires decoding the file and computing the FFT independently, no two pictures share any state. The `--threads` flag dictates exactly how many parallel microscopes are active, sharing the same logic used in `aede scan`.
+Cancellation is checked between decode/FFT stages and before publication. An already running OS read or PNG encode finishes before its next check. Delegated server-job interruption retains its existing process/group cancellation policy. Completed pictures remain available; a failed track does not abandon the other selected tracks, but makes the final command/task report failure.
 
-While Aède orchestrates the analysis, it relies on an external engine to decode the audio. **FFmpeg must be installed** on your system (`brew install ffmpeg` on macOS, or `sudo apt install ffmpeg` on Debian/Ubuntu). Aède checks for this dependency exactly once before touching the first file, delivering a single, polite notification if it is missing, rather than flooding your terminal with an error for every track.
+## Delivery boundary
 
-## The Second Run: Silent and Safe
-
-**A second run over an unchanged library draws absolutely nothing.**
-
-A picture is only redrawn if it is completely absent, or if the audio track's modification timestamp has moved past the picture's creation date. This vital check is read directly from the physical disk rather than the catalog. It constantly asks the only question that matters: _was this visual record drawn from the exact bytes that exist here right now?_
+This adapter and its shared DSD decoder are unpublished candidates. The normal dependencies still select published FlacCompagnon/Aède sources. Candidate checks use an isolated composite workspace, without committing local dependency paths or changing stable-source selection. Publish the shared decoder source, publish the compatible FlacCompagnon component, then update Aède's analysis dependency before normal client builds use the new renderer. Fixture checks do not establish physical listening, full real-library codec coverage or target-platform throughput.

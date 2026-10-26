@@ -14,14 +14,12 @@ fn a_failed_picture_fails_the_batch_without_abandoning_other_tracks() {
             (
                 dir.join(format!("{name}.flac")),
                 dir.join(format!("{name}.png")),
-                String::from("caption"),
             )
         })
         .collect();
     let attempted = Mutex::new(Vec::new());
-    let error = draw_pictures(work, 1, |audio, picture, caption| {
+    let error = draw_pictures(work, 1, |audio, picture| {
         attempted.lock().unwrap().push(audio.to_path_buf());
-        assert_eq!(caption, "caption");
         if audio.file_stem().unwrap() == "bad" {
             return Err("decoder failed".into());
         }
@@ -37,9 +35,9 @@ fn a_failed_picture_fails_the_batch_without_abandoning_other_tracks() {
     assert!(!dir.join("bad.png").exists());
 
     draw_pictures(
-        vec![(dir.join("retry.flac"), dir.join("retry.png"), String::new())],
+        vec![(dir.join("retry.flac"), dir.join("retry.png"))],
         1,
-        |_, picture, _| {
+        |_, picture| {
             std::fs::write(picture, b"retry complete").unwrap();
             Ok(())
         },

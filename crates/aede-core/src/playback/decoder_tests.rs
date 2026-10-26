@@ -731,3 +731,49 @@ fn prefixed_flac_understated_frame_count_never_publishes_an_excessive_packet() {
 fn native_prefixed_flac_understated_frame_count_never_publishes_an_excessive_packet() {
     assert_prefixed_flac_declared_frame_mismatch_is_terminal(FileDecoder::open_native, 119);
 }
+
+#[test]
+fn native_dsd_playback_uses_filtered_pcm_and_keeps_seek_units_in_pcm_frames() {
+    for (name, channels, expected_frames) in [
+        ("tone.dsf", 1, 2048),
+        ("tone.dff", 1, 2048),
+        ("stereo128.dsf", 2, 1024),
+        ("stereo128.dff", 2, 1024),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures")
+            .join(name);
+        let mut decoder = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(decoder.sample_rate(), 88_200);
+        assert_eq!(decoder.channels(), channels);
+        let mut buffer = vec![0.0; 4096];
+        let mut frames = 0;
+        loop {
+            let n = decoder.read_frames(&mut buffer).unwrap();
+            if n == 0 {
+                break;
+            }
+            frames += n;
+        }
+        assert_eq!(frames, expected_frames, "{name}");
+        assert_eq!(decoder.flac_md5_status(), None);
+        let mut decoder = FileDecoder::open_native(&path).unwrap();
+        let seek_frames = (expected_frames / 2) as u64;
+        let seek = decoder.skip_frames(seek_frames, || false).unwrap();
+        assert_eq!(seek.frames, seek_frames);
+        assert!(!seek.reached_eof);
+        let mut remaining = 0;
+        loop {
+            let n = decoder.read_frames(&mut buffer).unwrap();
+            if n == 0 {
+                break;
+            }
+            remaining += n;
+        }
+        assert_eq!(
+            remaining as u64,
+            expected_frames as u64 - seek_frames,
+            "{name}"
+        );
+    }
+}

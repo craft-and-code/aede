@@ -1,8 +1,10 @@
 # spectrum — Créer des spectrogrammes
 
-spectrum dessine des spectrogrammes à côté de la musique cataloguée avec FFmpeg, en reprenant le filtre et la palette de FlacCompagnon. Ils montrent les fréquences dans le temps ; une coupure visuelle aide l’enquête mais ne prouve pas à elle seule un transcodage.
+La version candidate de spectrum dessine des spectrogrammes à côté de la musique cataloguée avec le moteur Rust partagé de FlacCompagnon pour la FFT et le PNG. Ils montrent les fréquences dans le temps ; une coupure visuelle aide l’enquête mais ne prouve pas à elle seule un transcodage.
 
-Les images sont en demi-taille par défaut ; --size full choisit la taille complète. Les images existantes sont ignorées sans --full, même si la taille demandée a changé. --dry-run liste les résultats prévus sans dessin ; --threads règle le parallélisme.
+Le PCM natif et le profil DSF/DFF DSD64/128 mono/stéréo ne nécessitent aucun exécutable FFmpeg. Les codecs et profils FLAC 32 bits non gérés par les lecteurs natifs conservent un décodage externe optionnel ; calcul spectral et dessin restent en Rust. Ce raccordement attend une publication coordonnée des composants : les versions actuellement installées ne changent pas.
+
+Les images sont en demi-taille par défaut ; --size full choisit la taille complète. Les images portant une empreinte de génération à jour sont conservées sans --full, même si la taille demandée a changé. Les anciennes images sans cette version sont régénérées une fois ; la fraîcheur compare la taille du fichier et sa date complète, nanosecondes comprises. --dry-run liste les résultats prévus sans dessin ; --threads règle le parallélisme.
 
 Les valeurs invalides de `--threads` sont refusées avant tout traitement, même pour une sélection vide, des images à jour ou un aperçu `--dry-run`.
 

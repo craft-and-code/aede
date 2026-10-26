@@ -170,7 +170,16 @@ fn spectrum_refuses_invalid_workers_for_empty_current_and_preview_selections() {
         let picture = spectrum::picture_for(&audio);
         if mode == "current" {
             std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
-            std::fs::write(&picture, b"an existing picture must not be replaced").unwrap();
+            // A current image carries the renderer/source stamp; arbitrary
+            // bytes are historical/corrupt output that must be regenerated.
+            spectrum::render(
+                "unused-decoder",
+                &audio,
+                &picture,
+                spectrum::Size::Half,
+                None,
+            )
+            .unwrap();
             assert!(!spectrum::out_of_date(&audio, &picture));
         }
         let picture_before = std::fs::read(&picture).ok();

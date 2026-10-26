@@ -11,6 +11,7 @@
 //! library exposes. Anything else falls through to [`foreign`].
 
 pub(crate) mod bytes;
+pub mod dsd;
 pub mod flac;
 pub mod foreign;
 pub mod id3;
@@ -60,6 +61,11 @@ impl AudioProperties {
 
     /// Readable label: `FLAC 24/96`, `MP3 320`, `AAC`…
     pub fn quality_label(&self) -> String {
+        if self.codec == "dsd" {
+            return self
+                .sample_rate
+                .map_or_else(|| "DSD".into(), |rate| format!("DSD{}", rate / 44_100));
+        }
         let codec = self.codec.to_uppercase();
         match (self.lossless, self.bit_depth, self.sample_rate) {
             (true, Some(bits), Some(rate)) => {
@@ -172,7 +178,7 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
     // Parsed here.
     "flac", "mp3", "m4a", "m4b", "mp4", "alac", "ogg", "oga", "opus", "wav", "wave", "aif", "aiff",
     "aifc", // Handed to `lofty`.
-    "aac", "ape", "wv", "mpc", "mp+", "mpp", "spx",
+    "dsf", "dff", "aac", "ape", "wv", "mpc", "mp+", "mpp", "spx",
 ];
 
 /// `true` if the path extension is one of the supported audio formats.
@@ -222,6 +228,7 @@ fn read_opened(
     let magic = read_magic(file)?;
 
     let native = match detect(&magic) {
+        Some(Container::Dsd) => dsd::read(file),
         Some(Container::Flac) => flac::read(file, size),
         Some(Container::Ogg) => ogg::read(file, size),
         Some(Container::Mp4) => mp4::read(file, size),
@@ -253,6 +260,7 @@ fn read_opened(
 }
 
 enum Container {
+    Dsd,
     Flac,
     Ogg,
     Mp4,
@@ -262,6 +270,9 @@ enum Container {
 }
 
 fn detect(magic: &[u8; 16]) -> Option<Container> {
+    if &magic[..4] == b"DSD " || &magic[..4] == b"FRM8" {
+        return Some(Container::Dsd);
+    }
     if &magic[0..4] == b"fLaC" {
         return Some(Container::Flac);
     }

@@ -1029,3 +1029,106 @@ fn unavailable_precise_source_time_is_not_accepted_as_a_zero_timestamp() {
         assert_eq!(validate_source(source).unwrap_err().code, "source_changed");
     });
 }
+
+#[test]
+fn dsd_source_clock_is_not_confused_with_authenticated_pcm_transport_rate() {
+    test_runtime().block_on(async {
+        for (name, bytes, source_rate, channels, expected_frames) in [
+            (
+                "tone.dsf",
+                include_bytes!("../../aede-audio/tests/fixtures/tone.dsf").as_slice(),
+                2_822_400,
+                1,
+                2048,
+            ),
+            (
+                "tone.dff",
+                include_bytes!("../../aede-audio/tests/fixtures/tone.dff").as_slice(),
+                2_822_400,
+                1,
+                2048,
+            ),
+            (
+                "stereo128.dsf",
+                include_bytes!("../../aede-audio/tests/fixtures/stereo128.dsf").as_slice(),
+                5_644_800,
+                2,
+                1024,
+            ),
+            (
+                "stereo128.dff",
+                include_bytes!("../../aede-audio/tests/fixtures/stereo128.dff").as_slice(),
+                5_644_800,
+                2,
+                1024,
+            ),
+        ] {
+            let fixture = Fixture::new();
+            let _installed = install_wav(&fixture, 400).await;
+            let reference;
+            let path = fixture.0.data_dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            let metadata = std::fs::metadata(&path).unwrap();
+            let tags = aede_core::tags::read(&path).unwrap();
+            assert_eq!(tags.properties.sample_rate, Some(source_rate));
+            {
+                let mut guard = fixture.0.catalog.write().await;
+                let catalog = guard.as_mut().unwrap();
+                let file = &mut catalog.files[0];
+                let old = std::mem::replace(&mut file.path, path.to_string_lossy().into_owned());
+                file.properties = tags.properties;
+                file.size = metadata.len();
+                file.mtime = clock::mtime_seconds(&metadata);
+                catalog.file_mtime_subseconds.remove(&old);
+                catalog.file_mtime_subseconds.insert(
+                    path.to_string_lossy().into_owned(),
+                    clock::mtime_subseconds(&metadata),
+                );
+                reference = EntityRef::of(catalog, EntityKind::Track, 0)
+                    .unwrap()
+                    .to_token();
+                store::save_catalog_only(catalog, &store::catalog_path(&fixture.0.data_dir))
+                    .unwrap();
+            }
+            let (address, server) = start_server(fixture.0.clone()).await;
+            let token = login(address, "alice");
+            let mut socket = upgraded_socket(address, &token);
+            start(&mut socket, &reference);
+            let ServerFrame::Text(format) = socket.next() else {
+                panic!("format");
+            };
+            assert_eq!(format["type"], "format");
+            assert_eq!(format["sample_rate"], 88_200);
+            assert_eq!(format["channels"], channels);
+            let mut frames = 0u64;
+            let mut eof = false;
+            loop {
+                match socket.next() {
+                    ServerFrame::Binary(bytes) => {
+                        assert_guarded_pcm(&bytes);
+                        frames += (bytes.len() / (4 * channels)) as u64;
+                        socket.send_text(
+                            &serde_json::json!({"type":"ack","frames":frames}).to_string(),
+                        );
+                    }
+                    ServerFrame::Text(value) if value["type"] == "eof" => {
+                        assert_eq!(frames, expected_frames, "{name}");
+                        eof = true;
+                    }
+                    ServerFrame::Text(value) if value["type"] == "recorded" => {
+                        assert!(eof);
+                        break;
+                    }
+                    frame => panic!(
+                        "unexpected DSD transport frame: {}",
+                        match frame {
+                            ServerFrame::Text(v) => v.to_string(),
+                            _ => "closed/binary".into(),
+                        }
+                    ),
+                }
+            }
+            server.abort();
+        }
+    });
+}
