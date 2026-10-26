@@ -7,7 +7,7 @@ For a bilingual component overview of the three applications, see the [shared ar
 ## Feature boundaries
 
 - No default features or default device/network activity.
-- `decode`: progressive local-file Symphonia reader extracted from FlacCompagnon's preview path, with finite complete-frame validation, bounded packets and admission between packet reads. This feature does not pull in the DSP or device backend. Application-specific verified FLAC, Vorbis and external-codec paths remain in Aède.
+- `decode`: progressive local-file Symphonia reader extracted from FlacCompagnon's preview path, with finite complete-frame validation, bounded packets and admission between packet reads. This feature does not pull in the DSP or device backend. Native DSF/DFF input adds separate measurement and listening profiles; see [native DSD](native-dsd.md) for the admitted formats, bounded filters and unpublished integration boundary. Application-specific verified FLAC, Vorbis and external-codec paths remain in Aède.
 - `dsp`: access to the existing `aede-dsp` numerical implementation and shared PCM format contracts. Loudness capture/meters are a separate, default-enabled feature of `aede-dsp`, disabled for the minimal player.
 - `queue`: Aède's complete-frame bounded single-producer handoff, including its original sibling regression suite, plus Phémios's existing callback transition/reserve policy and the underlying ring types. Queue metadata describes precision; it supplies no bit-perfect device guarantee.
 - `output`: optional CPAL single-file `MinimalPlayer`, progressive decoding and the shared bounded queue. It opens no device until explicitly requested, starts paused and has no catalogue, history, normalization, EQ, crossfade or strict-output control.

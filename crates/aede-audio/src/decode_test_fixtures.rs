@@ -1,3 +1,4 @@
+use crate::decode::StreamSource;
 use crate::test_support::Wave;
 use std::path::Path;
 
@@ -183,10 +184,14 @@ pub(super) fn panic_on_next_packet(
     mut stream: PcmStreamDecoder,
 ) -> (PcmStreamDecoder, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
-    stream.format = Box::new(PanicFormatReader {
-        inner: stream.format,
+    let StreamSource::Pcm(mut pcm) = stream.source else {
+        panic!("PCM fixture");
+    };
+    pcm.format = Box::new(PanicFormatReader {
+        inner: pcm.format,
         calls: Arc::clone(&calls),
     });
+    stream.source = StreamSource::Pcm(pcm);
     (stream, calls)
 }
 
@@ -194,9 +199,13 @@ pub(super) fn panic_on_next_decode(
     mut stream: PcmStreamDecoder,
 ) -> (PcmStreamDecoder, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
-    stream.decoder = Box::new(PanicDecoder {
-        inner: stream.decoder,
+    let StreamSource::Pcm(mut pcm) = stream.source else {
+        panic!("PCM fixture");
+    };
+    pcm.decoder = Box::new(PanicDecoder {
+        inner: pcm.decoder,
         calls: Arc::clone(&calls),
     });
+    stream.source = StreamSource::Pcm(pcm);
     (stream, calls)
 }

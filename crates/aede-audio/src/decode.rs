@@ -29,8 +29,93 @@ impl fmt::Display for DecodeError {
 }
 impl std::error::Error for DecodeError {}
 
-/// Packet-at-a-time PCM reader. No device, analyzer or complete-track allocation.
+/// Packet-at-a-time PCM reader. DSD uses the wideband measurement profile;
+/// device callers should use [`Self::open_for_playback`] for ultrasonic filtering.
 pub struct PcmStreamDecoder {
+    source: StreamSource,
+    /// Derived PCM frames per second (not the original DSD bit clock).
+    pub sample_rate: u32,
+    /// Interleaved channels per frame.
+    pub channels: usize,
+    /// Speaker positions when established by the source.
+    pub channel_mask: Option<u32>,
+}
+enum StreamSource {
+    Pcm(SymphoniaDecoder),
+    Dsd(crate::dsd::Decoder),
+}
+impl PcmStreamDecoder {
+    /// Open a regular source, preserving the wideband DSD measurement profile.
+    pub fn open(path: &Path) -> Result<Self, DecodeError> {
+        Self::open_profile(path, crate::dsd::Profile::Measurement)
+    }
+    /// Open with the DSD listening low-pass. PCM sources remain unchanged.
+    pub fn open_for_playback(path: &Path) -> Result<Self, DecodeError> {
+        Self::open_profile(path, crate::dsd::Profile::Listening)
+    }
+    fn open_profile(path: &Path, profile: crate::dsd::Profile) -> Result<Self, DecodeError> {
+        use std::io::{Read, Seek, SeekFrom};
+        if !fs::metadata(path)
+            .map_err(|e| DecodeError(e.to_string()))?
+            .is_file()
+        {
+            return Err(DecodeError("audio source is not a regular file".into()));
+        }
+        let mut file = File::open(path).map_err(|e| DecodeError(e.to_string()))?;
+        if !file
+            .metadata()
+            .map_err(|e| DecodeError(e.to_string()))?
+            .is_file()
+        {
+            return Err(DecodeError("audio source is not a regular file".into()));
+        }
+        let mut magic = [0; 4];
+        let has_magic = match file.read_exact(&mut magic) {
+            Ok(()) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => false,
+            Err(error) => return Err(DecodeError(error.to_string())),
+        };
+        if has_magic && (&magic == b"DSD " || &magic == b"FRM8") {
+            let dsd = crate::dsd::Decoder::from_file(file, profile)
+                .map_err(|e| DecodeError(e.to_string()))?;
+            let info = dsd.info();
+            return Ok(Self {
+                sample_rate: dsd.sample_rate(),
+                channels: info.channels,
+                channel_mask: Some(if info.channels == 1 { 4 } else { 3 }),
+                source: StreamSource::Dsd(dsd),
+            });
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| DecodeError(e.to_string()))?;
+        let pcm = SymphoniaDecoder::from_file(path, file)?;
+        Ok(Self {
+            sample_rate: pcm.sample_rate,
+            channels: pcm.channels,
+            channel_mask: pcm.channel_mask,
+            source: StreamSource::Pcm(pcm),
+        })
+    }
+    /// Yield one finite complete PCM block.
+    pub fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, DecodeError> {
+        self.next_chunk_admitted(|| Ok(()))
+    }
+    /// Recheck caller ownership during progressive reads, including DSD filtering.
+    pub fn next_chunk_admitted(
+        &mut self,
+        mut current: impl FnMut() -> Result<(), DecodeError>,
+    ) -> Result<Option<Vec<f32>>, DecodeError> {
+        match &mut self.source {
+            StreamSource::Pcm(pcm) => pcm.next_chunk_admitted(current),
+            StreamSource::Dsd(dsd) => dsd
+                .next_chunk(|| current().map_err(|e| crate::dsd::DsdError(e.0)))
+                .map_err(|e| DecodeError(e.to_string())),
+        }
+    }
+}
+
+/// Packet-at-a-time PCM reader. No device, analyzer or complete-track allocation.
+struct SymphoniaDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     track_id: u32,
@@ -44,24 +129,9 @@ pub struct PcmStreamDecoder {
     /// Speaker mask from the same probed header, when available.
     pub channel_mask: Option<u32>,
 }
-impl PcmStreamDecoder {
+impl SymphoniaDecoder {
     /// Open a local regular file and probe its default audio track with gapless trimming.
-    pub fn open(path: &Path) -> Result<Self, DecodeError> {
-        // Opening a FIFO can wait for a writer before descriptor metadata is available.
-        if !fs::metadata(path)
-            .map_err(|e| DecodeError(e.to_string()))?
-            .is_file()
-        {
-            return Err(DecodeError("audio source is not a regular file".into()));
-        }
-        let file = File::open(path).map_err(|e| DecodeError(e.to_string()))?;
-        if !file
-            .metadata()
-            .map_err(|e| DecodeError(e.to_string()))?
-            .is_file()
-        {
-            return Err(DecodeError("audio source is not a regular file".into()));
-        }
+    fn from_file(path: &Path, file: File) -> Result<Self, DecodeError> {
         let mut hint = Hint::new();
         if let Some(extension) = path.extension().and_then(|s| s.to_str()) {
             hint.with_extension(extension);
@@ -113,11 +183,6 @@ impl PcmStreamDecoder {
             channels,
             channel_mask,
         })
-    }
-    /// Yield one complete finite PCM packet; retain scratch between calls.
-    /// As in the original preview path, recoverable corrupt packets are skipped.
-    pub fn next_chunk(&mut self) -> Result<Option<Vec<f32>>, DecodeError> {
-        self.next_chunk_admitted(|| Ok(()))
     }
     /// Retire packet reads (including skipped corrupt/non-audio packets) between I/O stages.
     /// An already running regular-file read is not forcibly interrupted.

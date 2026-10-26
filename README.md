@@ -503,6 +503,7 @@ Complete guides to Aède's features and architecture:
 - [Lyrics Handling](docs/design/lyrics.md) — Lyrics ingestion and formatting
 - [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback
 - [Shared Audio Foundation](docs/design/shared-audio.md) — Common PCM primitives and the minimal FlacCompagnon player
+- [Native DSD Input](docs/design/native-dsd.md) — Candidate DSF/DFF decoding, measurement/listening profiles and coordinated publication limits
 - [Transparent Playback & Bit-Perfect Contract](docs/design/bit-perfect.md) — Integer source decoding, local playback policies and separate digital-output acceptance
 - [DSP Product Proposal](docs/design/dsp-product-proposal.md) — Free and Premium processing priorities and research sources
 - [Release Identification](docs/design/identification.md) — Matching releases to recordings

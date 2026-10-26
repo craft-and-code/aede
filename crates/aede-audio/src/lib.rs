@@ -8,8 +8,12 @@
 pub use aede_dsp as dsp;
 #[cfg(feature = "decode")]
 pub mod decode;
+#[cfg(feature = "decode")]
+pub mod dsd;
 #[cfg(feature = "dsp")]
 pub mod format;
+#[cfg(feature = "decode")]
+pub mod pcm_wave;
 #[cfg(feature = "queue")]
 pub mod queue;
 #[cfg(feature = "queue")]

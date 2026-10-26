@@ -116,7 +116,7 @@ impl MinimalPlayer {
         current: &impl Fn() -> Result<(), String>,
     ) -> Result<Self, String> {
         current()?;
-        let decoder = PcmStreamDecoder::open(path).map_err(|e| e.to_string());
+        let decoder = PcmStreamDecoder::open_for_playback(path).map_err(|e| e.to_string());
         current()?;
         let decoder = decoder?;
         let device = cpal::default_host()
