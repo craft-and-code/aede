@@ -13,6 +13,52 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 #[test]
+fn shared_native_opus_plays_and_seeks_without_an_external_decoder() {
+    for (name, channels, expected_frames) in
+        [("opus-mono.opus", 1, 12037), ("opus-stereo.opus", 2, 48013)]
+    {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures")
+            .join(name);
+        let mut decoder = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(decoder.sample_rate(), 48000);
+        assert_eq!(decoder.channels(), channels);
+        let mut reference = Vec::new();
+        let mut buffer = vec![0.0; 1024 * usize::from(channels)];
+        loop {
+            let frames = decoder.read_frames(&mut buffer).unwrap();
+            if frames == 0 {
+                break;
+            }
+            reference.extend_from_slice(&buffer[..frames * usize::from(channels)]);
+        }
+        assert_eq!(reference.len(), expected_frames * usize::from(channels));
+        let mut seek = FileDecoder::open_native(&path).unwrap();
+        let skipped = seek.skip_frames(4099, || false).unwrap();
+        assert_eq!(skipped.frames, 4099);
+        let frames = seek.read_frames(&mut buffer).unwrap();
+        assert_eq!(
+            &buffer[..frames * usize::from(channels)],
+            &reference[4099 * usize::from(channels)..(4099 + frames) * usize::from(channels)]
+        );
+        let mut cancelled = FileDecoder::open_native(&path).unwrap();
+        assert!(cancelled.skip_frames(4099, || true).is_err());
+    }
+}
+
+#[test]
+fn unsupported_multistream_opus_keeps_its_explicit_playback_compatibility() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-audio/tests/fixtures/opus-surround.opus");
+    assert!(FileDecoder::open_native(&path).is_err());
+    if crate::ffmpeg::find().is_some() {
+        let mut decoder = FileDecoder::open(&path).unwrap();
+        assert_eq!(decoder.channels(), 6);
+        assert!(decoder.read_frames(&mut [0.0; 6 * 128]).unwrap() > 0);
+    }
+}
+
+#[test]
 fn a_flac_md5_mismatch_is_not_reported_as_successful_decoded_eof() {
     let mut bytes = std::fs::read(fixture("playback-stereo.flac")).unwrap();
     assert_eq!(&bytes[..4], b"fLaC");

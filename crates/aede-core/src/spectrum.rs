@@ -139,7 +139,7 @@ pub fn render_cancellable(
         let tags = crate::tags::read(audio).map_err(|e| e.to_string())?;
         identity.unchanged(audio)?;
         let codec = tags.properties.codec.as_str();
-        let legacy_required = matches!(codec, "opus" | "ape" | "wavpack" | "musepack" | "speex");
+        let legacy_required = matches!(codec, "ape" | "wavpack" | "musepack" | "speex");
         let (data, info, decoder) = if codec == "flac" && tags.properties.bit_depth == Some(32) {
             match native::analyze(audio, &options, cancelled) {
                 Ok((data, info)) => (data, info, "native-flac32"),

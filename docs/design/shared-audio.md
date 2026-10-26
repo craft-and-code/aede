@@ -2,6 +2,8 @@
 
 For a bilingual component overview of the three applications, see the [shared architecture guide](../manual/ecosystem.md).
 
+The [audio format matrix](audio-format-matrix.md) inventories native and external decoding in all three applications, with the remaining replacement order and qualification corpus. It distinguishes catalogue recognition, listening, original-integer analysis and spectral rendering; sharing the DSP does not by itself supply a decoder for every format.
+
 `crates/aede-audio` is the catalogue-independent PCM foundation used by Aède, Phémios and FlacCompagnon. It reuses `aede-dsp`; it does not introduce another DSP implementation or depend on an application, an analysis engine, a catalogue, an account, HTTP or Tauri.
 
 ## Feature boundaries
@@ -19,6 +21,18 @@ The shared decoder checks regular-file admission before opening and on the opene
 Unexpected unwinding panics from the pinned probe or codec become decoding errors. A reader or codec that panics during progressive decoding is retired permanently; subsequent reads cannot publish stale PCM or successful EOF. Caller admission callbacks keep their own error/panic behavior. Downstream builds using `panic=abort` cannot recover through this boundary, and an already running OS read is not forcibly interrupted. I24 output saturates positive full scale to the largest valid signed 24-bit value; floating output and the other device representations retain their existing conversion behavior.
 
 Pause consumes no source frames; mute retains volume. Seek explicitly reopens the decoder and progressively discards a cancellable source prefix, preserving pause/gain. It is not constant-time seeking or gapless output. The optional admitted open/seek APIs recheck the captured owner between preparation stages and before replacing/resuming a prepared stream. A retired prepared value is dropped rather than published; callers with account or playback-generation ownership must supply this admission. Replacement also rechecks admission after dropping/joining the old visit and before resuming the prepared output, since retirement itself can wait for a file read. A cancelled replacement stays paused. Stop/seek joins the retired decoder worker to prevent worker accumulation and can wait for one regular-file read already in progress. Packet admission checks cancellation even when corrupt/non-audio packets are skipped. No forced interruption of OS filesystem I/O is claimed.
+
+## Candidate native Opus input
+
+The `decode` feature now includes ISC-licensed `audiopus` 0.2.0 and its `audiopus_sys` 0.1.8 companion, already used by FlacCompagnon's encoder. The static-link feature avoids a runtime Opus shared-library requirement; no FFmpeg executable is invoked. Native build environments need the C/autotools prerequisites recorded in CI (GNU libtool on macOS). This is an unpublished candidate under the same coordinated-source release boundary as DSD.
+
+`decode::make_decoder` is the common codec factory for the progressive reader and FlacCompagnon's original analysis/spectrogram visitor. Other codecs retain the pinned Symphonia registry. The first Opus profile admits complete, known-length, mapping-family-zero mono/stereo streams at 48 kHz. The OpusHead input-rate field is informational; the normative header output gain is applied once by libopus. Pre-skip is removed once, even across packets, and final granule bounds also handle a single audio page whose demuxer omits per-packet end trimming. Source bytes remain unchanged.
+
+Opus PCM is bounded to one 120-ms packet (5,760 frames per channel), with a 61,440-byte compressed-packet limit and bounded planar/interleaved scratch buffers. No application volume, normalization, EQ or crossfade is applied here. The safe wrapper is Send-only; a worker-owned Mutex supplies the public codec trait's Sync requirement, without any audio-callback lock. No new unsafe Rust is introduced. The decoder clears output and retires after corrupt packets; completion verifies the exact playable-frame count. Preview/spectral admission remains checked around packet work and publication; a running libopus call cannot be forcibly interrupted. A retired shared Opus visit cannot resume buffered audio.
+
+Seek reopens and progressively decodes pre-roll through the existing player. Cold midstream codec reset is explicitly refused rather than applying pre-skip again at the wrong point. Chained/multiplexed, unknown-length, nonzero-origin and multistream layouts are outside this initial native profile. Aède retains explicit compatibility decoding when opening an unsupported Opus profile; FlacCompagnon explains its native boundary instead of claiming every Opus stream is supported. This does not remove the other compatibility codecs in the [global matrix](audio-format-matrix.md).
+
+The original generated mono, stereo and very-short fixtures exercise exact frame count, multi-packet pre-skip, input-rate/header-gain behavior, stereo order, corrupt/truncated input, reset and cancellation. Aède adds native-only seek and a resolver-spy spectral test; FC adds full-analysis/PNG-input and encoder round trips. The encoder must submit the algorithmic tail and keep non-final granules in raw decoded-frame units; only the last granule includes the exact source length plus pre-skip. Native platform builds/listening remain separate acceptance.
 
 ## Application ownership
 

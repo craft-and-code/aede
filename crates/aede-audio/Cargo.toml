@@ -10,12 +10,15 @@ rust-version.workspace = true
 [features]
 default = []
 dsp = ["dep:aede-dsp"]
-decode = ["dep:symphonia"]
+decode = ["dep:symphonia", "dep:audiopus", "dep:audiopus_sys"]
 queue = ["dep:rtrb", "dsp"]
 output = ["decode", "queue", "dep:cpal"]
 
 [dependencies]
 aede-dsp = { path = "../aede-dsp", default-features = false, optional = true }
 symphonia = { version = "0.5.5", features = ["all"], optional = true }
+# Same safe wrapper as FlacCompagnon's encoder. Force static libopus for packaged clients.
+audiopus = { version = "=0.2.0", default-features = false, features = ["decoder"], optional = true }
+audiopus_sys = { version = "=0.1.8", features = ["static"], optional = true }
 rtrb = { version = "0.4.0", optional = true }
 cpal = { version = "0.18.1", optional = true }

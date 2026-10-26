@@ -57,7 +57,7 @@ Ogg duration lookup follows complete page boundaries. Its end window uses the ex
 
 `lofty` handles the secondary tag-reading formats. FlacCompagnon's Rust library provides in-process acoustic analysis. These are library dependencies; the user does not install a standalone FlacCompagnon executable to use `aede analyze`.
 
-The current progressive player has native decoding paths for tested FLAC, PCM WAV, LAME MP3 and native Vorbis fixtures. Opus, AAC and ALAC in M4A use an optional FFmpeg decoding path. Other catalogued formats are not thereby promised a supported player path. The [play command](cli/play.md) documents current supported selections and errors.
+The progressive player has native decoding paths for tested FLAC, PCM WAV, LAME MP3 and native Vorbis fixtures. AAC and ALAC try the shared native reader first. The unpublished candidate adds shared native mono/stereo Opus; Opus and AAC/ALAC profiles outside native admission retain optional FFmpeg decoding. Other catalogued formats are not thereby promised a supported player path. The [global format matrix](design/audio-format-matrix.md) distinguishes the local candidates, native profiles and remaining compatibility decoders across the three applications. The [play command](cli/play.md) documents current supported selections and errors.
 
 CPAL provides native output when the build/platform/device supports it; ffplay is the fallback. Linux musl release archives use ffplay, while GNU Linux source builds can use ALSA output. FFmpeg is also an external tool for `copy --compress` and applicable spectrogram/decoder paths. Fingerprinting needs `fpcalc` or an FFmpeg build containing Chromaprint; ordinary FFmpeg installation does not promise that feature.
 

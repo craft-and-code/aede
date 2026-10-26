@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn native_opus_spectrogram_never_resolves_ffmpeg() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("native.opus");
+    std::fs::copy(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/opus-stereo.opus"),
+        &audio,
+    )
+    .unwrap();
+    let picture = picture_for(&audio);
+    let before = std::fs::read(&audio).unwrap();
+    render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        panic!("native Opus must not resolve FFmpeg")
+    })
+    .unwrap();
+    assert!(!out_of_date(&audio, &picture));
+    assert_eq!(std::fs::read(&audio).unwrap(), before);
+    let png = std::fs::read(&picture).unwrap();
+    assert!(
+        render_cancellable(&audio, &picture, Size::Half, &|| true, &|| {
+            panic!("cancelled Opus must not resolve FFmpeg")
+        })
+        .is_err()
+    );
+    assert_eq!(std::fs::read(&picture).unwrap(), png);
+}
+
+#[test]
 fn rendering_publishes_only_a_completed_picture() {
     for succeeds in [false, true] {
         let dir = std::env::temp_dir().join(format!(

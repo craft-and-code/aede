@@ -18,6 +18,23 @@ use symphonia::core::{
 #[path = "decode_source.rs"]
 mod source;
 pub use source::{FlacAudioSource, FlacProbe};
+#[path = "decode_opus.rs"]
+mod opus;
+
+/// Construct a shared native codec, including the admitted mono/stereo Opus profile.
+/// Containers retain packet ownership; this applies no application DSP or volume.
+/// Opus callers use gapless demuxing and must check `finalize().verify_ok` at EOF.
+/// Random seeks require reopening and progressively decoding source pre-roll.
+pub fn make_decoder(
+    parameters: &symphonia::core::codecs::CodecParameters,
+    options: &DecoderOptions,
+) -> Result<Box<dyn Decoder>, SymError> {
+    if parameters.codec == symphonia::core::codecs::CODEC_TYPE_OPUS {
+        Ok(Box::new(opus::OpusDecoder::try_new(parameters, options)?))
+    } else {
+        symphonia::default::get_codecs().make(parameters, options)
+    }
+}
 
 /// A local decode failure, independent of any application's analysis errors.
 #[derive(Debug)]
@@ -106,7 +123,13 @@ impl PcmStreamDecoder {
         mut current: impl FnMut() -> Result<(), DecodeError>,
     ) -> Result<Option<Vec<f32>>, DecodeError> {
         match &mut self.source {
-            StreamSource::Pcm(pcm) => pcm.next_chunk_admitted(current),
+            StreamSource::Pcm(pcm) => {
+                let result = pcm.next_chunk_admitted(current);
+                if pcm.opus && result.is_err() {
+                    pcm.failed = true;
+                }
+                result
+            }
             StreamSource::Dsd(dsd) => dsd
                 .next_chunk(|| current().map_err(|e| crate::dsd::DsdError(e.0)))
                 .map_err(|e| DecodeError(e.to_string())),
@@ -122,6 +145,7 @@ struct SymphoniaDecoder {
     scratch: Option<SampleBuffer<f32>>,
     capacity: u64,
     failed: bool,
+    opus: bool,
     /// Source frames per second.
     pub sample_rate: u32,
     /// Interleaved samples per frame.
@@ -167,8 +191,9 @@ impl SymphoniaDecoder {
             .ok_or_else(|| DecodeError("missing or unsupported channels".into()))?;
         let channel_mask = track.codec_params.channels.map(|v| v.bits());
         let track_id = track.id;
+        let opus = track.codec_params.codec == symphonia::core::codecs::CODEC_TYPE_OPUS;
         let decoder = catch_unwind(AssertUnwindSafe(|| {
-            symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())
+            make_decoder(&track.codec_params, &DecoderOptions::default())
         }))
         .map_err(|_| DecodeError("audio decoder construction panicked".into()))?
         .map_err(|e| DecodeError(format!("no decoder: {e}")))?;
@@ -179,6 +204,7 @@ impl SymphoniaDecoder {
             scratch: None,
             capacity: 0,
             failed: false,
+            opus,
             sample_rate,
             channels,
             channel_mask,
@@ -192,7 +218,7 @@ impl SymphoniaDecoder {
     ) -> Result<Option<Vec<f32>>, DecodeError> {
         if self.failed {
             return Err(DecodeError(
-                "audio decoder cannot continue after a panic".into(),
+                "audio decoder cannot continue after a failure".into(),
             ));
         }
         loop {
@@ -209,6 +235,11 @@ impl SymphoniaDecoder {
             let packet = match packet {
                 Ok(packet) => packet,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    current()?;
+                    if self.opus && self.decoder.finalize().verify_ok != Some(true) {
+                        self.failed = true;
+                        return Err(DecodeError("incomplete Opus stream".into()));
+                    }
                     return Ok(None);
                 }
                 Err(e) => return Err(DecodeError(format!("packet error: {e}"))),
@@ -256,7 +287,14 @@ impl SymphoniaDecoder {
                     {
                         return Err(DecodeError("incomplete or non-finite PCM sample".into()));
                     }
+                    if self.opus && samples.is_empty() {
+                        continue;
+                    }
                     return Ok(Some(samples.to_vec()));
+                }
+                Err(SymError::DecodeError(error)) if self.opus => {
+                    self.failed = true;
+                    return Err(DecodeError(format!("Opus packet error: {error}")));
                 }
                 Err(SymError::DecodeError(_)) => continue,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {

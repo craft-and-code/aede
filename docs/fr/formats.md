@@ -66,7 +66,7 @@ La recherche de durée Ogg suit les limites des pages complètes. Dans la fenêt
 
 `lofty` lit les formats secondaires. La bibliothèque Rust FlacCompagnon fournit l’analyse en processus. L’utilisateur n’installe pas l’exécutable FlacCompagnon séparé pour `aede analyze`.
 
-Le lecteur progressif actuel possède des chemins natifs testés pour FLAC, WAV PCM, MP3 LAME et Vorbis natif. Opus, AAC et ALAC dans M4A passent par un décodage FFmpeg facultatif. Cela ne promet pas un chemin de lecture pour tous les autres formats catalogués. [play](cli/play.md) détaille sélections et erreurs.
+Le lecteur progressif possède des chemins natifs testés pour FLAC, WAV PCM, MP3 LAME et Vorbis natif. AAC et ALAC essaient d’abord le lecteur natif partagé. La source candidate non publiée ajoute Opus mono/stéréo natif ; les profils Opus et AAC/ALAC hors de ses capacités conservent un décodage FFmpeg facultatif. Cela ne promet pas un chemin de lecture pour tous les autres formats catalogués. La [matrice globale des formats](../design/audio-format-matrix.md), en anglais, distingue les sources candidates locales, les profils natifs et les décodeurs de compatibilité des trois applications. [play](cli/play.md) détaille sélections et erreurs.
 
 CPAL fournit une sortie native si compilation/système/périphérique le permettent ; sinon ffplay. Les archives Linux musl utilisent ffplay ; une compilation GNU Linux peut utiliser ALSA. FFmpeg intervient aussi dans `copy --compress` et certains chemins de spectrogramme/décodage. Les empreintes exigent `fpcalc` ou un FFmpeg contenant Chromaprint, non garanti dans une installation ordinaire.
 
