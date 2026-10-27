@@ -142,8 +142,10 @@ pub fn render_cancellable(
         // Keep compatibility for configurations the native reader cannot open.
         // Once a native codec is admitted, a later data failure must not publish a
         // recovered prefix from another decoder as a completed measurement.
-        let admitted_native = if matches!(codec, "alac" | "ape" | "wavpack" | "musepack" | "speex")
-        {
+        let admitted_native = if matches!(
+            codec,
+            "alac" | "aac" | "ape" | "wavpack" | "musepack" | "speex"
+        ) {
             admit(cancelled)?;
             let admitted = aede_audio::decode::PcmStreamDecoder::open(audio).is_ok();
             admit(cancelled)?;

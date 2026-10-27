@@ -488,7 +488,7 @@ fn external_measurement_uses_the_decoder_format_instead_of_forcing_catalogue_val
 }
 
 #[test]
-fn native_codecs_keep_rust_images_and_explicit_lazy_compatibility() {
+fn spectral_compatibility_is_lazy_and_admitted_aac_stays_native() {
     let Some(program) = crate::ffmpeg::find() else {
         return;
     };
@@ -523,11 +523,14 @@ fn native_codecs_keep_rust_images_and_explicit_lazy_compatibility() {
             .find(|t| t.keyword == "AedeSpectrum")
             .unwrap()
             .text;
-        if relative == "tests/fixtures/hybrid-lossy.wv" {
+        if matches!(
+            relative,
+            "tests/fixtures/aac.m4a" | "tests/fixtures/hybrid-lossy.wv"
+        ) {
             assert_eq!(
                 calls.get(),
                 0,
-                "admitted WavPack no longer needs compatibility"
+                "admitted native codecs no longer need compatibility"
             );
             assert!(stamp.contains("\"decoder\":\"native\""));
         } else if calls.get() == 1 {
@@ -539,6 +542,145 @@ fn native_codecs_keep_rust_images_and_explicit_lazy_compatibility() {
             );
         }
     }
+}
+
+#[test]
+fn admitted_aac_spectrograms_never_resolve_external_tools() {
+    let files = SpectralFiles::new();
+    for name in ["mono441", "stereo48", "stereo96", "coarse48"] {
+        let audio = files.0.join(format!("{name}.m4a"));
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../aede-audio/tests/fixtures/native-aac")
+                .join(format!("{name}.m4a")),
+            &audio,
+        )
+        .unwrap();
+        let picture = picture_for(&audio);
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            panic!("qualified AAC must not use FFmpeg/FFprobe")
+        })
+        .unwrap();
+        assert!(!out_of_date(&audio, &picture));
+        let previous = std::fs::read(&picture).unwrap();
+        let checks = std::cell::Cell::new(0);
+        let result = render_cancellable(
+            &audio,
+            &picture,
+            Size::Half,
+            &|| {
+                checks.set(checks.get() + 1);
+                checks.get() > 12
+            },
+            &|| panic!("AAC cancellation must not use FFmpeg"),
+        );
+        assert!(result.unwrap_err().contains("cancelled"));
+        assert_eq!(std::fs::read(picture).unwrap(), previous);
+    }
+}
+
+#[test]
+fn unqualified_aac_edit_retains_explicit_compatibility() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("no-edit.m4a");
+    let mut bytes =
+        include_bytes!("../../aede-audio/tests/fixtures/native-aac/stereo48.m4a").to_vec();
+    let edit = bytes.windows(4).position(|b| b == b"edts").unwrap();
+    bytes[edit..edit + 4].copy_from_slice(b"free");
+    std::fs::write(&audio, bytes).unwrap();
+    let called = std::cell::Cell::new(false);
+    let result = render_cancellable(&audio, &picture_for(&audio), Size::Half, &|| false, &|| {
+        called.set(true);
+        Err("optional compatibility decoder unavailable".into())
+    });
+    assert!(result.is_err());
+    assert!(called.get());
+}
+
+#[test]
+fn incomplete_admitted_aac_cannot_publish_external_recovery() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("corrupt-aac.m4a");
+    let mut bytes =
+        include_bytes!("../../aede-audio/tests/fixtures/native-aac/stereo48.m4a").to_vec();
+    let table = bytes.windows(4).position(|b| b == b"stsz").unwrap() + 4;
+    let count = u32::from_be_bytes(bytes[table + 8..table + 12].try_into().unwrap()) as usize;
+    let last = table + 12 + (count - 1) * 4;
+    let missing = u32::from_be_bytes(bytes[last..last + 4].try_into().unwrap()) as usize;
+    bytes.truncate(bytes.len() - missing);
+    let mdat = bytes.windows(4).position(|b| b == b"mdat").unwrap() - 4;
+    let size = (bytes.len() - mdat) as u32;
+    bytes[mdat..mdat + 4].copy_from_slice(&size.to_be_bytes());
+    std::fs::write(&audio, bytes).unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"previous complete image").unwrap();
+    let result = render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        panic!("native AAC data failures must not start FFmpeg")
+    });
+    assert!(result.is_err());
+    assert_eq!(std::fs::read(picture).unwrap(), b"previous complete image");
+}
+
+#[test]
+fn sample_accurate_aac_edits_do_not_publish_an_unedited_native_spectrum() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("edited-aac.m4a");
+    let mut bytes =
+        include_bytes!("../../aede-audio/tests/fixtures/native-aac/stereo48.m4a").to_vec();
+    let edit = bytes.windows(4).position(|b| b == b"elst").unwrap() + 4;
+    bytes[edit + 8..edit + 12].copy_from_slice(&48012u32.to_be_bytes());
+    std::fs::write(&audio, &bytes).unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"previous image").unwrap();
+    let calls = std::cell::Cell::new(0);
+    assert!(
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            calls.set(calls.get() + 1);
+            Err("optional compatibility decoder unavailable".into())
+        })
+        .is_err()
+    );
+    assert_eq!(
+        calls.get(),
+        1,
+        "an exact crop is outside full-track native admission"
+    );
+    assert_eq!(std::fs::read(&picture).unwrap(), b"previous image");
+    assert_eq!(std::fs::read(audio).unwrap(), bytes);
+}
+
+#[test]
+fn images_from_the_previous_aac_edit_admission_are_stale() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("aac.m4a");
+    std::fs::write(
+        &audio,
+        include_bytes!("../../aede-audio/tests/fixtures/native-aac/stereo48.m4a"),
+    )
+    .unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    let record = serde_json::json!({
+        "generation":"rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v1",
+        "input":cache::Input::read(&audio).unwrap(),
+        "decoder":"native"
+    })
+    .to_string();
+    let mut encoder = png::Encoder::new(std::fs::File::create(&picture).unwrap(), 1, 1);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .add_text_chunk("AedeSpectrum".into(), record)
+        .unwrap();
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(&[0]).unwrap();
+    writer.finish().unwrap();
+    assert!(
+        out_of_date(&audio, &picture),
+        "old AAC timing results cannot remain fresh after admission changes"
+    );
 }
 
 #[test]

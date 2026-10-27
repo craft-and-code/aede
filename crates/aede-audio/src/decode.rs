@@ -10,10 +10,11 @@ use symphonia::core::{
     codecs::{Decoder, DecoderOptions},
     errors::Error as SymError,
     formats::{FormatOptions, FormatReader},
-    io::MediaSourceStream,
-    meta::MetadataOptions,
     probe::Hint,
 };
+
+#[cfg(test)]
+use symphonia::core::{io::MediaSourceStream, meta::MetadataOptions};
 
 #[path = "decode_source.rs"]
 mod source;
@@ -21,18 +22,37 @@ pub use source::{FlacAudioSource, FlacProbe};
 #[path = "decode_alac.rs"]
 mod alac;
 pub use alac::{AlacConfiguration, declared_pcm_frames, read_alac_configuration};
+#[path = "decode_aac_config.rs"]
+mod aac_config;
+pub use aac_config::{AacLcConfiguration, read_aac_lc_configuration};
+#[path = "decode_aac_mp4.rs"]
+mod aac_mp4;
+#[path = "decode_aac_packets.rs"]
+mod aac_packets;
+#[path = "decode_aac_trim.rs"]
+mod aac_trim;
 #[path = "decode_guard.rs"]
 mod guard;
 #[path = "decode_opus.rs"]
 mod opus;
+#[path = "decode_probe.rs"]
+mod probe_file_impl;
+pub use probe_file_impl::{ProbedFile, probe_file};
 
-/// Resolve ALAC rate/layout/precision when the demuxer omits its channel layout.
+/// Resolve ALAC or admitted AAC-LC properties when the demuxer omits its layout.
 /// MP4 hints may omit channels or substitute a lower rate. Other codec
 /// parameters, source bytes, frame counts and timeline hints remain unchanged.
+/// AAC container timing still requires [`probe_file`]; this inspector alone
+/// does not remove encoder delay or validate an MP4 edit.
 pub fn codec_parameters(
     parameters: &symphonia::core::codecs::CodecParameters,
 ) -> Result<symphonia::core::codecs::CodecParameters, SymError> {
-    alac::parameters(parameters)
+    let parameters = alac::parameters(parameters)?;
+    if parameters.channels.is_none() {
+        aac_config::parameters(&parameters)
+    } else {
+        Ok(parameters)
+    }
 }
 
 /// Construct a shared native codec, including the admitted mono/stereo Opus profile.
@@ -40,6 +60,8 @@ pub fn codec_parameters(
 /// Opus callers use gapless demuxing and require `finalize().verify_ok == Some(true)`.
 /// ALAC callers reject `Some(false)` at EOF: known media ticks must all be covered,
 /// independently of PCM-clock rounding. This is completion, not a source checksum.
+/// AAC callers obtain container packets from [`probe_file`] in gapless mode;
+/// the codec applies those packets' trim fields while retaining decoder pre-roll.
 /// Random seeks require reopening and progressively decoding source pre-roll.
 /// Unexpected native-codec unwinding retires the returned codec permanently;
 /// packet calls then return `ResetRequired`, with no stale decoded output.
@@ -47,13 +69,21 @@ pub fn make_decoder(
     parameters: &symphonia::core::codecs::CodecParameters,
     options: &DecoderOptions,
 ) -> Result<Box<dyn Decoder>, SymError> {
-    let inner: Box<dyn Decoder> = catch_unwind(AssertUnwindSafe(|| {
-        if parameters.codec == symphonia::core::codecs::CODEC_TYPE_OPUS {
-            Ok(Box::new(opus::OpusDecoder::try_new(parameters, options)?) as Box<dyn Decoder>)
-        } else {
-            symphonia::default::get_codecs().make(&codec_parameters(parameters)?, options)
-        }
-    }))
+    let inner: Box<dyn Decoder> = catch_unwind(AssertUnwindSafe(
+        || -> Result<Box<dyn Decoder>, SymError> {
+            if parameters.codec == symphonia::core::codecs::CODEC_TYPE_OPUS {
+                Ok(Box::new(opus::OpusDecoder::try_new(parameters, options)?) as Box<dyn Decoder>)
+            } else {
+                let inner = symphonia::default::get_codecs()
+                    .make(&codec_parameters(parameters)?, options)?;
+                if parameters.codec == symphonia::core::codecs::CODEC_TYPE_AAC {
+                    Ok(Box::new(aac_trim::TrimDecoder::new(inner)) as Box<dyn Decoder>)
+                } else {
+                    Ok(inner)
+                }
+            }
+        },
+    ))
     .map_err(|_| SymError::DecodeError("audio codec construction panicked"))??;
     Ok(Box::new(guard::GuardedDecoder::new(inner)?))
 }
@@ -198,26 +228,18 @@ impl SymphoniaDecoder {
         if let Some(extension) = path.extension().and_then(|s| s.to_str()) {
             hint.with_extension(extension);
         }
-        let input = source::prepare(file)?;
-        let probed = catch_unwind(AssertUnwindSafe(|| {
-            source::probe().format(
-                &hint,
-                MediaSourceStream::new(input, Default::default()),
-                &FormatOptions {
-                    enable_gapless: true,
-                    ..Default::default()
-                },
-                &MetadataOptions::default(),
-            )
-        }))
-        .map_err(|_| DecodeError("audio probe panicked".into()))?
-        .map_err(|e| DecodeError(format!("probe failed: {e}")))?;
-        let format = probed.format;
-        let track = format
-            .default_track()
-            .ok_or_else(|| DecodeError("no default track".into()))?;
-        let parameters = codec_parameters(&track.codec_params)
-            .map_err(|e| DecodeError(format!("invalid codec configuration: {e}")))?;
+        let ProbedFile {
+            format,
+            track_id,
+            params: parameters,
+        } = probe_file(
+            file,
+            &hint,
+            &FormatOptions {
+                enable_gapless: true,
+                ..Default::default()
+            },
+        )?;
         let sample_rate = parameters
             .sample_rate
             .filter(|v| *v > 0)
@@ -228,10 +250,10 @@ impl SymphoniaDecoder {
             .filter(|v| *v > 0 && *v <= 32)
             .ok_or_else(|| DecodeError("missing or unsupported channels".into()))?;
         let channel_mask = parameters.channels.map(|v| v.bits());
-        let track_id = track.id;
         let strict_codec = match parameters.codec {
             symphonia::core::codecs::CODEC_TYPE_OPUS => Some("Opus"),
             symphonia::core::codecs::CODEC_TYPE_ALAC => Some("ALAC"),
+            symphonia::core::codecs::CODEC_TYPE_AAC => Some("AAC"),
             _ => None,
         };
         let expected_frames = if strict_codec == Some("ALAC") {
@@ -291,11 +313,11 @@ impl SymphoniaDecoder {
                         self.failed = true;
                         return Err(DecodeError("incomplete Opus stream".into()));
                     }
-                    if self.strict_codec == Some("ALAC")
+                    if matches!(self.strict_codec, Some("ALAC" | "AAC"))
                         && self.decoder.finalize().verify_ok == Some(false)
                     {
                         self.failed = true;
-                        return Err(DecodeError("incomplete ALAC packet timeline".into()));
+                        return Err(DecodeError("incomplete native audio stream".into()));
                     }
                     if self
                         .expected_frames
@@ -399,3 +421,7 @@ mod tests;
 #[cfg(test)]
 #[path = "decode_guard_tests.rs"]
 mod guard_tests;
+
+#[cfg(test)]
+#[path = "decode_aac_tests.rs"]
+mod aac_tests;

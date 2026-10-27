@@ -860,3 +860,39 @@ fn native_dsd_playback_uses_filtered_pcm_and_keeps_seek_units_in_pcm_frames() {
         );
     }
 }
+
+#[test]
+fn native_aac_plays_and_seeks_in_trimmed_pcm_frames_without_ffmpeg() {
+    for (name, rate, channels, frames) in [
+        ("mono441", 44100, 1u16, 10001usize),
+        ("stereo48", 48000, 2, 48013),
+        ("stereo96", 96000, 2, 12037),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-aac")
+            .join(format!("{name}.m4a"));
+        let mut decoder = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(
+            (decoder.sample_rate(), decoder.channels()),
+            (rate, channels)
+        );
+        let mut pcm = Vec::new();
+        let mut buffer = vec![0.0; 337 * usize::from(channels)];
+        loop {
+            let count = decoder.read_frames(&mut buffer).unwrap();
+            if count == 0 {
+                break;
+            }
+            pcm.extend_from_slice(&buffer[..count * usize::from(channels)]);
+        }
+        assert_eq!(pcm.len(), frames * usize::from(channels));
+        let mut seek = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(seek.skip_frames(4099, || false).unwrap().frames, 4099);
+        let count = seek.read_frames(&mut buffer).unwrap();
+        assert_eq!(
+            &buffer[..count * usize::from(channels)],
+            &pcm[4099 * usize::from(channels)..(4099 + count) * usize::from(channels)]
+        );
+        assert!(seek.skip_frames(1, || true).is_err());
+    }
+}

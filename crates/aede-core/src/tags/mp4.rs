@@ -284,7 +284,19 @@ fn read_stsd(data: &[u8], tags: &mut RawTags) {
             let Some(config) = c.take(payload_len) else {
                 break;
             };
-            if let Some(rate) = high_aac_rate(config) {
+            if let Some(lc) = aac_configuration(config)
+                .and_then(aede_audio::decode::read_aac_lc_configuration)
+                .filter(|lc| {
+                    tags.properties.sample_rate == Some(lc.sample_rate)
+                        || lc.sample_rate > u16::MAX as u32
+                })
+            {
+                // Mono AAC may use the standard stereo sample-entry placeholder.
+                // A conflicting low core rate can instead describe implicit HE;
+                // preserve that existing output hint rather than guessing.
+                tags.properties.sample_rate = Some(lc.sample_rate);
+                tags.properties.channels = Some(u16::from(lc.channels));
+            } else if let Some(rate) = high_aac_rate(config) {
                 tags.properties.sample_rate = Some(rate);
             }
             continue;
@@ -313,6 +325,20 @@ fn high_aac_rate(data: &[u8]) -> Option<u32> {
         }
     }
 
+    let config = aac_configuration(data)?;
+    let mut bits = BitReaderLtr::new(config);
+    let mut object = bits.read_bits_leq32(5).ok()?;
+    let mut rate = frequency(&mut bits)?;
+    bits.read_bits_leq32(4).ok()?; // channel configuration must be present
+    if matches!(object, 5 | 29) {
+        rate = frequency(&mut bits)?;
+        object = bits.read_bits_leq32(5).ok()?;
+    }
+    // Only the AAC object types whose frequency prefix is handled here.
+    (matches!(object, 1..=4 | 17 | 19 | 20 | 23) && rate > u16::MAX as u32).then_some(rate)
+}
+
+fn aac_configuration(data: &[u8]) -> Option<&[u8]> {
     let mut outer = Cursor::new(data);
     if outer.u32_be()? != 0 {
         return None;
@@ -335,17 +361,7 @@ fn high_aac_rate(data: &[u8]) -> Option<u32> {
         return None;
     }
     decoder.take(12)?; // stream type, buffer size, maximum/average bitrate
-    let config = descriptor(decoder.take(decoder.remaining())?, 5)?;
-    let mut bits = BitReaderLtr::new(config);
-    let mut object = bits.read_bits_leq32(5).ok()?;
-    let mut rate = frequency(&mut bits)?;
-    bits.read_bits_leq32(4).ok()?; // channel configuration must be present
-    if matches!(object, 5 | 29) {
-        rate = frequency(&mut bits)?;
-        object = bits.read_bits_leq32(5).ok()?;
-    }
-    // Only the AAC object types whose frequency prefix is handled here.
-    (matches!(object, 1..=4 | 17 | 19 | 20 | 23) && rate > u16::MAX as u32).then_some(rate)
+    descriptor(decoder.take(decoder.remaining())?, 5)
 }
 
 // MPEG-4 descriptor sizes carry seven bits in at most four bytes. Each level

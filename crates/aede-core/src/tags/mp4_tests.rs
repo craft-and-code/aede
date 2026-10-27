@@ -408,3 +408,27 @@ fn aac_frequency_descriptors_stay_bounded_and_keep_ordinary_output_rates() {
     read_stsd(&description, &mut tags);
     assert_eq!(tags.properties.sample_rate, Some(48_000));
 }
+
+#[test]
+fn lc_mono_catalogue_uses_codec_channels_instead_of_mp4_stereo_placeholder() {
+    let bytes = include_bytes!("../../../aede-audio/tests/fixtures/native-aac/mono441.m4a");
+    let fixture = super::super::test_support::BinaryFile::new("m4a", bytes);
+    for tags in [fixture.read().unwrap(), fixture.read_from_file().unwrap()] {
+        assert_eq!(tags.properties.codec, "aac");
+        assert_eq!(tags.properties.sample_rate, Some(44_100));
+        assert_eq!(tags.properties.channels, Some(1));
+        assert_eq!(tags.properties.bit_depth, None);
+    }
+    assert_eq!(std::fs::read(fixture.path()).unwrap(), bytes);
+}
+
+#[test]
+fn explicit_lc_channels_replace_the_generic_stereo_sample_entry() {
+    let mut description = aac_description(&aac_esds(&[0x11, 0x88], 0, false, 0x40));
+    // The audio entry header is deliberately generic stereo, ASC is mono/48k.
+    description[32..34].copy_from_slice(&2u16.to_be_bytes());
+    let mut tags = RawTags::default();
+    read_stsd(&description, &mut tags);
+    assert_eq!(tags.properties.channels, Some(1));
+    assert_eq!(tags.properties.sample_rate, Some(48000));
+}
