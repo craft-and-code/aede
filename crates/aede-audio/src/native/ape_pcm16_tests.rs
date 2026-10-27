@@ -74,10 +74,10 @@ fn invalid_seek_retires_the_reader() {
     assert!(reader.next_chunk().is_err());
 }
 #[test]
-fn admission_refuses_legacy_versions_precision_and_unbounded_prefixes() {
+fn admission_refuses_unsupported_versions_precision_and_unbounded_prefixes() {
     let source = fs::read(fixture()).unwrap();
     let mut legacy = source.clone();
-    legacy[4..6].copy_from_slice(&3970u16.to_le_bytes());
+    legacy[4..6].copy_from_slice(&3790u16.to_le_bytes());
     assert!(
         Copy::new(&legacy)
             .open()

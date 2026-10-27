@@ -33,6 +33,7 @@
       }
     },
     "externalBin": ["binaries/aede-engine"],
+    "resources": {"../../crates/aede-audio/THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt"},
     "category": "Music",
     "shortDescription": "Local-first music library server",
     "linux": {

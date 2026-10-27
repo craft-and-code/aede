@@ -1,20 +1,32 @@
 //! Frame-wise APE adapter. Header/seek budgets precede dependency allocation.
 use super::{Error, Info, Kind, Result};
+#[path = "ape_layout.rs"]
+mod layout;
+#[path = "ape_legacy.rs"]
+mod legacy;
+#[path = "ape_sdk.rs"]
+mod sdk;
 #[path = "ape_source.rs"]
 mod source;
+#[path = "ape_tags.rs"]
+mod tags;
 use source::Source;
 use std::{
     fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
+    io::{BufReader, Seek, SeekFrom},
 };
 pub(super) struct Decoder {
-    inner: ape_decoder::ApeDecoder<BufReader<Source>>,
+    inner: Backend,
     pub info: Info,
     index: u32,
     count: u32,
     blocks: u32,
     last: u32,
     bits: u32,
+}
+enum Backend {
+    Current(Box<ape_decoder::ApeDecoder<BufReader<Source>>>),
+    Legacy(sdk::Codec),
 }
 fn word(bytes: &[u8], at: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(
@@ -57,103 +69,41 @@ impl Decoder {
     }
     pub fn open(file: File) -> Result<Self> {
         let mut file = Source::open(file)?;
-        let length = file.length;
-        let mut descriptor = [0; 52];
+        let metadata = layout::read(&mut file)?;
+        let layout::Layout {
+            version,
+            info,
+            blocks,
+            last,
+            count,
+            ..
+        } = metadata;
         file.seek(SeekFrom::Start(0))?;
-        file.read_exact(&mut descriptor)?;
-        let version = half(&descriptor, 4)?;
-        if !(3980..=4100).contains(&version) {
-            return Err(Error(
-                "unsupported APE version: native profile is 3.98–4.10".into(),
-            ));
-        }
-        let d = u64::from(word(&descriptor, 8)?);
-        let h = u64::from(word(&descriptor, 12)?);
-        let seek = u64::from(word(&descriptor, 16)?);
-        let wrapper = u64::from(word(&descriptor, 20)?);
-        let data = u64::from(word(&descriptor, 24)?) + (u64::from(word(&descriptor, 28)?) << 32);
-        let ending = u64::from(word(&descriptor, 32)?);
-        if &descriptor[..4] != b"MAC "
-            || !(52..=4096).contains(&d)
-            || !(24..=4096).contains(&h)
-            || seek > 4 * 1024 * 1024
-            || wrapper > 1024 * 1024
-        {
-            return Err(Error("APE descriptor exceeds the admitted profile".into()));
-        }
-        let start = d
-            .checked_add(h)
-            .and_then(|v| v.checked_add(seek))
-            .and_then(|v| v.checked_add(wrapper))
-            .ok_or_else(|| Error("APE header extent overflow".into()))?;
-        let end = start
-            .checked_add(data)
-            .filter(|v| v.checked_add(ending).is_some_and(|n| n <= length))
-            .ok_or_else(|| Error("APE data exceeds source".into()))?;
-        file.seek(SeekFrom::Start(d))?;
-        let mut header = [0; 24];
-        file.read_exact(&mut header)?;
-        let blocks = word(&header, 4)?;
-        let last = word(&header, 8)?;
-        let count = word(&header, 12)?;
-        let bits = u32::from(half(&header, 16)?);
-        let channels = usize::from(half(&header, 18)?);
-        let rate = word(&header, 20)?;
-        if count == 0
-            || seek != u64::from(count) * 4
-            || !(1..=2).contains(&channels)
-            || ![8, 16, 24, 32].contains(&bits)
-            || blocks == 0
-            || u64::from(blocks) * channels as u64 > 1_048_576
-            || last == 0
-            || last > blocks
-        {
-            return Err(Error("APE frame layout exceeds native budget".into()));
-        }
-        let frames = u64::from(count - 1) * u64::from(blocks) + u64::from(last);
-        let info = Info {
-            kind: Kind::Ape,
-            sample_rate: rate,
-            channels,
-            bits: Some(bits),
-            frames: Some(frames),
-        };
-        info.validate()?;
-        file.seek(SeekFrom::Start(d + h))?;
-        let mut positions = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let mut b = [0; 4];
-            file.read_exact(&mut b)?;
-            positions.push(u64::from(u32::from_le_bytes(b)));
-        }
-        for (i, &at) in positions.iter().enumerate() {
-            let next = positions.get(i + 1).copied().unwrap_or(end);
-            if at < start || next <= at || next > end || next - at > 16 * 1024 * 1024 {
-                return Err(Error("invalid APE seek/frame extent".into()));
+        let inner = if version < 3990 {
+            Backend::Legacy(sdk::Codec::open(file, info, version, blocks, last, count)?)
+        } else {
+            let current = ape_decoder::ApeDecoder::new(BufReader::with_capacity(65536, file))
+                .map_err(|e| Error(e.to_string()))?;
+            if current.info().is_big_endian
+                || current.info().is_floating_point
+                || current.info().is_signed_8bit
+            {
+                return Err(Error(
+                    "APE requires ordinary little-endian integer PCM".into(),
+                ));
             }
-        }
-        file.seek(SeekFrom::Start(0))?;
-        file.length = end + ending;
-        let inner = ape_decoder::ApeDecoder::new(BufReader::with_capacity(65536, file))
-            .map_err(|e| Error(e.to_string()))?;
-        if inner.info().is_big_endian
-            || inner.info().is_floating_point
-            || inner.info().is_signed_8bit
-        {
-            return Err(Error(
-                "APE requires ordinary little-endian integer PCM".into(),
-            ));
-        }
-        if inner.info().sample_rate != rate
-            || inner.info().channels as usize != channels
-            || u32::from(inner.info().bits_per_sample) != bits
-            || inner.info().total_samples != frames
-            || inner.total_frames() != count
-        {
-            return Err(Error(
-                "APE properties disagree with protected header".into(),
-            ));
-        }
+            if current.info().sample_rate != info.sample_rate
+                || current.info().channels as usize != info.channels
+                || Some(u32::from(current.info().bits_per_sample)) != info.bits
+                || Some(current.info().total_samples) != info.frames
+                || current.total_frames() != count
+            {
+                return Err(Error(
+                    "APE properties disagree with protected header".into(),
+                ));
+            }
+            Backend::Current(Box::new(current))
+        };
         Ok(Self {
             inner,
             info,
@@ -161,7 +111,7 @@ impl Decoder {
             count,
             blocks,
             last,
-            bits,
+            bits: metadata.bits,
         })
     }
     pub(super) fn next_bytes(&mut self) -> Result<Vec<u8>> {
@@ -173,11 +123,17 @@ impl Decoder {
         } else {
             self.blocks
         };
-        let bytes = self
-            .inner
-            .decode_frame(self.index)
-            .map_err(|e| Error(e.to_string()))?;
         let width = self.bits as usize / 8;
+        let bytes = match &mut self.inner {
+            Backend::Current(decoder) => decoder
+                .decode_frame(self.index)
+                .map_err(|e| Error(e.to_string()))?,
+            Backend::Legacy(decoder) => decoder.frame(
+                u64::from(self.index) * u64::from(self.blocks),
+                frames,
+                frames as usize * self.info.channels * width,
+            )?,
+        };
         if bytes.len() != frames as usize * self.info.channels * width {
             return Err(Error("APE decoded frame has the wrong length".into()));
         }
@@ -201,4 +157,51 @@ impl Decoder {
         }
         Ok(pcm)
     }
+}
+
+// Automatic probing admits only a proper leading ID3 tag followed by padding
+// and APE magic. It must not steal ID3-prefixed MP3/FLAC inputs by scanning their
+// encoded payload. The explicit file-handle API keeps its broader prefix scan.
+pub(super) fn recognize(file: &mut File) -> Result<bool> {
+    use std::io::Read;
+    file.seek(SeekFrom::Start(0))?;
+    let result = (|| {
+        let mut header = [0; 10];
+        if file.read_exact(&mut header).is_err()
+            || &header[..3] != b"ID3"
+            || !(2..=4).contains(&header[3])
+            || header[6..].iter().any(|b| b & 0x80 != 0)
+        {
+            return Ok(false);
+        }
+        let start = header[6..]
+            .iter()
+            .fold(0u64, |n, b| (n << 7) | u64::from(*b))
+            + 10
+            + if header[3] == 4 && header[5] & 0x10 != 0 {
+                10
+            } else {
+                0
+            };
+        if start > 1024 * 1024 {
+            return Ok(false);
+        }
+        file.seek(SeekFrom::Start(start))?;
+        let mut input = BufReader::with_capacity(65536, &mut *file);
+        let mut byte = [0];
+        for _ in start..=1024 * 1024 {
+            if input.read(&mut byte)? == 0 {
+                return Ok(false);
+            }
+            if byte[0] != 0 {
+                let mut rest = [0; 3];
+                return Ok(byte[0] == b'M'
+                    && input.read_exact(&mut rest).is_ok()
+                    && &rest == b"AC ");
+            }
+        }
+        Ok(false)
+    })();
+    file.seek(SeekFrom::Start(0))?;
+    result
 }

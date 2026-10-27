@@ -940,3 +940,31 @@ fn zero_frame_sv7_headers_cannot_replace_an_existing_spectrogram() {
     assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
     assert_eq!(std::fs::read(audio).unwrap(), bytes);
 }
+
+#[test]
+fn historical_ape_spectrograms_never_resolve_an_external_decoder() {
+    let files = SpectralFiles::new();
+    let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-audio/tests/fixtures/native-extra/silence-3970.ape");
+    let audio = files.0.join("legacy.ape");
+    let original = std::fs::read(source).unwrap();
+    std::fs::write(&audio, &original).unwrap();
+    let picture = picture_for(&audio);
+    render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        panic!("historical APE must not resolve FFmpeg")
+    })
+    .unwrap();
+    assert!(!out_of_date(&audio, &picture));
+    let previous = std::fs::read(&picture).unwrap();
+    let mut corrupt = original;
+    corrupt[44] ^= 1;
+    std::fs::write(&audio, &corrupt).unwrap();
+    assert!(
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            panic!("admitted CRC failure cannot select an external decoder")
+        })
+        .is_err()
+    );
+    assert_eq!(std::fs::read(picture).unwrap(), previous);
+    assert_eq!(std::fs::read(audio).unwrap(), corrupt);
+}

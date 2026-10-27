@@ -22,8 +22,8 @@ class NativeCodecTests(unittest.TestCase):
         for name, digest in originals.items():
             with self.subTest(file=name):
                 self.assertEqual(hashlib.sha256((vendor / name).read_bytes()).hexdigest(), patched.get(name, digest))
-        recorded = {name for name in originals if name.endswith((".c", ".h"))}
-        retained = {p.relative_to(vendor).as_posix() for p in vendor.rglob("*") if p.suffix in (".c", ".h")}
+        recorded = {name for name in originals if name.endswith((".c", ".cpp", ".h"))}
+        retained = {p.relative_to(vendor).as_posix() for p in vendor.rglob("*") if p.suffix in (".c", ".cpp", ".h")}
         self.assertEqual(retained, recorded)
 
     def test_encoded_and_reference_fixture_bytes_are_unchanged(self):
@@ -31,6 +31,40 @@ class NativeCodecTests(unittest.TestCase):
         for name, digest in json.loads((fixtures / "sha256.json").read_text()).items():
             with self.subTest(file=name):
                 self.assertEqual(hashlib.sha256((fixtures / name).read_bytes()).hexdigest(), digest)
+
+    def test_sdk_licence_is_retained_in_cli_and_desktop_distribution_materials(self):
+        notices = (AUDIO / "THIRD_PARTY_NOTICES.txt").read_text()
+        sdk = (AUDIO / "vendor/monkeys-audio-13.43/License.txt").read_text()
+        self.assertIn(sdk.strip(), notices)
+        bundle = json.loads((ROOT / "desktop/src-tauri/tauri.conf.json").read_text())["bundle"]
+        resource = "../../crates/aede-audio/THIRD_PARTY_NOTICES.txt"
+        self.assertIn(resource, bundle["resources"])
+        self.assertTrue((ROOT / "desktop/src-tauri" / resource).is_file())
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn('cp LICENSE README.md crates/aede-audio/THIRD_PARTY_NOTICES.txt "dist/${name}/"', workflow)
+
+    @unittest.skipIf(os.name == "nt", "POSIX CI recipe; Windows uses its native compiler")
+    def test_musl_recipe_requires_native_architecture_and_uses_matching_cpp(self):
+        with tempfile.TemporaryDirectory(prefix="aede-musl-recipe-") as folder:
+            folder = Path(folder)
+            (folder / "uname").write_text('#!/bin/sh\necho "$TEST_MACHINE"\n')
+            (folder / "docker").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$TEST_ARGS"\n')
+            for name in ["uname", "docker"]:
+                (folder / name).chmod(0o755)
+            env = dict(os.environ, PATH=str(folder) + os.pathsep + os.environ["PATH"], TEST_ARGS=str(folder / "args"))
+            for machine, target in [("x86_64", "x86_64-unknown-linux-musl"), ("aarch64", "aarch64-unknown-linux-musl")]:
+                env["TEST_MACHINE"] = machine
+                r = subprocess.run(["bash", str(ROOT / "tools/ci-musl.sh"), target], env=env, capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                args = (folder / "args").read_text()
+                self.assertIn("--env\nCXX=g++\n", args)
+                self.assertIn("rust:1.89.0-alpine3.22@sha256:", args)
+                self.assertIn('cargo test --locked --target "$1"', args)
+                self.assertIn('cargo build --release --locked --target "$1"', args)
+                self.assertEqual(args.splitlines()[-1], target)
+            env["TEST_MACHINE"] = "aarch64"
+            r = subprocess.run(["bash", str(ROOT / "tools/ci-musl.sh"), "x86_64-unknown-linux-musl"], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
 
     def compiler(self):
         if os.name == "nt":

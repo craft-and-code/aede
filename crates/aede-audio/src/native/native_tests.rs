@@ -1,5 +1,5 @@
 use super::*;
-fn fixture(name: &str) -> std::path::PathBuf {
+pub(super) fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/native-extra")
         .join(name)
@@ -97,9 +97,9 @@ fn native_extra_decoders_agree_with_independent_reference_pcm() {
     }
 }
 
-struct Scratch(std::path::PathBuf);
+pub(super) struct Scratch(std::path::PathBuf);
 impl Scratch {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         let id = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -109,7 +109,7 @@ impl Scratch {
         fs::create_dir(&dir).unwrap();
         Self(dir)
     }
-    fn write(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    pub(super) fn write(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
         let path = self.0.join(name);
         fs::write(&path, bytes).unwrap();
         path

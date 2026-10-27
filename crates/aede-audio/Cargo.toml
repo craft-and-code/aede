@@ -28,3 +28,7 @@ ape-decoder = { version = "=0.3.2", optional = true }
 
 [build-dependencies]
 cc = { version = "1", optional = true }
+
+[[example]]
+name = "verify_legacy_ape"
+required-features = ["ape-pcm16"]

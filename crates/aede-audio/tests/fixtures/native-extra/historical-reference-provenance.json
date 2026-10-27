@@ -1,0 +1,72 @@
+[
+  {
+    "source": "sh3.ape",
+    "source_sha256": "9b8e89b81a87001648d58dc9ef440a5b9b8c214a4df07bd22776da1ff6e32004",
+    "pcm_sha256": "57cb3908bb26e91f372c1f0e8f10e68a699f90107d486546ceef9ff695fc2a7b",
+    "original_source": "sh3.ape",
+    "original_sha256": "9b8e89b81a87001648d58dc9ef440a5b9b8c214a4df07bd22776da1ff6e32004",
+    "url": "https://samples.ffmpeg.org/monkeyaudio/sh3.ape",
+    "frames": 690843,
+    "preparation": "unchanged complete source"
+  },
+  {
+    "source": "luckynight-mac380-c2000-complete.ape",
+    "source_sha256": "815414581cc358b0096c191f640014985571361139d6ba733c5d59db73c024ff",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac380-c2000.ape",
+    "original_sha256": "0e7ebad37905f2d52c578acf44ffcff799016640068d552e12a2a810cb16e5b7",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac380-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  },
+  {
+    "source": "luckynight-mac392b2-c2000-complete.ape",
+    "source_sha256": "57986d9e50f84a57f39cf35cc9bb7576c522fd12918f4aeb93e1e1b911336574",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac392b2-c2000.ape",
+    "original_sha256": "ecaa78325ed4c4d70ab63625dd1848ba78d728944dd9f797a53b7b25fdfecabc",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac392b2-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  },
+  {
+    "source": "luckynight-mac388-c2000-complete.ape",
+    "source_sha256": "d3aeefceb98beb78d57f38022a5b1ef26698ed66a21d0df231fdb0b5caefed05",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac388-c2000.ape",
+    "original_sha256": "73d7dd1e452e2f02745e00e90a501a7f4612fde2b3448fcf9dfa3fa692aef42a",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac388-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  },
+  {
+    "source": "luckynight-mac389b1-c2000-complete.ape",
+    "source_sha256": "9ccd122c76b4e20f6dc3593ac9cef663256944c36f810148a47c27043fc3e6ef",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac389b1-c2000.ape",
+    "original_sha256": "59cb325b9be8c8f7c6137ab6c4d3446b4288ea60574b8e688441f046308f4945",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac389b1-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  },
+  {
+    "source": "luckynight-mac394b1-c2000-complete.ape",
+    "source_sha256": "e2d90f9b90b8674811d647e86e0f9246ae5e30f9b30d999df87d11e4ca13985f",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac394b1-c2000.ape",
+    "original_sha256": "c17918e48df298a648bc3efa23e948bcd055af8cc2a631af183b10e6a198c1bc",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac394b1-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  },
+  {
+    "source": "luckynight-mac391b1-c2000-complete.ape",
+    "source_sha256": "de31ba6f8c1c82f345cd24a36e62722ec609ebaca373da3fcacf54365f998001",
+    "pcm_sha256": "7192854ed7b42e76a006a5a71ac53a20108c9f7e0543572b1c309e05d96f5f67",
+    "original_source": "luckynight-mac391b1-c2000.ape",
+    "original_sha256": "2a1063f472abab3d6a3669d05c426d2fbe8e9c7f4124725087dc248ae331b954",
+    "url": "https://fate-suite.ffmpeg.org/lossless-audio/luckynight-mac391b1-c2000.ape",
+    "frames": 73728,
+    "preparation": "retain complete compressed frames; rewrite count/last/wrapper extents, preserve original byte/bit seeks"
+  }
+]

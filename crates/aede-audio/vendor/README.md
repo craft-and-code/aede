@@ -1,12 +1,13 @@
 # Native decoder sources
 
-These are upstream C sources/public headers (with the documented Speex backport and Musepack arithmetic patches below), compiled statically only by `aede-audio`'s `decode` feature. The approved adapter is in `../native`; no codec executable is distributed, downloaded or called. No assembly, native codec threads, filesystem filenames or Musepack ReplayGain is enabled by the adapter. The source archives contain encoders too; only the library source list in `../build.rs` is compiled, never their CLI applications. Speex and WavPack's public library components include encoder internals; Phémios/FlacCompagnon expose only decoding through this adapter.
+These are upstream C/C++ sources/public headers (with the documented Speex backport and Musepack arithmetic patches below), compiled statically only by `aede-audio`'s `decode` feature. The approved adapter is in `../native`; no codec executable is distributed, downloaded or called. No assembly, native codec threads, filesystem filenames or Musepack ReplayGain is enabled by the adapter. The source archives contain encoders too; only the library source list in `../build.rs` is compiled, never their CLI applications. Speex and WavPack's public library components include encoder internals; Phémios/FlacCompagnon expose only decoding through this adapter.
 
 | Component | Source archive | Archive SHA-256 | Licence |
 | --- | --- | --- | --- |
 | WavPack 5.9.0 | <https://www.wavpack.com/wavpack-5.9.0.tar.xz> | `b5291bc4e6d69ebbd3da3800c5bf4a70f19bb92679b23e09b3b612c1e648d1ff` | BSD-3-Clause, `wavpack-5.9.0/COPYING` |
 | Speex 1.2.1 | <https://downloads.xiph.org/releases/speex/speex-1.2.1.tar.gz> | `4b44d4f2b38a370a2d98a78329fefc56a0cf93d1c1be70029217baae6628feea` | BSD-3-Clause, `speex-1.2.1/COPYING` |
 | Musepack r475 | <https://files.musepack.net/source/musepack_src_r475.tar.gz> | `a4b1742f997f83e1056142d556a8c20845ba764b70365ff9ccf2e3f81c427b2b` | BSD-3-Clause, `musepack_src_r475/libmpcdec/COPYING`; Zlib notice retained in `common/huffman-bcl.c` |
+| Monkey's Audio SDK 13.43 | <https://monkeysaudio.com/files/MAC_1343_SDK.zip> | `3fd1c60f994daba536902f30b1bebc2235099c8b8a039d8b37d9d27d4827e0ca` | BSD-3-Clause, `monkeys-audio-13.43/License.txt` |
 
 The Musepack official archive was unavailable through its host. The identical archive was obtained from <https://pkg.mxe.cc/pkg/musepack_src_r475.tar.gz>; its MD5 also matches the official source page's `754d67be67f713e54baf70fcfdb2817e`. `sha256.json` records each retained original upstream file's SHA-256. The separately recorded patched-file hashes are in `patches/sha256.json`. Compare against freshly verified archives before upgrading; do not patch vendor files silently. Updates require native reference/malformed-input/cancellation tests and platform release checks.
 
@@ -39,3 +40,9 @@ The Rust preflight also rejects seek exponents that cannot form a positive signe
 ## WavPack integer arithmetic
 
 WavPack is compiled as its own static archive, with `-fwrapv` where the C compiler supports it. Corrupt but structurally admitted predictor metadata reproduced signed addition/multiplication overflow under UBSan before CRC rejection. The flag defines that integer arithmetic as modulo operations while leaving shifts, memory accesses and other undefined behavior checked; it is deliberately not applied to Musepack or Speex. The offline public-API regression uses the production WavPack source/flag selection and requires an ordinary CRC failure for the retained mutated cases. Independent integer, floating and hybrid PCM references remain unchanged. Native target/compiler qualification remains required.
+
+## Historical APE SDK
+
+The explicitly approved SDK supplies pre-3.99 decoding that `ape-decoder` 0.3.2 cannot reconstruct correctly (a real 3.97 input fails in its range coder). The retained `Source/MACLib` and `Source/Shared` files are byte-identical to the official 13.43 archive; console/UI sources are omitted. `build.rs` compiles the library, with architecture-specific SIMD flags confined to individual dispatched units and signed-wrap arithmetic for this dependency. No vendor algorithm is copied into the Rust adapter. `native/ape.cpp` is an original read-only public-interface bridge; no file path reaches the SDK. One decoding thread is required, and complete codec frames are staged through CRC checking before publication. The SDK is a native dependency, not a process sandbox.
+
+The archive hash also matches the [Homebrew 13.43 recipe](https://github.com/Homebrew/homebrew-core/blob/ec23cb79f659be7aa35a416349c4c7da0d849ee6/Formula/m/mac.rb). Per-file upstream hashes and the complete licence are retained. A C++11 compiler/runtime is required in addition to C11; musl needs a matching C++ toolchain and statically linked standard library. Normal Cargo decoding never downloads a compiler or SDK. Windows/Linux and architecture release jobs remain separate qualification.

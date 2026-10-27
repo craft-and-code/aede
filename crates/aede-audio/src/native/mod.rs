@@ -1,5 +1,5 @@
 //! Additional shared file decoders; original audio/tags are always read-only.
-//! The foreign-code boundary is confined to ffi/io and native/*.c.
+//! The foreign-code boundary is confined to ffi/io and native/*.{c,cpp}.
 mod ape;
 #[cfg(feature = "ape-pcm16")]
 mod ape_pcm16;
@@ -128,7 +128,9 @@ impl Decoder {
                 preflight::musepack(&mut file)?;
                 Inner::C(ffi::Codec::open(file, Kind::Musepack)?)
             }
-            (b"MAC ", 4) => Inner::Ape(Box::new(ape::Decoder::open(file)?)),
+            (m, 4) if m == b"MAC " || (&m[..3] == b"ID3" && ape::recognize(&mut file)?) => {
+                Inner::Ape(Box::new(ape::Decoder::open(file)?))
+            }
             (b"OggS", 4) if speex::recognize(&mut file)? => {
                 Inner::Speex(Box::new(speex::Decoder::open(file)?))
             }
@@ -216,3 +218,7 @@ impl From<std::io::Error> for Error {
 #[cfg(test)]
 #[path = "native_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ape_legacy_tests.rs"]
+mod ape_legacy_tests;

@@ -60,19 +60,14 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install the musl toolchain and FFmpeg
+      - name: Install host FFmpeg for musl artifact checks
         if: endsWith(matrix.target, '-musl')
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y musl-tools autoconf automake libtool ffmpeg
+          sudo apt-get install -y ffmpeg
           echo 'AEDE_REQUIRE_FFMPEG=1' >> "$GITHUB_ENV"
-          # ring's C sources and the final ARM64 executable need the same libc.
-          if [ '${{ matrix.target }}' = 'aarch64-unknown-linux-musl' ]; then
-            echo 'CC_aarch64_unknown_linux_musl=musl-gcc' >> "$GITHUB_ENV"
-            echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc' >> "$GITHUB_ENV"
-          fi
 
       # A tag says which version this is; so does the manifest. When the two
       # disagree, somebody is about to publish `v0.2.0` of a program that
@@ -95,10 +90,17 @@ jobs:
       # A tag that does not build is worse than no tag: it is published, people
       # download it, and the failure is theirs to discover. The tests run before
       # the archive is made rather than in a separate workflow nobody waits for.
+      - name: Test and build native musl with C++ support
+        if: endsWith(matrix.target, '-musl')
+        shell: bash
+        run: bash tools/ci-musl.sh '${{ matrix.target }}'
+
       - name: Tests
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         run: cargo test --locked --target ${{ matrix.target }} --no-fail-fast
 
       - name: Build
+        if: ${{ !endsWith(matrix.target, '-musl') }}
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Verify Linux architecture, static linkage and startup
@@ -141,7 +143,7 @@ jobs:
           else
             cp "target/${{ matrix.target }}/release/aede" "dist/${name}/"
           fi
-          cp LICENSE README.md "dist/${name}/"
+          cp LICENSE README.md crates/aede-audio/THIRD_PARTY_NOTICES.txt "dist/${name}/"
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
             7z a "${name}.zip" "${name}" > /dev/null

@@ -7,7 +7,7 @@ use std::{
 
 /// Read-only, bounded APE PCM16 reader for file-handle based clients.
 ///
-/// Admits the shared modern 3.98–4.10 profile, including prefixes up to 1 MiB.
+/// Admits the shared bounded 3.80–4.10 profile, including prefixes up to 1 MiB.
 /// Header admission does not decode audio. Blocks contain original interleaved
 /// signed little-endian samples, without f32 conversion or processing effects.
 /// Any failed operation retires this reader; open a new visit after failure.

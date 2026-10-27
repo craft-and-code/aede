@@ -7,8 +7,10 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
+pub(super) trait Stream: Read + Seek + Send {}
+impl<T: Read + Seek + Send> Stream for T {}
 pub(super) struct Input {
-    pub file: File,
+    pub file: Box<dyn Stream>,
     pub length: i64,
     pub error: Option<String>,
 }
@@ -31,8 +33,15 @@ impl Reader {
     pub fn new(file: File) -> Result<Self> {
         let length =
             i64::try_from(file.metadata()?.len()).map_err(|_| Error("source too large".into()))?;
+        Self::from_stream(file, length)
+    }
+    /// The APE adapter supplies a protected, APE-relative regular-file view.
+    pub fn from_stream(file: impl Stream + 'static, length: i64) -> Result<Self> {
+        if length < 0 {
+            return Err(Error("invalid source length".into()));
+        }
         let mut input = Box::new(Input {
-            file,
+            file: Box::new(file),
             length,
             error: None,
         });

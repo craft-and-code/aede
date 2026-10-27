@@ -2,7 +2,10 @@ fn main() {
     println!("cargo:rerun-if-changed=native");
     println!("cargo:rerun-if-changed=vendor");
     #[cfg(feature = "decode")]
-    compile_codecs();
+    {
+        compile_codecs();
+        compile_legacy_ape();
+    }
 }
 
 #[cfg(feature = "decode")]
@@ -113,4 +116,104 @@ fn compile_codecs() {
     if !std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|s| s == "windows") {
         println!("cargo:rustc-link-lib=m");
     }
+}
+
+// Build the approved upstream SDK without its console/UI targets. Keep each
+// optional SIMD unit's flags local; dispatch remains the SDK's responsibility.
+#[cfg(feature = "decode")]
+fn compile_legacy_ape() {
+    let root = std::path::Path::new("vendor/monkeys-audio-13.43/Source");
+    let mut cpp = cc::Build::new();
+    cpp.cpp(true)
+        .std("c++11")
+        .opt_level(2)
+        .warnings(false)
+        .flag_if_supported("-fwrapv")
+        .include(root.join("Shared"))
+        .include(root.join("MACLib"))
+        .include("native");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let platform = match target_os.as_str() {
+        "windows" => "PLATFORM_WINDOWS",
+        "macos" | "ios" => "PLATFORM_APPLE",
+        "android" => "PLATFORM_ANDROID",
+        _ => "PLATFORM_LINUX",
+    };
+    if std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|v| v == "musl") {
+        cpp.cpp_link_stdlib_static(true);
+    }
+    cpp.define(platform, None)
+        .define("_CRT_SECURE_NO_WARNINGS", None);
+    if target_os == "windows" {
+        cpp.flag_if_supported("/EHsc");
+    }
+    for directory in ["Shared", "MACLib", "MACLib/Old"] {
+        let mut paths: Vec<_> = std::fs::read_dir(root.join(directory))
+            .expect("vendored SDK directory")
+            .map(|entry| entry.expect("vendored SDK file").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "cpp"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let name = path
+                .file_name()
+                .and_then(|v| v.to_str())
+                .unwrap_or_default();
+            if name.starts_with("NNFilter")
+                && name != "NNFilter.cpp"
+                && name != "NNFilterGeneric.cpp"
+            {
+                continue;
+            }
+            if (name == "WinFileIO.cpp" && target_os != "windows")
+                || (name == "StdLibFileIO.cpp" && target_os == "windows")
+            {
+                continue;
+            }
+            cpp.file(path);
+        }
+    }
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let units: &[(&str, &[&str])] = match arch.as_str() {
+        "x86" | "x86_64" => &[
+            ("SSE2", &["-msse2"]),
+            ("SSE4.1", &["-msse4.1"]),
+            ("AVX2", &["-mavx2"]),
+            ("AVX512", &["-mavx512dq", "-mavx512bw"]),
+        ],
+        "arm" | "aarch64" => &[("Neon", &[])],
+        "riscv32" | "riscv64" => &[("RVV", &[])],
+        "powerpc" | "powerpc64" => &[("AltiVec", &[])],
+        _ => &[],
+    };
+    for (unit, flags) in units {
+        // Compile only this unit; the shared builder's files belong to the
+        // final archive and must not be compiled again with SIMD-only flags.
+        let mut build = cc::Build::new();
+        build
+            .cpp(true)
+            .std("c++11")
+            .opt_level(2)
+            .warnings(false)
+            .flag_if_supported("-fwrapv")
+            .include(root.join("Shared"))
+            .include(root.join("MACLib"))
+            .define(platform, None)
+            .define("_CRT_SECURE_NO_WARNINGS", None)
+            .file(root.join("MACLib").join(format!("NNFilter{unit}.cpp")));
+        if target_os == "windows" {
+            build.flag_if_supported("/EHsc");
+            if *unit == "AVX2" {
+                build.flag_if_supported("/arch:AVX2");
+            }
+            if *unit == "AVX512" {
+                build.flag_if_supported("/arch:AVX512");
+            }
+        }
+        for flag in *flags {
+            build.flag_if_supported(flag);
+        }
+        cpp.objects(build.compile_intermediates());
+    }
+    cpp.file("native/ape.cpp").compile("aede_ape_legacy");
 }
