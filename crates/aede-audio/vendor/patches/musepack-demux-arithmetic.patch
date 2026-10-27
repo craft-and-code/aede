@@ -1,0 +1,36 @@
+--- a/musepack_src_r475/libmpcdec/mpc_demux.c
++++ b/musepack_src_r475/libmpcdec/mpc_demux.c
+@@ -109,8 +109,8 @@
+ 		mpc_uint32_t bytesread;
+ 
+ 		if (flags & MPC_BUFFER_SWAP) {
+-			bytes2read &= -1 << 2;
+-			offset = (unread_bytes + 3) & ( -1 << 2);
++			bytes2read &= ~3u;
++			offset = (unread_bytes + 3) & ~3u;
+ 			offset -= unread_bytes;
+ 		}
+ 
+@@ -162,7 +162,7 @@
+ 	} else {
+ 		mpc_seek_t next_pos = fpos >> 3;
+ 		if (d->si.stream_version == 7)
+-			next_pos = ((next_pos - d->si.header_position) & (-1 << 2)) + d->si.header_position;
++			next_pos = ((next_pos - d->si.header_position) & ~(mpc_seek_t)3) + d->si.header_position;
+ 		bit_offset = (int) (fpos - (next_pos << 3));
+ 
+ 		mpc_demux_clear_buff(d);
+@@ -310,10 +310,10 @@
+ 
+ 	mask = (1 << diff_pwr) - 1;
+ 	for (i = 2; i < file_table_size; i++) {
+-		int code = mpc_bits_golomb_dec(&r, 12);
++		mpc_int64_t code = mpc_bits_golomb_dec(&r, 12);
+ 		if (code & 1)
+-			code = -(code & (-1 << 1));
+-		code <<= 2;
++			code = -(code & ~(mpc_int64_t)1);
++		code *= 4;
+ 		last[i & 1] = code + 2 * last[(i-1) & 1] - last[i & 1];
+ 		if ((i & mask) == 0)
+ 			table[i >> diff_pwr] = last[i & 1];

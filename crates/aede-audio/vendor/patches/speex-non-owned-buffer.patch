@@ -1,0 +1,15 @@
+# Upstream security backport, not an Aede codec implementation.
+# https://github.com/xiph/speex/commit/ab81029d743b7cdca2a36be64d8b77e9265529c3
+# Report: https://github.com/xiph/speex/issues/42 (CVE-2026-116741).
+# Author: tmatth; reported by HaiND (Nguyen Dinh Hai).
+--- a/libspeex/bits.c
++++ b/libspeex/bits.c
+@@ -174,7 +174,7 @@
+          }
+       } else {
+          speex_warning("Do not own input buffer: truncating oversize input");
+-         nchars=bits->buf_size;
++         nchars=bits->buf_size-(bits->nbBits>>LOG2_BITS_PER_CHAR)-1;
+       }
+    }
+ 

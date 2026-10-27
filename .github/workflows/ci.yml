@@ -97,6 +97,10 @@ jobs:
         if: runner.os == 'Windows'
         run: python tools/bit_perfect_tests.py
 
+      - name: Native codec provenance (Windows, offline)
+        if: runner.os == 'Windows'
+        run: python tools/native_codec_tests.py
+
       - name: Tests (Windows)
         if: runner.os == 'Windows'
         run: cargo test --locked

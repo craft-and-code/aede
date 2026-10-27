@@ -82,6 +82,7 @@ pub struct PcmStreamDecoder {
 enum StreamSource {
     Pcm(SymphoniaDecoder),
     Dsd(crate::dsd::Decoder),
+    Native(Box<crate::native::Decoder>),
 }
 impl PcmStreamDecoder {
     /// Open a regular source, preserving the wideband DSD measurement profile.
@@ -127,6 +128,18 @@ impl PcmStreamDecoder {
         }
         file.seek(SeekFrom::Start(0))
             .map_err(|e| DecodeError(e.to_string()))?;
+        let file = match crate::native::Decoder::from_file(file)? {
+            crate::native::Probe::Native(native) => {
+                let info = native.info();
+                return Ok(Self {
+                    sample_rate: info.sample_rate,
+                    channels: info.channels,
+                    channel_mask: Some(if info.channels == 1 { 4 } else { 3 }),
+                    source: StreamSource::Native(Box::new(native)),
+                });
+            }
+            crate::native::Probe::Other(file) => file,
+        };
         let pcm = SymphoniaDecoder::from_file(path, file)?;
         Ok(Self {
             sample_rate: pcm.sample_rate,
@@ -155,6 +168,7 @@ impl PcmStreamDecoder {
             StreamSource::Dsd(dsd) => dsd
                 .next_chunk(|| current().map_err(|e| crate::dsd::DsdError(e.0)))
                 .map_err(|e| DecodeError(e.to_string())),
+            StreamSource::Native(native) => native.next_chunk_admitted(current),
         }
     }
 }

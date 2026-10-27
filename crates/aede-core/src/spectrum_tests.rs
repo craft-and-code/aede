@@ -488,7 +488,7 @@ fn external_measurement_uses_the_decoder_format_instead_of_forcing_catalogue_val
 }
 
 #[test]
-fn legacy_codecs_keep_rust_images_and_explicit_lazy_decoder_resolution() {
+fn native_codecs_keep_rust_images_and_explicit_lazy_compatibility() {
     let Some(program) = crate::ffmpeg::find() else {
         return;
     };
@@ -523,7 +523,14 @@ fn legacy_codecs_keep_rust_images_and_explicit_lazy_decoder_resolution() {
             .find(|t| t.keyword == "AedeSpectrum")
             .unwrap()
             .text;
-        if calls.get() == 1 {
+        if relative == "tests/fixtures/hybrid-lossy.wv" {
+            assert_eq!(
+                calls.get(),
+                0,
+                "admitted WavPack no longer needs compatibility"
+            );
+            assert!(stamp.contains("\"decoder\":\"native\""));
+        } else if calls.get() == 1 {
             assert!(stamp.contains("\"decoder\":\"ffmpeg\""));
         } else {
             assert!(
@@ -532,4 +539,262 @@ fn legacy_codecs_keep_rust_images_and_explicit_lazy_decoder_resolution() {
             );
         }
     }
+}
+
+#[test]
+fn additional_native_codecs_render_without_resolving_ffmpeg() {
+    for name in [
+        "track.wv",
+        "float32.wv",
+        "hybrid-lossy.wv",
+        "ramp.ape",
+        "tone-sv8.mpc",
+        "speex-nb.spx",
+        "speex-wb.spx",
+        "speex-uwb.spx",
+    ] {
+        let files = SpectralFiles::new();
+        let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-extra")
+            .join(name);
+        let audio = files.0.join(name);
+        std::fs::copy(source, &audio).unwrap();
+        let picture = picture_for(&audio);
+        let calls = std::cell::Cell::new(0);
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            calls.set(calls.get() + 1);
+            Err("external tools deliberately unavailable".into())
+        })
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(calls.get(), 0, "{name}");
+        assert!(!out_of_date(&audio, &picture));
+        let bytes = std::fs::read(&picture).unwrap();
+        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(String::from_utf8_lossy(&bytes).contains("native-extra-v3"));
+    }
+}
+
+#[test]
+fn cancelled_additional_codec_render_preserves_the_previous_picture() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("source.ape");
+    std::fs::copy(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-extra/ramp.ape"),
+        &audio,
+    )
+    .unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"previous result").unwrap();
+    let polls = std::cell::Cell::new(0);
+    let result = render_cancellable(
+        &audio,
+        &picture,
+        Size::Half,
+        &|| {
+            polls.set(polls.get() + 1);
+            polls.get() >= 7
+        },
+        &|| panic!("cancellation must not select another decoder"),
+    );
+    assert!(result.is_err());
+    assert_eq!(std::fs::read(picture).unwrap(), b"previous result");
+}
+
+#[test]
+fn admitted_speex_data_failure_never_recovers_through_ffmpeg_or_replaces_an_image() {
+    let files = SpectralFiles::new();
+    let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-audio/tests/fixtures/native-extra/speex-wb.spx");
+    let mut bytes = std::fs::read(source).unwrap();
+    // First audio page, after both valid identification/comment pages.
+    bytes[200] ^= 0x55;
+    let audio = files.0.join("corrupt.spx");
+    std::fs::write(&audio, bytes).unwrap();
+    assert!(aede_audio::decode::PcmStreamDecoder::open(&audio).is_ok());
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"retained picture").unwrap();
+    let calls = std::cell::Cell::new(0);
+    let result = render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        calls.set(calls.get() + 1);
+        Err("no external decoder".into())
+    });
+    assert!(result.is_err());
+    assert_eq!(calls.get(), 0);
+    assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
+}
+
+#[test]
+fn contradictory_wavpack_clocks_cannot_publish_a_native_image() {
+    let files = SpectralFiles::new();
+    let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-audio/tests/fixtures/native-extra/track.wv");
+    let mut bytes = std::fs::read(source).unwrap();
+    let second = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize + 8;
+    let flags = u32::from_le_bytes(bytes[second + 24..second + 28].try_into().unwrap());
+    bytes[second + 24..second + 28]
+        .copy_from_slice(&((flags & !(15 << 23)) | (10 << 23)).to_le_bytes());
+    let audio = files.0.join("changed.wv");
+    std::fs::write(&audio, bytes).unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"retained picture").unwrap();
+    let calls = std::cell::Cell::new(0);
+    let result = render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        calls.set(calls.get() + 1);
+        Err("external compatibility unavailable".into())
+    });
+    assert!(result.is_err());
+    assert_eq!(calls.get(), 1);
+    assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
+}
+
+#[test]
+fn invalid_seek_entries_and_pcm_precision_cannot_publish_native_images() {
+    for name in ["tone-sv8.mpc", "track.wv"] {
+        let files = SpectralFiles::new();
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-extra")
+            .join(name);
+        let mut bytes = std::fs::read(fixture).unwrap();
+        if name.ends_with(".mpc") {
+            bytes[17] &= 0xf8;
+            let mut crc = !0u32;
+            for &byte in &bytes[11..18] {
+                crc ^= u32::from(byte);
+                for _ in 0..8 {
+                    crc = (crc >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(crc & 1));
+                }
+            }
+            bytes[7..11].copy_from_slice(&(!crc).to_be_bytes());
+            bytes.splice(
+                11564..11570,
+                b"ST\x09\x28\x00\x00\x00\x00\x00".iter().copied(),
+            );
+        } else {
+            let second = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize + 8;
+            let flags = u32::from_le_bytes(bytes[second + 24..second + 28].try_into().unwrap());
+            bytes[second + 24..second + 28].copy_from_slice(&(flags | (1 << 13)).to_le_bytes());
+        }
+        let audio = files.0.join(name);
+        std::fs::write(&audio, bytes).unwrap();
+        let picture = picture_for(&audio);
+        std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+        std::fs::write(&picture, b"retained picture").unwrap();
+        let calls = std::cell::Cell::new(0);
+        assert!(
+            render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+                calls.set(calls.get() + 1);
+                Err("external compatibility unavailable".into())
+            })
+            .is_err()
+        );
+        assert_eq!(calls.get(), 1, "{name}");
+        assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
+    }
+}
+
+#[test]
+fn images_from_before_native_header_validation_are_stale() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("track.wv");
+    std::fs::write(&audio, b"unchanged source identity").unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    for generation in [
+        "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v2-native-extra-v1",
+        "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v2-native-extra-v2",
+    ] {
+        let record = serde_json::json!({
+            "generation": generation,
+            "input": cache::Input::read(&audio).unwrap(),
+            "decoder": "native"
+        })
+        .to_string();
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 1, 1);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder
+                .add_text_chunk("AedeSpectrum".into(), record)
+                .unwrap();
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[0, 0, 0, 0]).unwrap();
+        }
+        std::fs::write(&picture, bytes).unwrap();
+        assert!(out_of_date(&audio, &picture));
+    }
+}
+
+#[test]
+fn custom_wavpack_clocks_keep_consistent_native_spectrum_admission() {
+    for (rates, accepted) in [
+        ([Some(43210u32), Some(47654u32)], false),
+        ([Some(43210), Some(43210)], true),
+        ([None, Some(44100)], true),
+    ] {
+        let files = SpectralFiles::new();
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-extra/track.wv");
+        let original = std::fs::read(fixture).unwrap();
+        let mut at = 0;
+        let mut bytes = Vec::new();
+        for rate in rates {
+            let size =
+                u32::from_le_bytes(original[at + 4..at + 8].try_into().unwrap()) as usize + 8;
+            let mut block = original[at..at + size].to_vec();
+            at += size;
+            if let Some(rate) = rate {
+                let flags = u32::from_le_bytes(block[24..28].try_into().unwrap());
+                block[24..28].copy_from_slice(&((flags & !(15 << 23)) | (15 << 23)).to_le_bytes());
+                let mut metadata = vec![0x67, 2];
+                metadata.extend_from_slice(&rate.to_le_bytes()[..3]);
+                metadata.push(0);
+                block.splice(32..32, metadata);
+                block[4..8].copy_from_slice(&((size - 8 + 6) as u32).to_le_bytes());
+            }
+            bytes.extend(block);
+        }
+        bytes.extend_from_slice(&original[at..]);
+        let audio = files.0.join("clock.wv");
+        std::fs::write(&audio, bytes).unwrap();
+        let picture = picture_for(&audio);
+        std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+        std::fs::write(&picture, b"retained picture").unwrap();
+        let calls = std::cell::Cell::new(0);
+        let result = render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            calls.set(calls.get() + 1);
+            Err("external compatibility unavailable".into())
+        });
+        assert_eq!(result.is_ok(), accepted, "{rates:?}: {result:?}");
+        assert_eq!(calls.get(), usize::from(!accepted));
+        if accepted {
+            assert!(!out_of_date(&audio, &picture));
+        } else {
+            assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
+        }
+    }
+}
+
+#[test]
+fn zero_frame_sv7_headers_cannot_replace_an_existing_spectrogram() {
+    let files = SpectralFiles::new();
+    let mut bytes = vec![0; 64];
+    bytes[..4].copy_from_slice(b"MP+\x07");
+    bytes[8..12].copy_from_slice(&0x01000000u32.to_le_bytes());
+    let audio = files.0.join("zero-frames.mpc");
+    std::fs::write(&audio, &bytes).unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"retained picture").unwrap();
+    assert!(
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            Err("external compatibility unavailable".into())
+        })
+        .is_err()
+    );
+    assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
+    assert_eq!(std::fs::read(audio).unwrap(), bytes);
 }

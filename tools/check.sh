@@ -15,6 +15,7 @@ python3 tools/update_flaccompagnon_tests.py
 python3 tools/project_stats_tests.py
 python3 tools/gapless_tests.py
 python3 tools/bit_perfect_tests.py
+python3 tools/native_codec_tests.py
 
 echo "-> Website renderer and bilingual documentation"
 python3 tools/build_site_tests.py

@@ -73,3 +73,7 @@ Native build preparation requires network access to verify the latest release. N
 Run `cargo test -p aede-audio --all-features --locked --offline`, the existing Aède playback tests and the Phémios core tests. The extracted queue/format tests keep their original behavior and count. FlacCompagnon core's `native_preview` harness compiles the actual thin adapter with an inert event sink, without Tauri. Required real encoded-file fixtures remain in each application's existing suites. Library tests, Clippy and Rustdoc do not establish native App execution, other-platform compatibility, physical output fidelity or listening acceptance.
 
 Check feature isolation as well: `cargo test -p aede-audio --no-default-features --locked --offline`, the same command with `--features decode`, and `cargo test -p aede-dsp --no-default-features --locked --offline`. Run Clippy with `--all-targets` for both the minimal and full profiles. The DSP profiling example and loudness-only test fixtures require the `loudness` feature; ordinary device playback does not enable it.
+
+## Additional native spectral inputs
+
+The candidate shared reader adds WavPack, Musepack, Speex and APE through approved isolated static reference libraries and `ape-decoder`. Aède and FlacCompagnon reuse it for Rust spectrograms; no decoder is copied into either spectral engine. See [profiles, timing, budgets, FFI and release boundaries](native-additional-codecs.md). The optional browser DSP feature and original-integer analysis remain separate.

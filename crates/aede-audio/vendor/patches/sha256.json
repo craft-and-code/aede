@@ -1,0 +1,5 @@
+{
+  "musepack_src_r475/libmpcdec/mpc_bits_reader.h": "22b203d1b323e679ac5eb55efc0b7f196405f08a1edba43ff5ca2a38d9abadee",
+  "musepack_src_r475/libmpcdec/mpc_demux.c": "1d1aac7ecdd18738b99773c13e7b2774abf57aafb661c56ee8266d873a35db27",
+  "speex-1.2.1/libspeex/bits.c": "c8c8c32c0dc086eab1adb07d5bd61daa6709732fe2b5689664b86ebdabd340c1"
+}

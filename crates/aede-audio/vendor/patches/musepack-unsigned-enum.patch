@@ -1,0 +1,13 @@
+# Aede local type-safety patch: unsigned 32-bit enumerative channel masks.
+# BSD copyright/licence retained; no decoder algorithm or PCM behavior change.
+--- a/libmpcdec/mpc_bits_reader.h
++++ b/libmpcdec/mpc_bits_reader.h
+@@ -138,7 +138,7 @@
+ 	do {
+ 		n--;
+ 		if (code >= C[n]) {
+-			bits |= 1 << n;
++			bits |= (mpc_uint32_t)1 << n;
+ 			code -= C[n];
+ 			C -= MAX_ENUM;
+ 			k--;

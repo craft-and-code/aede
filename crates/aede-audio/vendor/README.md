@@ -1,0 +1,41 @@
+# Native decoder sources
+
+These are upstream C sources/public headers (with the documented Speex backport and Musepack arithmetic patches below), compiled statically only by `aede-audio`'s `decode` feature. The approved adapter is in `../native`; no codec executable is distributed, downloaded or called. No assembly, native codec threads, filesystem filenames or Musepack ReplayGain is enabled by the adapter. The source archives contain encoders too; only the library source list in `../build.rs` is compiled, never their CLI applications. Speex and WavPack's public library components include encoder internals; Phémios/FlacCompagnon expose only decoding through this adapter.
+
+| Component | Source archive | Archive SHA-256 | Licence |
+| --- | --- | --- | --- |
+| WavPack 5.9.0 | <https://www.wavpack.com/wavpack-5.9.0.tar.xz> | `b5291bc4e6d69ebbd3da3800c5bf4a70f19bb92679b23e09b3b612c1e648d1ff` | BSD-3-Clause, `wavpack-5.9.0/COPYING` |
+| Speex 1.2.1 | <https://downloads.xiph.org/releases/speex/speex-1.2.1.tar.gz> | `4b44d4f2b38a370a2d98a78329fefc56a0cf93d1c1be70029217baae6628feea` | BSD-3-Clause, `speex-1.2.1/COPYING` |
+| Musepack r475 | <https://files.musepack.net/source/musepack_src_r475.tar.gz> | `a4b1742f997f83e1056142d556a8c20845ba764b70365ff9ccf2e3f81c427b2b` | BSD-3-Clause, `musepack_src_r475/libmpcdec/COPYING`; Zlib notice retained in `common/huffman-bcl.c` |
+
+The Musepack official archive was unavailable through its host. The identical archive was obtained from <https://pkg.mxe.cc/pkg/musepack_src_r475.tar.gz>; its MD5 also matches the official source page's `754d67be67f713e54baf70fcfdb2817e`. `sha256.json` records each retained original upstream file's SHA-256. The separately recorded patched-file hashes are in `patches/sha256.json`. Compare against freshly verified archives before upgrading; do not patch vendor files silently. Updates require native reference/malformed-input/cancellation tests and platform release checks.
+
+The Rust APE decoder is the separately locked `ape-decoder` 0.3.2 dependency (MIT OR Apache-2.0), not vendored here. `../THIRD_PARTY_NOTICES.txt` retains these licences for redistribution. Include that file with all binary distributions that enable decoding; clients can also access it through `aede_audio::native::THIRD_PARTY_NOTICES`. This does not replace the dependency inventory of the rest of an application.
+
+## Security backport
+
+Speex 1.2.1 includes the one-line upstream fix [ab81029d743b7cdca2a36be64d8b77e9265529c3](https://github.com/xiph/speex/commit/ab81029d743b7cdca2a36be64d8b77e9265529c3) for [issue #42](https://github.com/xiph/speex/issues/42), CVE-2026-116741, published 2026-10-27. It corrects non-owned bit-buffer append truncation. `patches/speex-non-owned-buffer.patch` retains the exact change and attribution. The adapter uses owned `speex_bits_init`/`speex_bits_read_from`, not this append/non-owned API; the backport still avoids retaining a known upstream defect. The standalone public-API sentinel regression is `../tests/native-c/speex-bits.c`: compiled with the vendored `bits.c`, it fails on the original file and passes after the patch. This is a dependency regression, not a claimed exploitable defect in the adapter.
+
+Musepack r475 is old and unmaintained: VLC [removed its libmpcdec integration](https://mailman.videolan.org/pipermail/vlc-commits/2026-April/073041.html) citing library quality. This candidate's successful SV8/reference/bounds/cancellation tests do not constitute a complete C security qualification. Before publication, require malformed-packet sanitizer/fuzz evidence and native target qualification, or replace this backend. No unproven adapter vulnerability is inferred from VLC's decision.
+
+## Musepack include compatibility
+
+Only the BSD libmpcdec source/public headers and its required CRC/Zlib helper are retained. Unused common encoder sources and LGPL generic math headers from the larger Musepack archive are omitted. The decoder's two `mini` call sites operate on byte/enumeration counts. An original, independently written integer minimum/standard-absolute-value helpers in `../native/mpc/minimax.h` supply that include name; it is not copied from or derived from the upstream generic math header. The admitted reader already caps these counts within its signed-32-bit file profile. This keeps the build from importing the archive's unrelated encoder/math licensing surface. The approved codec implementation remains upstream code under its retained BSD notices.
+
+`python3 tools/native_codec_tests.py` checks retained-source/fixture hashes and, on hosts with a POSIX C compiler, proves the Speex sentinel fails against the original source and passes with the backport. It also verifies the original minimum/absolute-value compatibility helpers. The root gate and CI call this test; Windows runs provenance checks while the standalone POSIX C probes are explicitly skipped. Native Rust fixture tests still compile/use the platform codec libraries.
+
+## Musepack word assembly
+
+`patches/musepack-unsigned-word.patch` marks three operands in the legacy bit reader as unsigned **before** shifting. UBSan reported signed-left-shift overflow while assembling a byte with its high bit set into a 32-bit word, including on the original healthy SV8 fixture. The mask for a 31-bit read had the same signed-literal issue. The local BSD-preserving patch changes integer types, not the decoder algorithm or PCM. `tests/native-c/musepack-bits.c` exercises 31-bit reads across all bit offsets with independent unsigned expected values, and the offline Python gate compiles/runs it under UBSan. The retained source manifest still records the original archive header; `patches/sha256.json` records the exact patched header.
+
+The Rust preflight also rejects seek exponents that cannot form a positive signed 32-bit reference stride, duplicate SH headers, and SO pointers into encoded payload rather than validated packet boundaries. These checks precede C context construction; they do not claim that arbitrary legacy libmpcdec code is now fully qualified.
+
+`patches/musepack-unsigned-enum.patch` also makes the one-bit literal unsigned before constructing enumerative masks. Two mutations of the SV8 reference's audio payload reached a signed `1 << 31` under UBSan. Position 31 is part of the decoder's 32-band mask domain; it needs defined unsigned arithmetic rather than an artificial profile rejection. The independent `tests/native-c/musepack-enum.c` regression verifies all 32 one-of-32 ranks and their exact masks under UBSan. The final header hash includes both patches; upstream hashes and PCM references remain unchanged.
+
+## Musepack demux arithmetic
+
+`patches/musepack-demux-arithmetic.patch` replaces negative signed alignment-mask shifts with typed complements and evaluates seek-table residual scaling in signed 64-bit arithmetic. ASan/UBSan checks reproduced the alignment issue in the SV7 path and the residual issue in a longer valid SV8 stream; the short reference has only one seek entry and did not exercise that loop. The separate `tests/native-c/musepack-demux.c` regression checks alignment, positive/negative residuals and a residual whose fourfold scaling exceeds signed 32-bit range, against independently calculated seek positions. The offline Python gate runs all five cases under UBSan. The patch retains the existing decoding/seek algorithm and original upstream source hash; its exact patched-file hash is recorded separately. These checks do not replace the remaining full libmpcdec/platform qualification.
+
+## WavPack integer arithmetic
+
+WavPack is compiled as its own static archive, with `-fwrapv` where the C compiler supports it. Corrupt but structurally admitted predictor metadata reproduced signed addition/multiplication overflow under UBSan before CRC rejection. The flag defines that integer arithmetic as modulo operations while leaving shifts, memory accesses and other undefined behavior checked; it is deliberately not applied to Musepack or Speex. The offline public-API regression uses the production WavPack source/flag selection and requires an ordinary CRC failure for the retained mutated cases. Independent integer, floating and hybrid PCM references remain unchanged. Native target/compiler qualification remains required.

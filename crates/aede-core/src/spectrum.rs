@@ -139,11 +139,11 @@ pub fn render_cancellable(
         let tags = crate::tags::read(audio).map_err(|e| e.to_string())?;
         identity.unchanged(audio)?;
         let codec = tags.properties.codec.as_str();
-        let legacy_required = matches!(codec, "ape" | "wavpack" | "musepack" | "speex");
         // Keep compatibility for configurations the native reader cannot open.
-        // Once ALAC is admitted, a later data failure must not publish a
+        // Once a native codec is admitted, a later data failure must not publish a
         // recovered prefix from another decoder as a completed measurement.
-        let admitted_alac = if codec == "alac" {
+        let admitted_native = if matches!(codec, "alac" | "ape" | "wavpack" | "musepack" | "speex")
+        {
             admit(cancelled)?;
             let admitted = aede_audio::decode::PcmStreamDecoder::open(audio).is_ok();
             admit(cancelled)?;
@@ -165,16 +165,11 @@ pub fn render_cancellable(
                     (data, info, "ffmpeg")
                 }
             }
-        } else if legacy_required {
-            admit(cancelled)?;
-            let program = external()?;
-            let (data, info) = legacy::analyze(audio, &options, &program, cancelled)?;
-            (data, info, "ffmpeg")
         } else {
             match engine::analyze_file(audio, &options, None, cancelled) {
                 Ok((data, info)) => (data, info, "native"),
                 Err(error)
-                    if !admitted_alac
+                    if !admitted_native
                         && !matches!(
                             codec,
                             "dsd"

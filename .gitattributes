@@ -16,3 +16,10 @@
 *.aiff    binary
 *.jpg     binary
 *.png     binary
+
+# Shared native codec inputs and independent PCM references.
+*.ape     binary
+*.wv      binary
+*.mpc     binary
+*.spx     binary
+*.f32     binary

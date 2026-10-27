@@ -21,8 +21,10 @@ name = "aede-audio"
 version = "0.7.5"
 dependencies = [
  "aede-dsp",
+ "ape-decoder",
  "audiopus",
  "audiopus_sys",
+ "cc",
  "cpal",
  "rtrb",
  "symphonia",
@@ -130,6 +132,16 @@ checksum = "ad7569085a265dd3f607ebecce7458eaab2132a84393534c95b18dcbc3f31e04"
 dependencies = [
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "ape-decoder"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95097ef8efebf7b1e1d638b77935cfce25576163614427b464efe256bb8b2ec1"
+dependencies = [
+ "crc32fast",
+ "md-5",
 ]
 
 [[package]]
