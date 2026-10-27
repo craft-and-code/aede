@@ -50,6 +50,178 @@ fn retired_packet_read_cannot_consume_or_publish_the_next_packet() {
 mod fixtures;
 use fixtures::{Source, flac_with_metadata, matroska_with_timestamp_scale, native_flac};
 
+#[test]
+fn native_alac_uses_codec_clock_channels_and_exact_original_samples() {
+    for (name, rate, channels, bits, frames) in [
+        ("mono16", 44_100, 1usize, 16, 10_001usize),
+        ("stereo24", 96_000, 2, 24, 48_013),
+        ("stereo24-clock192k", 96_000, 2, 24, 48_013),
+        ("stereo24-clock48k", 96_000, 2, 24, 48_013),
+    ] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-alac")
+            .join(format!("{name}.m4a"));
+        let before = std::fs::read(&path).unwrap();
+        let mut decoder = PcmStreamDecoder::open(&path).unwrap();
+        assert_eq!((decoder.sample_rate, decoder.channels), (rate, channels));
+        let mut samples = Vec::new();
+        while let Some(chunk) = decoder.next_chunk().unwrap() {
+            samples.extend(chunk);
+        }
+        assert_eq!(samples.len(), frames * channels);
+        for (index, sample) in samples.iter().enumerate() {
+            let frame = index / channels;
+            let channel = index % channels;
+            let integer = ((frame * 104729 + channel * 49999) % (1usize << bits)) as i64
+                - (1i64 << (bits - 1));
+            assert_eq!(*sample, integer as f32 / (1u32 << (bits - 1)) as f32);
+        }
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+}
+
+#[test]
+fn truncated_alac_audio_is_not_a_successful_shortened_track() {
+    let original = include_bytes!("../tests/fixtures/native-alac/stereo24.m4a");
+    let source = Source::new(&original[..original.len() - 2000]);
+    if let Ok(mut decoder) = PcmStreamDecoder::open(source.path()) {
+        let mut frames = 0;
+        loop {
+            match decoder.next_chunk() {
+                Ok(Some(chunk)) => frames += chunk.len() / decoder.channels,
+                Ok(None) => panic!("truncated ALAC completed with {frames} frames"),
+                Err(_) => break,
+            }
+        }
+    }
+}
+
+#[test]
+fn corrupt_alac_packets_cannot_be_skipped_as_successful_audio() {
+    let original = include_bytes!("../tests/fixtures/native-alac/stereo24.m4a");
+    let audio = original
+        .windows(4)
+        .position(|bytes| bytes == b"mdat")
+        .unwrap()
+        + 4;
+    for first_byte in [0xe0, 0xff, 0x00] {
+        let mut bytes = original.to_vec();
+        bytes[audio] = first_byte;
+        let source = Source::new(&bytes);
+        let mut decoder = PcmStreamDecoder::open(source.path()).unwrap();
+        let mut frames = 0;
+        loop {
+            match decoder.next_chunk() {
+                Ok(Some(chunk)) => frames += chunk.len() / decoder.channels,
+                Ok(None) => panic!("corrupt ALAC completed with {frames} frames"),
+                Err(_) => break,
+            }
+        }
+        assert!(decoder.next_chunk().is_err());
+    }
+}
+
+#[test]
+fn alac_header_length_disagreement_is_terminal_in_both_directions() {
+    let original = include_bytes!("../tests/fixtures/native-alac/stereo24.m4a");
+    let header = original
+        .windows(4)
+        .position(|bytes| bytes == b"mdhd")
+        .unwrap()
+        + 4;
+    assert_eq!(original[header], 0);
+    for frames in [47913u32, 48113] {
+        let mut bytes = original.to_vec();
+        bytes[header + 16..header + 20].copy_from_slice(&frames.to_be_bytes());
+        let source = Source::new(&bytes);
+        let mut decoder = PcmStreamDecoder::open(source.path()).unwrap();
+        loop {
+            match decoder.next_chunk() {
+                Ok(Some(_)) => {}
+                Ok(None) => panic!("inconsistent ALAC duration was accepted"),
+                Err(_) => break,
+            }
+        }
+        assert!(decoder.next_chunk().is_err());
+    }
+}
+
+#[test]
+fn alac_with_a_coarser_media_clock_cannot_complete_with_an_absent_packet() {
+    let mut bytes = include_bytes!("../tests/fixtures/native-alac/stereo24-clock48k.m4a").to_vec();
+    let sizes = bytes.windows(4).position(|b| b == b"stsz").unwrap() + 4;
+    let count = u32::from_be_bytes(bytes[sizes + 8..sizes + 12].try_into().unwrap()) as usize;
+    let last = sizes + 12 + (count - 1) * 4;
+    let missing = u32::from_be_bytes(bytes[last..last + 4].try_into().unwrap()) as usize;
+    bytes.truncate(bytes.len() - missing);
+    let mdat = bytes.windows(4).position(|b| b == b"mdat").unwrap() - 4;
+    let extent = (bytes.len() - mdat) as u32;
+    bytes[mdat..mdat + 4].copy_from_slice(&extent.to_be_bytes());
+    let source = Source::new(&bytes);
+    let mut decoder = PcmStreamDecoder::open(source.path()).unwrap();
+    let mut frames = 0;
+    loop {
+        match decoder.next_chunk() {
+            Ok(Some(samples)) => frames += samples.len() / 2,
+            Ok(None) => panic!("incomplete ALAC succeeded with {frames} frames"),
+            Err(_) => break,
+        }
+    }
+    assert!(decoder.next_chunk().is_err());
+}
+
+#[test]
+fn alac_packet_pcm_length_must_match_its_media_duration_before_publication() {
+    let original = include_bytes!("../tests/fixtures/native-alac/stereo24-clock48k.m4a");
+    let sizes = original.windows(4).position(|b| b == b"stsz").unwrap() + 4;
+    let count = u32::from_be_bytes(original[sizes + 8..sizes + 12].try_into().unwrap()) as usize;
+    let packet_sizes: Vec<_> = (0..count)
+        .map(|i| {
+            let at = sizes + 12 + 4 * i;
+            u32::from_be_bytes(original[at..at + 4].try_into().unwrap()) as usize
+        })
+        .collect();
+    let audio = original.windows(4).position(|b| b == b"mdat").unwrap() + 4;
+    let last = audio + packet_sizes[..count - 1].iter().sum::<usize>();
+    let mut bytes = original[..audio].to_vec();
+    bytes.extend_from_slice(&original[last..last + packet_sizes[count - 1]]);
+    bytes.extend_from_slice(&original[audio + packet_sizes[0]..]);
+    bytes[sizes + 12..sizes + 16].copy_from_slice(&(packet_sizes[count - 1] as u32).to_be_bytes());
+    let extent = (bytes.len() - (audio - 8)) as u32;
+    bytes[audio - 8..audio - 4].copy_from_slice(&extent.to_be_bytes());
+    let source = Source::new(&bytes);
+    let mut decoder = PcmStreamDecoder::open(source.path()).unwrap();
+    assert!(
+        decoder.next_chunk().is_err(),
+        "a short packet cannot publish PCM under a longer media duration"
+    );
+    assert!(decoder.next_chunk().is_err());
+}
+
+#[test]
+fn retired_alac_decode_cannot_publish_or_resume_buffered_audio() {
+    for name in ["mono16", "stereo24"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-alac")
+            .join(format!("{name}.m4a"));
+        let mut decoder = PcmStreamDecoder::open(&path).unwrap();
+        let mut checks = 0;
+        assert!(
+            decoder
+                .next_chunk_admitted(|| {
+                    checks += 1;
+                    if checks == 3 {
+                        Err(DecodeError("retired during ALAC decode".into()))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err()
+        );
+        assert!(decoder.next_chunk().is_err());
+    }
+}
+
 fn decode_samples(path: &Path) -> Vec<f32> {
     let mut decoder = PcmStreamDecoder::open(path).unwrap();
     assert_eq!(decoder.sample_rate, 44_100);

@@ -1,6 +1,83 @@
 use super::*;
 
 #[test]
+fn native_alac_spectrogram_never_resolves_ffmpeg() {
+    let files = SpectralFiles::new();
+    for name in ["mono16", "stereo24", "stereo24-clock48k"] {
+        let audio = files.0.join(format!("{name}.m4a"));
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../aede-audio/tests/fixtures/native-alac")
+                .join(format!("{name}.m4a")),
+            &audio,
+        )
+        .unwrap();
+        let picture = picture_for(&audio);
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            panic!("qualified native ALAC must not resolve FFmpeg")
+        })
+        .unwrap();
+        assert!(picture.is_file());
+        assert!(!out_of_date(&audio, &picture));
+        assert!(
+            render_cancellable(&audio, &picture, Size::Half, &|| true, &|| {
+                panic!("cancelled ALAC must not resolve FFmpeg")
+            })
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn corrupt_admitted_alac_cannot_publish_a_recovered_shorter_spectrogram() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("corrupt.m4a");
+    let mut bytes =
+        include_bytes!("../../aede-audio/tests/fixtures/native-alac/stereo24.m4a").to_vec();
+    let packet = bytes.windows(4).position(|b| b == b"mdat").unwrap() + 4;
+    bytes[packet] = 0xe0;
+    std::fs::write(&audio, bytes).unwrap();
+    let picture = picture_for(&audio);
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"previous complete image").unwrap();
+    let external_called = std::cell::Cell::new(false);
+    let result = render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+        external_called.set(true);
+        Ok(crate::ffmpeg::find().unwrap_or_else(|| "absent-reference-ffmpeg".into()))
+    });
+    assert!(
+        result.is_err(),
+        "corrupt ALAC cannot publish a completed image"
+    );
+    assert!(
+        !external_called.get(),
+        "native data failure is not unsupported-codec admission"
+    );
+    assert_eq!(std::fs::read(picture).unwrap(), b"previous complete image");
+}
+
+#[test]
+fn unadmitted_alac_configuration_retains_explicit_spectral_compatibility() {
+    let files = SpectralFiles::new();
+    let audio = files.0.join("multichannel.m4a");
+    std::fs::write(
+        &audio,
+        include_bytes!("../../aede-audio/tests/fixtures/native-alac/surround16.m4a"),
+    )
+    .unwrap();
+    let called = std::cell::Cell::new(false);
+    let result = render_cancellable(&audio, &picture_for(&audio), Size::Half, &|| false, &|| {
+        called.set(true);
+        Err("optional compatibility decoder is unavailable".into())
+    });
+    assert!(result.is_err());
+    assert!(
+        called.get(),
+        "unadmitted configurations keep the optional external route"
+    );
+}
+
+#[test]
 fn native_opus_spectrogram_never_resolves_ffmpeg() {
     let files = SpectralFiles::new();
     let audio = files.0.join("native.opus");

@@ -377,17 +377,16 @@ fn descriptor(data: &[u8], wanted: u8) -> Option<&[u8]> {
 }
 
 fn read_alac_cookie(data: &[u8], tags: &mut RawTags) {
-    let mut c = Cursor::new(data);
-    c.skip(4); // version/flags
-    c.skip(4); // frameLength
-    c.skip(1); // compatibleVersion
-    let Some(bit_depth) = c.u8() else { return };
-    c.skip(3); // pb, mb, kb
-    let Some(channels) = c.u8() else { return };
-    c.skip(2); // maxRun
-    c.skip(4); // maxFrameBytes
-    let avg_bitrate = c.u32_be();
-    let sample_rate = c.u32_be();
+    let Some(config) = data
+        .get(4..)
+        .and_then(aede_audio::decode::read_alac_configuration)
+    else {
+        return;
+    };
+    let bit_depth = config.bit_depth;
+    let channels = config.channels;
+    let avg_bitrate = config.average_bitrate;
+    let sample_rate = config.sample_rate;
 
     if (8..=32).contains(&bit_depth) {
         tags.properties.bit_depth = Some(bit_depth as u16);

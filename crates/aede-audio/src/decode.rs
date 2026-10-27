@@ -18,22 +18,44 @@ use symphonia::core::{
 #[path = "decode_source.rs"]
 mod source;
 pub use source::{FlacAudioSource, FlacProbe};
+#[path = "decode_alac.rs"]
+mod alac;
+pub use alac::{AlacConfiguration, declared_pcm_frames, read_alac_configuration};
+#[path = "decode_guard.rs"]
+mod guard;
 #[path = "decode_opus.rs"]
 mod opus;
 
+/// Resolve ALAC rate/layout/precision when the demuxer omits its channel layout.
+/// MP4 hints may omit channels or substitute a lower rate. Other codec
+/// parameters, source bytes, frame counts and timeline hints remain unchanged.
+pub fn codec_parameters(
+    parameters: &symphonia::core::codecs::CodecParameters,
+) -> Result<symphonia::core::codecs::CodecParameters, SymError> {
+    alac::parameters(parameters)
+}
+
 /// Construct a shared native codec, including the admitted mono/stereo Opus profile.
 /// Containers retain packet ownership; this applies no application DSP or volume.
-/// Opus callers use gapless demuxing and must check `finalize().verify_ok` at EOF.
+/// Opus callers use gapless demuxing and require `finalize().verify_ok == Some(true)`.
+/// ALAC callers reject `Some(false)` at EOF: known media ticks must all be covered,
+/// independently of PCM-clock rounding. This is completion, not a source checksum.
 /// Random seeks require reopening and progressively decoding source pre-roll.
+/// Unexpected native-codec unwinding retires the returned codec permanently;
+/// packet calls then return `ResetRequired`, with no stale decoded output.
 pub fn make_decoder(
     parameters: &symphonia::core::codecs::CodecParameters,
     options: &DecoderOptions,
 ) -> Result<Box<dyn Decoder>, SymError> {
-    if parameters.codec == symphonia::core::codecs::CODEC_TYPE_OPUS {
-        Ok(Box::new(opus::OpusDecoder::try_new(parameters, options)?))
-    } else {
-        symphonia::default::get_codecs().make(parameters, options)
-    }
+    let inner: Box<dyn Decoder> = catch_unwind(AssertUnwindSafe(|| {
+        if parameters.codec == symphonia::core::codecs::CODEC_TYPE_OPUS {
+            Ok(Box::new(opus::OpusDecoder::try_new(parameters, options)?) as Box<dyn Decoder>)
+        } else {
+            symphonia::default::get_codecs().make(&codec_parameters(parameters)?, options)
+        }
+    }))
+    .map_err(|_| SymError::DecodeError("audio codec construction panicked"))??;
+    Ok(Box::new(guard::GuardedDecoder::new(inner)?))
 }
 
 /// A local decode failure, independent of any application's analysis errors.
@@ -125,7 +147,7 @@ impl PcmStreamDecoder {
         match &mut self.source {
             StreamSource::Pcm(pcm) => {
                 let result = pcm.next_chunk_admitted(current);
-                if pcm.opus && result.is_err() {
+                if pcm.strict_codec.is_some() && result.is_err() {
                     pcm.failed = true;
                 }
                 result
@@ -145,7 +167,9 @@ struct SymphoniaDecoder {
     scratch: Option<SampleBuffer<f32>>,
     capacity: u64,
     failed: bool,
-    opus: bool,
+    strict_codec: Option<&'static str>,
+    expected_frames: Option<u64>,
+    decoded_frames: u64,
     /// Source frames per second.
     pub sample_rate: u32,
     /// Interleaved samples per frame.
@@ -178,22 +202,31 @@ impl SymphoniaDecoder {
         let track = format
             .default_track()
             .ok_or_else(|| DecodeError("no default track".into()))?;
-        let sample_rate = track
-            .codec_params
+        let parameters = codec_parameters(&track.codec_params)
+            .map_err(|e| DecodeError(format!("invalid codec configuration: {e}")))?;
+        let sample_rate = parameters
             .sample_rate
             .filter(|v| *v > 0)
             .ok_or_else(|| DecodeError("missing sample rate".into()))?;
-        let channels = track
-            .codec_params
+        let channels = parameters
             .channels
             .map(|v| v.count())
             .filter(|v| *v > 0 && *v <= 32)
             .ok_or_else(|| DecodeError("missing or unsupported channels".into()))?;
-        let channel_mask = track.codec_params.channels.map(|v| v.bits());
+        let channel_mask = parameters.channels.map(|v| v.bits());
         let track_id = track.id;
-        let opus = track.codec_params.codec == symphonia::core::codecs::CODEC_TYPE_OPUS;
+        let strict_codec = match parameters.codec {
+            symphonia::core::codecs::CODEC_TYPE_OPUS => Some("Opus"),
+            symphonia::core::codecs::CODEC_TYPE_ALAC => Some("ALAC"),
+            _ => None,
+        };
+        let expected_frames = if strict_codec == Some("ALAC") {
+            declared_pcm_frames(&parameters).map_err(|e| DecodeError(e.to_string()))?
+        } else {
+            None
+        };
         let decoder = catch_unwind(AssertUnwindSafe(|| {
-            make_decoder(&track.codec_params, &DecoderOptions::default())
+            make_decoder(&parameters, &DecoderOptions::default())
         }))
         .map_err(|_| DecodeError("audio decoder construction panicked".into()))?
         .map_err(|e| DecodeError(format!("no decoder: {e}")))?;
@@ -204,7 +237,9 @@ impl SymphoniaDecoder {
             scratch: None,
             capacity: 0,
             failed: false,
-            opus,
+            strict_codec,
+            expected_frames,
+            decoded_frames: 0,
             sample_rate,
             channels,
             channel_mask,
@@ -236,9 +271,24 @@ impl SymphoniaDecoder {
                 Ok(packet) => packet,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     current()?;
-                    if self.opus && self.decoder.finalize().verify_ok != Some(true) {
+                    if self.strict_codec == Some("Opus")
+                        && self.decoder.finalize().verify_ok != Some(true)
+                    {
                         self.failed = true;
                         return Err(DecodeError("incomplete Opus stream".into()));
+                    }
+                    if self.strict_codec == Some("ALAC")
+                        && self.decoder.finalize().verify_ok == Some(false)
+                    {
+                        self.failed = true;
+                        return Err(DecodeError("incomplete ALAC packet timeline".into()));
+                    }
+                    if self
+                        .expected_frames
+                        .is_some_and(|n| n != self.decoded_frames)
+                    {
+                        self.failed = true;
+                        return Err(DecodeError("incomplete ALAC stream".into()));
                     }
                     return Ok(None);
                 }
@@ -287,14 +337,37 @@ impl SymphoniaDecoder {
                     {
                         return Err(DecodeError("incomplete or non-finite PCM sample".into()));
                     }
-                    if self.opus && samples.is_empty() {
+                    if self.strict_codec.is_some() && samples.is_empty() {
                         continue;
+                    }
+                    if self.strict_codec.is_some() {
+                        self.decoded_frames = self
+                            .decoded_frames
+                            .checked_add((samples.len() / self.channels) as u64)
+                            .ok_or_else(|| DecodeError("audio frame count overflow".into()))?;
+                        if self
+                            .expected_frames
+                            .is_some_and(|n| self.decoded_frames > n)
+                        {
+                            return Err(DecodeError(
+                                "ALAC exceeds declared PCM frame count".into(),
+                            ));
+                        }
                     }
                     return Ok(Some(samples.to_vec()));
                 }
-                Err(SymError::DecodeError(error)) if self.opus => {
+                Err(SymError::ResetRequired) => {
                     self.failed = true;
-                    return Err(DecodeError(format!("Opus packet error: {error}")));
+                    return Err(DecodeError(
+                        "audio codec requires a new decoder after reset or panic".into(),
+                    ));
+                }
+                Err(error) if self.strict_codec.is_some() => {
+                    self.failed = true;
+                    return Err(DecodeError(format!(
+                        "{} packet error: {error}",
+                        self.strict_codec.unwrap_or("native codec")
+                    )));
                 }
                 Err(SymError::DecodeError(_)) => continue,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
@@ -308,3 +381,7 @@ impl SymphoniaDecoder {
 #[cfg(test)]
 #[path = "decode_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "decode_guard_tests.rs"]
+mod guard_tests;

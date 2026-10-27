@@ -140,6 +140,18 @@ pub fn render_cancellable(
         identity.unchanged(audio)?;
         let codec = tags.properties.codec.as_str();
         let legacy_required = matches!(codec, "ape" | "wavpack" | "musepack" | "speex");
+        // Keep compatibility for configurations the native reader cannot open.
+        // Once ALAC is admitted, a later data failure must not publish a
+        // recovered prefix from another decoder as a completed measurement.
+        let admitted_alac = if codec == "alac" {
+            admit(cancelled)?;
+            let admitted = aede_audio::decode::PcmStreamDecoder::open(audio).is_ok();
+            admit(cancelled)?;
+            identity.unchanged(audio)?;
+            admitted
+        } else {
+            false
+        };
         let (data, info, decoder) = if codec == "flac" && tags.properties.bit_depth == Some(32) {
             match native::analyze(audio, &options, cancelled) {
                 Ok((data, info)) => (data, info, "native-flac32"),
@@ -162,19 +174,20 @@ pub fn render_cancellable(
             match engine::analyze_file(audio, &options, None, cancelled) {
                 Ok((data, info)) => (data, info, "native"),
                 Err(error)
-                    if !matches!(
-                        codec,
-                        "dsd"
-                            | "pcm"
-                            | "pcm_float"
-                            | "flac"
-                            | "vorbis"
-                            | "mp3"
-                            | "mp2"
-                            | "mp1"
-                            | "fl32"
-                            | "fl64"
-                    ) =>
+                    if !admitted_alac
+                        && !matches!(
+                            codec,
+                            "dsd"
+                                | "pcm"
+                                | "pcm_float"
+                                | "flac"
+                                | "vorbis"
+                                | "mp3"
+                                | "mp2"
+                                | "mp1"
+                                | "fl32"
+                                | "fl64"
+                        ) =>
                 {
                     admit(cancelled)?;
                     identity.unchanged(audio)?;

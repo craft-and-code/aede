@@ -47,6 +47,43 @@ fn shared_native_opus_plays_and_seeks_without_an_external_decoder() {
 }
 
 #[test]
+fn shared_native_alac_keeps_rate_channels_samples_and_seek_without_ffmpeg() {
+    for (name, rate, channels, frames) in [
+        ("mono16", 44100, 1u16, 10001usize),
+        ("stereo24", 96000, 2, 48013),
+        ("stereo24-clock48k", 96000, 2, 48013),
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../aede-audio/tests/fixtures/native-alac")
+            .join(format!("{name}.m4a"));
+        let mut decoder = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(
+            (decoder.sample_rate(), decoder.channels()),
+            (rate, channels)
+        );
+        let mut reference = Vec::new();
+        let mut buffer = vec![0.0; 1001 * usize::from(channels)];
+        loop {
+            let count = decoder.read_frames(&mut buffer).unwrap();
+            if count == 0 {
+                break;
+            }
+            reference.extend_from_slice(&buffer[..count * usize::from(channels)]);
+        }
+        assert_eq!(reference.len(), frames * usize::from(channels));
+        let mut seek = FileDecoder::open_native(&path).unwrap();
+        assert_eq!(seek.skip_frames(4099, || false).unwrap().frames, 4099);
+        let count = seek.read_frames(&mut buffer).unwrap();
+        assert_eq!(
+            &buffer[..count * usize::from(channels)],
+            &reference[4099 * usize::from(channels)..(4099 + count) * usize::from(channels)]
+        );
+        let mut retired = FileDecoder::open_native(&path).unwrap();
+        assert!(retired.skip_frames(1, || true).is_err());
+    }
+}
+
+#[test]
 fn unsupported_multistream_opus_keeps_its_explicit_playback_compatibility() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../aede-audio/tests/fixtures/opus-surround.opus");
