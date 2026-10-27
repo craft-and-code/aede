@@ -69,6 +69,17 @@ class ReleaseTests(unittest.TestCase):
 
 
 class PinTests(unittest.TestCase):
+    def test_a_reviewed_revision_can_return_to_a_published_release(self):
+        manifest = MANIFEST.replace('tag = "v0.9.5"', 'rev = "' + "a" * 40 + '"')
+        self.assertEqual(update.pin_manifest(manifest, "v0.9.6"),
+                         MANIFEST.replace('tag = "v0.9.5"', 'tag = "v0.9.6"'))
+
+    def test_malformed_revision_pins_are_not_rewritten(self):
+        for value in ["main", "a" * 39, "G" * 40]:
+            manifest = MANIFEST.replace('tag = "v0.9.5"', f'rev = "{value}"')
+            with self.subTest(value=value), self.assertRaises(update.UpdateError):
+                update.pin_manifest(manifest, "v0.9.6")
+
     def test_shared_pin_changes_without_changing_other_dependencies(self):
         self.assertEqual(update.pin_manifest(MANIFEST, "v0.9.6"),
                          MANIFEST.replace('tag = "v0.9.5"', 'tag = "v0.9.6"'))

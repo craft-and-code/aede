@@ -9,6 +9,13 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ $# -eq 1 && "$1" == "--sources-only" ]]; then
+    exec bash tools/check-sources.sh
+fi
+if [[ $# -ne 0 ]]; then
+    echo "Usage: tools/check.sh [--sources-only]" >&2
+    exit 2
+fi
 
 echo "-> Build helper tests (offline)"
 python3 tools/update_flaccompagnon_tests.py

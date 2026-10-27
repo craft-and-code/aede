@@ -121,3 +121,9 @@ python3 tools/preview-site.py
 ```
 
 The output is ignored by Git. Rustdoc is built separately with the Rust toolchain and copied to `dist-site/docs/rust/`; `tools/check.sh` checks the combined publication. See [site maintenance](../../site/README.md) for preview, translation and form configuration. The signup form uses a native POST to FormSubmit, which requires the recipient to activate their address after the first submission; website builds do not send email or activate the recipient.
+
+## Locked source checks without product builds
+
+`bash tools/check.sh --sources-only` runs the root helper/site/release-contract tests, formatting, Clippy, all default Rust tests, the shared-audio all-feature/minimal/decode-only profiles, DSP without loudness, terminal regressions and generated documentation checks. It omits the optimized executable build. The independent desktop workspace is not a root workspace member and is not compiled. The same mode in FlacCompagnon and Phémios tests every non-App workspace package and frontend types/behavior without Vite/native/sidecar preparation. These are host source checks, not product, installed-engine, cross-platform or hardware acceptance.
+
+A reviewed FlacCompagnon full revision can be committed before stable publication. `tools/update-flaccompagnon.py` still selects only published stable releases and can replace this revision with the selected stable tag; a failed update retains the prior manifest and lock. Source validation consumes the existing lock and never calls that online preparation step. Publish the coordinated sources before expecting the normal latest-stable product workflow to consume new native APIs.

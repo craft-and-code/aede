@@ -57,7 +57,7 @@ def latest_tag():
 
 
 def pin_manifest(text, tag):
-    """Change only the shared FlacCompagnon tag, preserving other dependencies."""
+    """Replace a tag or reviewed revision with the selected published release."""
     if not STABLE_TAG.fullmatch(tag):
         raise UpdateError("Invalid stable version tag")
     section = re.search(r"(?ms)^\[workspace\.dependencies\]\r?\n(.*?)(?=^\[|\Z)", text)
@@ -66,11 +66,13 @@ def pin_manifest(text, tag):
     dependency = re.compile(
         r'(?m)^(flaccompagnon-core\s*=\s*\{\s*git\s*=\s*"'
         + re.escape(REPOSITORY)
-        + r'"\s*,\s*tag\s*=\s*")([^"\n]+)("\s*\}[^\n]*)$'
+        + r'"\s*,\s*)(?:tag\s*=\s*"[^"\n]+"|rev\s*=\s*"[0-9a-f]{40}")(\s*\}[^\n]*)$'
     )
-    body, count = dependency.subn(lambda match: match[1] + tag + match[3], section[1])
+    body, count = dependency.subn(
+        lambda match: match[1] + f'tag = "{tag}"' + match[2], section[1]
+    )
     if count != 1:
-        raise UpdateError("Expected one shared FlacCompagnon Git/tag dependency in Cargo.toml")
+        raise UpdateError("Expected one shared FlacCompagnon Git/tag-or-revision dependency in Cargo.toml")
     return text[:section.start(1)] + body + text[section.end(1):]
 
 
