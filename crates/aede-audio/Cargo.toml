@@ -11,6 +11,8 @@ rust-version.workspace = true
 default = []
 dsp = ["dep:aede-dsp"]
 decode = ["dep:symphonia", "dep:audiopus", "dep:audiopus_sys", "dep:ape-decoder", "dep:cc"]
+# File-handle based original PCM16 and exact APE seeking for CUE clients.
+ape-pcm16 = ["decode"]
 queue = ["dep:rtrb", "dsp"]
 output = ["decode", "queue", "dep:cpal"]
 

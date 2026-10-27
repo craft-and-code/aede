@@ -1,5 +1,8 @@
 //! Frame-wise APE adapter. Header/seek budgets precede dependency allocation.
 use super::{Error, Info, Kind, Result};
+#[path = "ape_source.rs"]
+mod source;
+use source::Source;
 use std::{
     fs::File,
     io::{BufReader, Read, Seek, SeekFrom},
@@ -12,37 +15,6 @@ pub(super) struct Decoder {
     blocks: u32,
     last: u32,
     bits: u32,
-}
-// The dependency derives its last compressed frame from SeekFrom::End rather
-// than the descriptor's audio extent. Hide trailing tags from that calculation
-// while retaining the declared terminating data it subtracts from the end.
-struct Source {
-    file: File,
-    length: u64,
-}
-impl Read for Source {
-    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
-        let position = self.file.stream_position()?;
-        let count = (bytes.len() as u64).min(self.length.saturating_sub(position)) as usize;
-        self.file.read(&mut bytes[..count])
-    }
-}
-impl Seek for Source {
-    fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
-        let position = match from {
-            SeekFrom::Start(position) => i128::from(position),
-            SeekFrom::Current(offset) => {
-                i128::from(self.file.stream_position()?) + i128::from(offset)
-            }
-            SeekFrom::End(offset) => i128::from(self.length) + i128::from(offset),
-        };
-        if position < 0 || position > i128::from(self.length) {
-            return Err(std::io::Error::other(
-                "APE seek outside declared source extent",
-            ));
-        }
-        self.file.seek(SeekFrom::Start(position as u64))
-    }
 }
 fn word(bytes: &[u8], at: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(
@@ -63,12 +35,38 @@ fn half(bytes: &[u8], at: usize) -> Result<u16> {
     ))
 }
 impl Decoder {
-    pub fn open(mut file: File) -> Result<Self> {
-        let length = file.metadata()?.len();
+    #[cfg(feature = "ape-pcm16")]
+    pub(super) fn seek(&mut self, frame: u64) -> Result<usize> {
+        let total = self
+            .info
+            .frames
+            .ok_or_else(|| Error("unknown APE length".into()))?;
+        if frame > total {
+            return Err(Error("APE seek exceeds source length".into()));
+        }
+        self.index = if frame == total {
+            self.count
+        } else {
+            (frame / u64::from(self.blocks)) as u32
+        };
+        Ok(if frame == total {
+            0
+        } else {
+            (frame % u64::from(self.blocks)) as usize
+        })
+    }
+    pub fn open(file: File) -> Result<Self> {
+        let mut file = Source::open(file)?;
+        let length = file.length;
         let mut descriptor = [0; 52];
         file.seek(SeekFrom::Start(0))?;
         file.read_exact(&mut descriptor)?;
         let version = half(&descriptor, 4)?;
+        if !(3980..=4100).contains(&version) {
+            return Err(Error(
+                "unsupported APE version: native profile is 3.98–4.10".into(),
+            ));
+        }
         let d = u64::from(word(&descriptor, 8)?);
         let h = u64::from(word(&descriptor, 12)?);
         let seek = u64::from(word(&descriptor, 16)?);
@@ -76,7 +74,6 @@ impl Decoder {
         let data = u64::from(word(&descriptor, 24)?) + (u64::from(word(&descriptor, 28)?) << 32);
         let ending = u64::from(word(&descriptor, 32)?);
         if &descriptor[..4] != b"MAC "
-            || !(3980..=4100).contains(&version)
             || !(52..=4096).contains(&d)
             || !(24..=4096).contains(&h)
             || seek > 4 * 1024 * 1024
@@ -136,11 +133,8 @@ impl Decoder {
             }
         }
         file.seek(SeekFrom::Start(0))?;
-        let source = Source {
-            file,
-            length: end + ending,
-        };
-        let inner = ape_decoder::ApeDecoder::new(BufReader::with_capacity(65536, source))
+        file.length = end + ending;
+        let inner = ape_decoder::ApeDecoder::new(BufReader::with_capacity(65536, file))
             .map_err(|e| Error(e.to_string()))?;
         if inner.info().is_big_endian
             || inner.info().is_floating_point
@@ -170,7 +164,7 @@ impl Decoder {
             bits,
         })
     }
-    pub fn next(&mut self) -> Result<Vec<f32>> {
+    pub(super) fn next_bytes(&mut self) -> Result<Vec<u8>> {
         if self.index == self.count {
             return Ok(Vec::new());
         }
@@ -187,6 +181,12 @@ impl Decoder {
         if bytes.len() != frames as usize * self.info.channels * width {
             return Err(Error("APE decoded frame has the wrong length".into()));
         }
+        self.index += 1;
+        Ok(bytes)
+    }
+    pub fn next(&mut self) -> Result<Vec<f32>> {
+        let bytes = self.next_bytes()?;
+        let width = self.bits as usize / 8;
         let scale = 2.0f64.powi(self.bits as i32 - 1);
         let mut pcm = Vec::with_capacity(bytes.len() / width);
         for sample in bytes.chunks_exact(width) {
@@ -199,7 +199,6 @@ impl Decoder {
             };
             pcm.push((f64::from(integer) / scale) as f32);
         }
-        self.index += 1;
         Ok(pcm)
     }
 }

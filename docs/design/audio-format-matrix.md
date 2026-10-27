@@ -25,7 +25,7 @@ Removing the experimental CLI player's `ffplay` output is explicitly outside thi
 | AAC-LC in ADTS or MP4/M4A | Native MP4 or Lofty ADTS metadata; known LC config supplies layout | Native for qualified MP4 edits; compatibility on other open failures | Shared native reader for the admitted profile | Qualified native MP4/ADTS first / shared native analysis | MP4 mono/44.1 kHz and stereo/48–96 kHz references include explicit delay/padding, counted duration and native seek; unknown/complex edits retain Aède compatibility |
 | Other AAC profiles, including HE-AAC extensions | Recognized metadata is not decoder validation | Profile-dependent; compatibility may decode it | No blanket support | Profile-dependent compatibility / explicit native failure | Requires independently encoded profile fixtures before removing compatibility |
 | ALAC in MP4/M4A | Native tags/configuration | Shared codec configuration for qualified mono/stereo M4A; compatibility on other open failures | Shared native reader | Qualified native mono/stereo first / shared configuration for native analysis | ALAC16 mono/44.1 kHz and ALAC24 stereo/96 kHz references are qualified in the candidate; other profiles retain their existing boundaries |
-| Monkey's Audio / APE | Lofty metadata | Shared reader candidate; catalogue selector unchanged | Shared native reader | Native admitted modern mono/stereo / native spectral visitor | Legacy/prefixed compatibility remains in Aède; Phémios CUE/APE remains separate |
+| Monkey's Audio / APE | Lofty metadata | Shared reader candidate; catalogue selector unchanged | Shared native reader | Native admitted modern mono/stereo / native spectral visitor | Legacy compatibility remains in Aède; Phémios CUE uses exact shared PCM16 for admitted modern/prefixed files |
 | WavPack, integer/float/hybrid | Lofty metadata; losslessness/unknown float precision kept distinct | Shared reader candidate; catalogue selector unchanged | Shared native reader | Native admitted mono/stereo PCM / native spectral visitor | No DSD or automatic correction-file support; compatibility outside admission |
 | Musepack SV7/SV8 | Lofty metadata | Shared reader candidate; catalogue selector unchanged | Shared native reader | Native admitted mono/stereo / native spectral visitor | Independent PCM qualification currently SV8; reference reader below 2 GiB |
 | Ogg Speex | Lofty metadata | Shared reader candidate; catalogue selector unchanged | Shared native reader | Native single-stream NB/WB/UWB mono/stereo / native spectral visitor | Coded PCM length; no invented original gapless window |
@@ -47,7 +47,7 @@ Explicit Opus/MP3 exports in FlacCompagnon reuse the shared `RateConverter` when
 | --- | --- | --- | --- |
 | Physical CD-DA; CUE/BIN | `phemios-cd`, exact stereo PCM16 at 44.1 kHz | Neither | Temporary local sources, bounded sector reads, existing transport/output |
 | CUE/WAV PCM16 or CUE/FLAC | Symphonia in `phemios-cd` | Neither | Stereo 16-bit 44.1 kHz, integral 588-frame sectors, total ≤120 minutes |
-| CUE/APE | Pinned read-only descriptor, optional FFmpeg PCM16 decode | FFmpeg; native 3.98+ header inspection replaces FFprobe for ordinary descriptor-first files; legacy/prefixed files retain FFprobe compatibility | Same CD-quality contract; conversion is not implicit |
+| CUE/APE | Pinned read-only descriptor, shared native PCM16 reader | None for admitted APE 3.98–4.10, including prefixes up to 1 MiB; older/out-of-budget profiles are explicitly unavailable | Same CD-quality contract; conversion is not implicit |
 | Radio and podcast streams | Existing Phémios media-element/Web Audio transport; stream formats depend on the browser/webview | Neither launched by this transport | Platform codec availability is separate from catalogue/native-file capability |
 | Web demo / WebAssembly | Browser decoding plus the existing Rust DSP adapter | Neither | WASM DSP is not a native file decoder; it grants no CD/device or codec parity |
 | UPnP/OpenHome/Cast/SlimProto originals | Aède selected-original transfer | No host decode implied | Renderer codec support, account leases and device acceptance remain separate |
@@ -61,11 +61,11 @@ Explicit Opus/MP3 exports in FlacCompagnon reuse the shared `RateConverter` when
 | Aède `spectrum.rs`, `spectrum/legacy.rs` | Unsupported-codec PCM; Rust performs FFT, labels and PNG | Reuse new shared/native decoders before dropping each compatibility selector |
 | FC `decode/dsd.rs`, `pipeline/dsd.rs` | Existing non-native DSD measurement profiles | Extend shared DSD admission only after filter/layout qualification; never substitute the listening low-pass for measurements |
 | FC `spectrogram.rs`, native `commands/analysis.rs` and `spectrogram.rs` adapters | Lazily resolve FFmpeg only for applicable DSD compatibility | Ordinary PCM and admitted native DSD already avoid discovery/spawn |
-| Phémios `phemios-cd/src/ape.rs` and `ape_header.rs` | APE characteristics and exact CUE PCM | First step: native descriptor inspection; keep legacy FFprobe and FFmpeg audio compatibility until covered replacements exist |
+| Phémios `phemios-cd/src/ape.rs` and `ape_header.rs` | APE characteristics and exact CUE PCM | Native descriptor gate plus shared original PCM16; no external probe/decoder. Earlier-version support remains unqualified and explicitly refused |
 | Aède `playback/output.rs` | Experimental CLI `ffplay` output | Excluded by request |
 | Aède copy/fingerprint tools and explicit conversion workflows | Encoding or acoustic fingerprint extraction | Excluded; no claim that every use of FFmpeg in the repositories is removed |
 
-No FFprobe is needed by Aède's spectral fallback: the external decoder emits a bounded self-describing float WAV header. It establishes actual rate/channel count rather than trusting catalogue hints. The remaining FFprobe call is in Phémios's legacy CUE/APE inspection. Decoder executables are never automatically downloaded.
+No FFprobe is needed by Aède's spectral fallback: the external decoder emits a bounded self-describing float WAV header. It establishes actual rate/channel count rather than trusting catalogue hints. Phémios CUE/APE no longer invokes FFprobe or FFmpeg; legacy profiles outside the shared native gate are explicit refusals. Decoder executables are never automatically downloaded.
 
 ## Corpus and acceptance checklist
 
@@ -77,7 +77,7 @@ Keep existing original fixtures and generators; extend them rather than adding r
 | ALAC | Candidate standard-cookie M4A mono16/44.1 kHz and stereo24/96 kHz references; every original sample, codec clock/layout/precision, exact duration, native seek and spectral resolver checks | Additional depths/rates/layouts, legacy cookies, CAF and platform/listening acceptance; existing explicitly declared layouts retain prior behavior |
 | AAC | Candidate AAC-LC MP4 mono/44.1 kHz, stereo/48 and 96 kHz, short, rounded-movie-clock and longer-than-buffer sources; independent float references, exact playable length, seeks, cancellation, native spectral resolver checks and missing-tail refusal; ordinary ADTS LC retains coded duration | HE/SBR/PS, PCE/multichannel/960-frame profiles, other container edits/metadata conventions and platform/listening acceptance; no blanket AAC qualification |
 | Opus | Real mono/stereo/very-short fixtures, multi-packet pre-skip, final granule, gain, corrupt/truncated/reset/cancel cases, native seek, FC encoder round trips and spectral resolver spy | Multistream, nonzero-origin, chained/live streams and other platform/listening acceptance remain separate profiles |
-| APE | Original CD-quality `ramp.ape`, exact every-sample CUE seeking/track boundaries | Native metadata tests for extent/rate/precision/duration, then real native decode references including old versions and prefixed files |
+| APE | Original CD-quality `ramp.ape`, exact every-sample CUE seeking/track boundaries | Native metadata and every-sample PCM16 seek/EOF tests, prefixed variants and a child with empty PATH; independent older-version fixtures remain pending |
 | WavPack/Musepack/Speex | Candidate native integer/float/hybrid WavPack, SV8, Speex NB/WB/UWB references plus corruption/cancellation/source replacement | SV7 independent reference, larger corpus, remaining channel/profile and target-platform qualification |
 | DSD | Shared DSD64 mono and DSD128 stereo DSF/DFF pairs, exact tails, filtering, cancellation, native transport and spectrogram tests | Real libraries, listening/ultrasonic references and physical/platform throughput; additional rates/layouts remain unqualified |
 
@@ -87,8 +87,8 @@ Require tests that prove the affected native path never calls an external resolv
 
 ## Next replacement order
 
-1. Native CUE/APE descriptor inspection, retaining legacy/prefix compatibility and the existing audio decoder until qualified.
+1. Native CUE/APE descriptor inspection and shared exact PCM16 are connected for the admitted modern profile; old versions outside that profile are explicitly refused.
 2. Shared Opus mono/stereo decoding is implemented in the source candidate after approval to reuse `audiopus`/libopus. Aède playback and both spectral/analysis paths reuse it. Qualify additional Opus profiles separately; retain compatibility meanwhile.
 3. Shared AAC-LC MP4 edit handling and ALAC cookie/timeline admission are implemented in the candidate for the qualified profiles above. Expand the independent corpus before removing compatibility for additional encoders, edits or layouts.
-4. Qualify remaining native APE/WavPack/Musepack/Speex profiles/platforms; connect shared APE to exact CUE PCM and remove its remaining FFprobe compatibility. The native spectral/shared-reader candidate is implemented; CUE integration remains separate.
+4. Qualify remaining native APE/WavPack/Musepack/Speex profiles/platforms, including older APE files formerly handled by the external CUE route. Shared PCM16 CUE integration now removes its FFmpeg/FFprobe calls; publication and native-platform acceptance remain separate.
 5. Expand DSD profiles separately, then run the common lifecycle/cross-platform matrix and publish in dependency order.

@@ -1,6 +1,8 @@
 //! Additional shared file decoders; original audio/tags are always read-only.
 //! The foreign-code boundary is confined to ffi/io and native/*.c.
 mod ape;
+#[cfg(feature = "ape-pcm16")]
+mod ape_pcm16;
 mod ffi;
 mod io;
 mod musepack_seek;
@@ -9,6 +11,8 @@ mod preflight;
 mod speex;
 mod wavpack_metadata;
 pub use crate::decode::DecodeError as Error;
+#[cfg(feature = "ape-pcm16")]
+pub use ape_pcm16::ApePcm16Decoder;
 /// Licence texts for the additional native decoders, retained for client credits.
 pub const THIRD_PARTY_NOTICES: &str = include_str!("../../THIRD_PARTY_NOTICES.txt");
 use std::{
