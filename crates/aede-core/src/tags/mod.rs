@@ -64,6 +64,10 @@ impl AudioProperties {
         if self.codec == "dsd" {
             return self
                 .sample_rate
+                .filter(|rate| {
+                    let level = rate / 44_100;
+                    rate % 44_100 == 0 && level >= 64 && level.is_power_of_two()
+                })
                 .map_or_else(|| "DSD".into(), |rate| format!("DSD{}", rate / 44_100));
         }
         let codec = self.codec.to_uppercase();

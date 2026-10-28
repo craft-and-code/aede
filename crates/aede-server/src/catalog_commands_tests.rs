@@ -645,3 +645,70 @@ fn label_biographies_prefer_localized_wikipedia_over_discogs_and_keep_the_origin
         "neither source is deleted or translated"
     );
 }
+
+#[test]
+fn dsd_track_detail_distinguishes_original_source_and_native_pcm_capabilities() {
+    runtime().block_on(async {
+        for (rate, channels, native, label, reason) in [
+            (Some(2_822_400), Some(2), Some(true), "DSD64", None),
+            (Some(5_644_800), Some(1), Some(true), "DSD128", None),
+            (
+                Some(11_289_600),
+                Some(2),
+                Some(false),
+                "DSD256",
+                Some("unsupported_clock"),
+            ),
+            (
+                Some(2_822_400),
+                Some(6),
+                Some(false),
+                "DSD64",
+                Some("unsupported_channels"),
+            ),
+            (
+                None,
+                Some(2),
+                None,
+                "DSD",
+                Some("source_properties_unavailable"),
+            ),
+        ] {
+            let state = fixture().await;
+            {
+                let mut held = state.catalog.write().await;
+                let file = &mut held.as_mut().unwrap().files[0];
+                file.properties.codec = "dsd".into();
+                file.properties.container = "dsf".into();
+                file.properties.sample_rate = rate;
+                file.properties.channels = channels;
+                file.properties.bit_depth = Some(1);
+            }
+            let (address, server) = start(state).await;
+            let detail = json_response(address, "/api/v1/track?name=Hells%20Bells");
+            assert_eq!(detail["properties"]["sample_rate"], serde_json::json!(rate));
+            assert_eq!(detail["properties"]["bit_depth"], 1);
+            let dsd = &detail["properties"]["dsd"];
+            assert_eq!(dsd["label"], label);
+            assert_eq!(dsd["native_pcm"], serde_json::json!(native));
+            assert_eq!(dsd["reason"], serde_json::json!(reason));
+            assert_eq!(
+                dsd["listening_rate"],
+                serde_json::json!(if native == Some(true) {
+                    Some(88_200)
+                } else {
+                    None
+                })
+            );
+            assert_eq!(
+                dsd["measurement_rate"],
+                serde_json::json!(if native == Some(true) {
+                    rate.map(|r| r / 8)
+                } else {
+                    None
+                })
+            );
+            server.abort();
+        }
+    });
+}

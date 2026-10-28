@@ -77,7 +77,7 @@ impl ListeningFilter {
     pub fn new(rate: u32, channels: usize) -> Self {
         // Both listening profiles yield 88.2 kHz. The extra low-pass
         // rejects ultrasonic shaped noise instead of feeding it to a DAC.
-        let factor = (rate / 88_200) as usize;
+        let factor = (rate / super::LISTENING_SAMPLE_RATE) as usize;
         let taps = coefficients(64 * factor, 30_000.0 / f64::from(rate));
         Self {
             history: vec![vec![0.0; taps.len()]; channels],

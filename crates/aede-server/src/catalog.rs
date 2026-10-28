@@ -486,7 +486,7 @@ pub(super) fn entity_detail(
                 duration_ms: track.duration_ms,
                 disc_no: track.disc_no,
                 track_no: track.track_no,
-                properties: serde_json::json!({"codec":file.properties.codec,"container":file.properties.container,"sample_rate":file.properties.sample_rate,"bit_depth":file.properties.bit_depth,"channels":file.properties.channels,"bitrate_kbps":file.properties.bitrate_kbps,"lossless":file.properties.lossless}),
+                properties: serde_json::json!({"codec":file.properties.codec,"container":file.properties.container,"sample_rate":file.properties.sample_rate,"bit_depth":file.properties.bit_depth,"channels":file.properties.channels,"bitrate_kbps":file.properties.bitrate_kbps,"lossless":file.properties.lossless,"dsd":aede_core::tags::dsd::capabilities(&file.properties)}),
                 tags: file.tags.clone(),
                 credits: catalog.credits.iter().filter(|credit| credit.entity_kind == EntityKind::Track && credit.entity_id == id).map(|credit| {
                     let artist = catalog.artist(credit.artist_id).ok_or_else(unavailable)?;

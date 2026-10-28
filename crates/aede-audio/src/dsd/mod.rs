@@ -42,6 +42,9 @@ pub struct Info {
     /// Available bytes starting at that ID3 header.
     pub metadata_bytes: u64,
 }
+/// Output clock of the native filtered listening profile, before device adaptation.
+pub const LISTENING_SAMPLE_RATE: u32 = 88_200;
+
 /// A measurement keeps ultrasound; listening removes shaped ultrasonic noise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
@@ -68,6 +71,14 @@ fn source_length(file: &File) -> Result<u64, DsdError> {
 pub fn inspect(file: &mut File) -> Result<Info, DsdError> {
     let length = source_length(file)?;
     Ok(container::parse(file, length)?.info)
+}
+/// Inspect validated uncompressed DSF/DFF source properties for catalogue use.
+/// Unlike [`inspect`], higher clocks and structurally admitted DSF multichannel
+/// layouts are retained without enabling PCM decoding. Unsupported compression
+/// and unknown DFF channel orders remain explicit errors.
+pub fn inspect_source(file: &mut File) -> Result<Info, DsdError> {
+    let length = source_length(file)?;
+    Ok(container::inspect(file, length)?.info)
 }
 /// Validate DSF structure and audio/metadata extents without admitting a decoder.
 /// This also supports structural inspection of higher rates and DSF multichannel
@@ -136,7 +147,7 @@ impl Decoder {
         let listening =
             (profile == Profile::Listening).then(|| ListeningFilter::new(wide_rate, channels));
         let divisor = if listening.is_some() {
-            layout.info.sample_rate / 88_200
+            layout.info.sample_rate / LISTENING_SAMPLE_RATE
         } else {
             8
         };
@@ -165,7 +176,7 @@ impl Decoder {
     /// Derived PCM rate; this is not the original DSD clock.
     pub fn sample_rate(&self) -> u32 {
         if self.listening.is_some() {
-            88_200
+            LISTENING_SAMPLE_RATE
         } else {
             self.layout.info.sample_rate / 8
         }

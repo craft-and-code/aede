@@ -29,20 +29,22 @@ fn be64(b: &[u8], at: usize) -> u64 {
 }
 
 pub(super) fn parse(file: &mut (impl Read + Seek), length: u64) -> Result<Layout, DsdError> {
+    let layout = inspect(file, length)?;
+    validate(
+        layout.info.sample_rate,
+        layout.info.channels,
+        layout.info.samples,
+    )?;
+    Ok(layout)
+}
+pub(super) fn inspect(file: &mut (impl Read + Seek), length: u64) -> Result<Layout, DsdError> {
     match &bytes::<4>(file, 0)? {
-        b"DSD " => {
-            let layout = dsf(file, length)?;
-            validate(
-                layout.info.sample_rate,
-                layout.info.channels,
-                layout.info.samples,
-            )?;
-            Ok(layout)
-        }
+        b"DSD " => dsf(file, length),
         b"FRM8" => dff(file, length),
         _ => Err(error("not a DSF/DFF source")),
     }
 }
+
 fn validate(rate: u32, channels: usize, samples: u64) -> Result<(), DsdError> {
     if !super::supports_pcm_profile(rate, channels) {
         return Err(error("native DSD supports DSD64/128 mono/stereo only"));
@@ -246,7 +248,9 @@ fn dff(file: &mut (impl Read + Seek), length: u64) -> Result<Layout, DsdError> {
     let samples = (size / channels as u64)
         .checked_mul(8)
         .ok_or_else(|| error("DFF sample count overflow"))?;
-    validate(rate, channels, samples)?;
+    if rate == 0 || samples == 0 {
+        return Err(error("DFF source has no sample rate or samples"));
+    }
     Ok(Layout {
         info: Info {
             sample_rate: rate,
