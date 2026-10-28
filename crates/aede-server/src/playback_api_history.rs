@@ -97,14 +97,16 @@ impl ListeningTimeline {
         self.occurrences.first().map(|entry| entry.sample_rate)
     }
 
-    pub(super) fn original_cursor(&self, consumed: u64) -> Option<u64> {
+    pub(super) fn original_cursor(&self, consumed: u64, seek_index: Option<usize>) -> Option<u64> {
         let occurrence = self
             .occurrences
             .iter()
             .rev()
             .find(|entry| entry.start <= consumed)?;
         let original = occurrence.original?;
-        if occurrence.end.is_some_and(|end| end <= consumed) {
+        if seek_index.is_some_and(|index| index != occurrence.index)
+            || (seek_index.is_none() && occurrence.end.is_some_and(|end| end <= consumed))
+        {
             return Some(0);
         }
         let frames = consumed.saturating_sub(occurrence.start);

@@ -1537,13 +1537,13 @@ async fn drive_inner(
                             return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
                                 Some(StreamFailure::INVALID_SEEK), true);
                         }
-                        interactive::Control::SeekSamples(if requested == u128::from(original.source_samples) {
+                        interactive::Control::SeekSamples { position: if requested == u128::from(original.source_samples) {
                             original.source_samples
                         } else {
                             (requested / 16 * 16) as u64
-                        })
+                        }, source_index: None }
                     } else { control };
-                    if let interactive::Control::SeekSamples(position) = &control
+                    if let interactive::Control::SeekSamples { position, .. } = &control
                         && format.original.is_none_or(|original| {
                             *position > original.source_samples
                                 || (!position.is_multiple_of(16) && *position != original.source_samples)
@@ -1556,6 +1556,12 @@ async fn drive_inner(
                         return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
                             Some(failure), true);
                     }
+                    let control = match control {
+                        interactive::Control::SeekSamples { position, .. } => {
+                            interactive::Control::SeekSamples { position, source_index: format.index }
+                        }
+                        other => other,
+                    };
                     let mut end = DriveEnd::stopped(&acknowledgements, Some(format.sample_rate), None, false);
                     end.control = Some(control);
                     return end;

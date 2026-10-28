@@ -431,6 +431,145 @@ fn interactive_original_dsd_restarts_preserve_exact_bits_for_seek_and_queue_edit
 }
 
 #[test]
+fn original_dsd_seek_during_final_native_drain_keeps_the_current_track() {
+    test_runtime().block_on(async {
+        for (exact, queue_phase) in [
+            (true, 0),
+            (false, 0),
+            (true, 1),
+            (false, 1),
+            (true, 2),
+            (false, 2),
+        ] {
+            let fixture = Fixture::new();
+            let installed = install_dsd(
+                &fixture,
+                "source.dsf",
+                include_bytes!("../../aede-audio/tests/fixtures/tone.dsf"),
+                false,
+            )
+            .await;
+            let next = if queue_phase > 0 {
+                Some(
+                    install_dsd(
+                        &fixture,
+                        "next.dsf",
+                        include_bytes!("../../aede-audio/tests/fixtures/tone.dsf"),
+                        true,
+                    )
+                    .await,
+                )
+            } else {
+                None
+            };
+            let (address, server) = start_server(fixture.0.clone()).await;
+            let token = login(address, "alice");
+            let mut socket = upgraded_socket(address, &token);
+            let mut start = serde_json::json!({
+                "type":"start",
+                "normalize":"off", "dsd_output":"dop", "interactive":true,
+            });
+            if let Some(next) = &next {
+                start["tracks"] = serde_json::json!([installed.reference, next.reference]);
+            } else {
+                start["track"] = installed.reference.clone().into();
+            }
+            socket.send_text(&start.to_string());
+            next_dsd_text(&mut socket, "queue");
+            let mut format = next_dsd_text(&mut socket, "format");
+            let end = next_dsd_text(
+                &mut socket,
+                if queue_phase > 0 { "track_end" } else { "eof" },
+            );
+            let frames = end[if queue_phase > 0 {
+                "end_frame"
+            } else {
+                "frames"
+            }]
+            .clone();
+            if queue_phase == 2 {
+                socket.send_text(
+                    &serde_json::json!({"type":"ack", "epoch":0, "frames":frames}).to_string(),
+                );
+                format = next_dsd_text(&mut socket, "format");
+            }
+            // Native handoff can reach the last word while the DAC still
+            // drains. A seek retires that output and reports its true count;
+            // it does not certify completion or move to a nonexistent track.
+            let mut seek = serde_json::json!({
+                "type":"seek", "epoch":0, "frames":frames,
+            });
+            seek[if exact {
+                "position_samples"
+            } else {
+                "position_ms"
+            }] = 0.into();
+            socket.send_text(&seek.to_string());
+            let reset = next_dsd_text(&mut socket, "reset");
+            assert_eq!(
+                reset["current_occurrence"],
+                if queue_phase == 2 { 2 } else { 1 }
+            );
+            assert_eq!(reset["position_samples"], 0);
+            socket.send_text(r#"{"type":"reset_ack","epoch":1}"#);
+            let resumed = next_dsd_text(&mut socket, "format");
+            assert_eq!(resumed["track"], format["track"]);
+            assert_eq!(resumed["position_samples"], 0);
+            socket.send_text(r#"{"type":"stop","epoch":1,"frames":0}"#);
+            let recorded = next_dsd_text(&mut socket, "recorded");
+            assert_eq!(recorded["ms_played"], 23);
+            assert_eq!(recorded["completed"], false);
+            server.abort();
+        }
+    });
+}
+
+#[test]
+fn original_dsd_millisecond_seeks_publish_the_actual_aligned_reset_position() {
+    test_runtime().block_on(async {
+        for (milliseconds, bits, actual_ms) in
+            [(0, 0, 0), (1, 2816, 0), (5, 14112, 5), (23, 64912, 22)]
+        {
+            let fixture = Fixture::new();
+            let installed = install_dsd(
+                &fixture,
+                "source.dsf",
+                include_bytes!("../../aede-audio/tests/fixtures/tone.dsf"),
+                false,
+            )
+            .await;
+            let (address, server) = start_server(fixture.0.clone()).await;
+            let token = login(address, "alice");
+            let mut socket = upgraded_socket(address, &token);
+            socket.send_text(
+                &serde_json::json!({
+                    "type":"start", "track":installed.reference,
+                    "normalize":"off", "dsd_output":"dop", "interactive":true,
+                })
+                .to_string(),
+            );
+            next_dsd_text(&mut socket, "queue");
+            next_dsd_text(&mut socket, "format");
+            socket.send_text(
+                &serde_json::json!({
+                    "type":"seek", "epoch":0, "frames":0, "position_ms":milliseconds,
+                })
+                .to_string(),
+            );
+            let reset = next_dsd_text(&mut socket, "reset");
+            assert_eq!(reset["position_samples"], bits, "{milliseconds}ms: {reset}");
+            assert_eq!(reset["position_ms"], actual_ms);
+            socket.send_text(r#"{"type":"reset_ack","epoch":1}"#);
+            let format = next_dsd_text(&mut socket, "format");
+            assert_eq!(format["position_samples"], bits);
+            assert_eq!(format["position_ms"], actual_ms);
+            socket.send_text(r#"{"type":"stop","epoch":1,"frames":0}"#);
+            server.abort();
+        }
+    });
+}
+
+#[test]
 fn original_dsd_full_stop_ack_preserves_duration_without_certifying_completion() {
     test_runtime().block_on(async {
         for (dop, stop) in [(true, true), (true, false), (false, true)] {

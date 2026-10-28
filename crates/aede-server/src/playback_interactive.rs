@@ -51,8 +51,14 @@ pub(super) struct Item {
 
 pub(super) enum Control {
     Seek(u64),
-    SeekSamples(u64),
-    Edit { revision: u64, items: Vec<Item> },
+    SeekSamples {
+        position: u64,
+        source_index: Option<usize>,
+    },
+    Edit {
+        revision: u64,
+        items: Vec<Item>,
+    },
     Stop,
 }
 
@@ -77,12 +83,17 @@ impl Epoch {
         self.failed.load(AtomicOrdering::Acquire)
     }
 
-    fn snapshot(&self, timeline: &ListeningTimeline, consumed: u64) -> PlaybackState {
+    fn snapshot(
+        &self,
+        timeline: &ListeningTimeline,
+        consumed: u64,
+        seek_index: Option<usize>,
+    ) -> PlaybackState {
         let mut snapshot = self.base.clone();
         if let Some((index, position, at_end)) = timeline.cursor(consumed) {
-            let next = index + usize::from(at_end);
+            let next = seek_index.unwrap_or(index + usize::from(at_end));
             snapshot.current_occurrence = self.entries.get(next).map(|entry| entry.occurrence);
-            snapshot.position_ms = if at_end { 0 } else { position };
+            snapshot.position_ms = if next == index { position } else { 0 };
         }
         snapshot.settings.sample_rate = timeline.output_rate().or(snapshot.settings.sample_rate);
         snapshot.updated_at = clock::now_seconds();
@@ -94,7 +105,7 @@ impl Epoch {
             // One pending periodic write is enough. A final/control write is
             // awaited separately and always follows any queued periodic write.
             let _ = sender.try_send(Snapshot {
-                state: self.snapshot(timeline, consumed),
+                state: self.snapshot(timeline, consumed, None),
                 expected_revision: self.base.revision,
                 reply: None,
             });
@@ -158,9 +169,14 @@ pub(super) async fn receive(
                     frames,
                     position_ms: None,
                     position_samples: Some(position),
-                } if epoch.dsd_output == DsdOutput::Dop => {
-                    (number, frames, Some(Control::SeekSamples(position)))
-                }
+                } if epoch.dsd_output == DsdOutput::Dop => (
+                    number,
+                    frames,
+                    Some(Control::SeekSamples {
+                        position,
+                        source_index: None,
+                    }),
+                ),
                 Frame::Seek { .. } => return Err(StreamFailure::INVALID_SEEK),
                 Frame::EditQueue {
                     epoch,
@@ -643,20 +659,27 @@ pub(super) async fn run(
         ) {
             failure = Some(error)
         }
+        // The last original word can reach the driver before native drain
+        // completes. A DoP seek reports that full count while retiring output;
+        // it still targets this visit, rather than the successor of its EOF.
+        let seek_index = match end.control.as_ref() {
+            Some(Control::SeekSamples { source_index, .. }) => *source_index,
+            _ => None,
+        };
         let acknowledged_samples = timeline
-            .original_cursor(end.acknowledged_frames)
+            .original_cursor(end.acknowledged_frames, seek_index)
             .or(epoch.position_samples);
         (snapshot, position_samples) = if end.sample_rate.is_none() {
             seek_backup.take().unwrap_or_else(|| {
                 (
-                    epoch.snapshot(&timeline, end.acknowledged_frames),
+                    epoch.snapshot(&timeline, end.acknowledged_frames, seek_index),
                     acknowledged_samples,
                 )
             })
         } else {
             seek_backup = None;
             (
-                epoch.snapshot(&timeline, end.acknowledged_frames),
+                epoch.snapshot(&timeline, end.acknowledged_frames, seek_index),
                 acknowledged_samples,
             )
         };
@@ -683,7 +706,7 @@ pub(super) async fn run(
             let previous_revision = snapshot.revision;
             match control {
                 Control::Stop => break,
-                Control::Seek(position) | Control::SeekSamples(position) => {
+                Control::Seek(position) | Control::SeekSamples { position, .. } => {
                     let Some(id) = snapshot.current_occurrence else {
                         failure = Some(StreamFailure::INVALID_SEEK);
                         break;
@@ -694,7 +717,7 @@ pub(super) async fn run(
                         visit.listen.completed = false
                     }
                     seek_backup = Some((snapshot.clone(), position_samples));
-                    if matches!(control, Control::SeekSamples(_)) {
+                    if matches!(control, Control::SeekSamples { .. }) {
                         // Exact DSD cursor stays process-local; persistent
                         // PCM checkpoint schemas are never repurposed.
                         let Some(source_rate) =
