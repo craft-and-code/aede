@@ -71,6 +71,16 @@ mod render;
 ))]
 #[path = "dop/state.rs"]
 mod state;
+#[cfg(all(
+    feature = "dop-output",
+    any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", feature = "dop-alsa"),
+        test
+    )
+))]
+pub mod stream_output;
 #[cfg(all(feature = "dop-output", target_os = "windows"))]
 #[path = "dop/wasapi.rs"]
 mod wasapi;

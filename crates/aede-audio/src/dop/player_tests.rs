@@ -389,3 +389,35 @@ fn initial_time_positions_are_bounded_and_rounded_to_original_dop_words() {
     assert_eq!(frame_at_time(Duration::from_nanos(5_669), info), 1);
     assert_eq!(frame_at_time(Duration::MAX, info), 41);
 }
+
+#[test]
+fn initial_pause_and_mute_reach_native_callbacks_before_any_programme_bits() {
+    for (paused, muted) in [(true, false), (false, true), (true, true)] {
+        let (source, _) = reference(4000, 2);
+        let trace = Arc::new(Trace::default());
+        let original = std::fs::read(&source.0).unwrap();
+        let mut player = Player::open_with_factory(
+            &source.0,
+            factory(trace.clone()),
+            Duration::ZERO,
+            paused,
+            muted,
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(player.snapshot().paused, paused);
+        assert_eq!(player.snapshot().muted, muted);
+        if paused {
+            std::thread::sleep(Duration::from_millis(20));
+            assert_eq!(player.snapshot().position_samples, 0);
+        } else {
+            until(|| player.snapshot().position_samples > 0);
+        }
+        assert!(trace.programme.lock().unwrap().is_empty());
+        player.set_muted(false);
+        player.resume();
+        until(|| !trace.programme.lock().unwrap().is_empty());
+        player.close().unwrap();
+        assert_eq!(std::fs::read(&source.0).unwrap(), original);
+    }
+}

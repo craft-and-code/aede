@@ -3,7 +3,8 @@
 //! No catalogue, account, network, history or application dependency. Decoding,
 //! queueing and device output are explicit features. The minimal player applies
 //! only volume and format adaptation; it has no normalization, EQ, crossfade or
-//! bit-perfect route. Rich applications retain their transport policy.
+//! bit-perfect route. A separate explicit DoP output transports original DSD
+//! words through exclusive integer backends. Rich applications retain policy.
 #[cfg(feature = "dsp")]
 pub use aede_dsp as dsp;
 #[cfg(feature = "queue")]

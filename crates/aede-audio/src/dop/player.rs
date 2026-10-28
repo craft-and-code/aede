@@ -77,8 +77,33 @@ impl Player {
         position: Duration,
         current: impl Fn() -> Result<(), String>,
     ) -> Result<Self, String> {
+        Self::open_at_admitted_with_controls(path, device, position, false, false, current)
+    }
+
+    /// Prepare caller-selected pause/mute before the first native callback can
+    /// consume programme bits. Volume remains a hardware-only control for DoP.
+    pub fn open_at_admitted_with_controls(
+        path: &Path,
+        device: &str,
+        position: Duration,
+        paused: bool,
+        muted: bool,
+        current: impl Fn() -> Result<(), String>,
+    ) -> Result<Self, String> {
         current()?;
         let factory = super::platform::factory(device)?;
+        Self::open_with_factory(path, factory, position, paused, muted, current)
+    }
+
+    fn open_with_factory(
+        path: &Path,
+        factory: Factory,
+        position: Duration,
+        paused: bool,
+        muted: bool,
+        current: impl Fn() -> Result<(), String>,
+    ) -> Result<Self, String> {
+        current()?;
         let file = File::open(path).map_err(|e| e.to_string())?;
         let reader = Reader::from_file(file.try_clone().map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
@@ -88,8 +113,8 @@ impl Player {
             file,
             factory,
             offset,
-            false,
-            false,
+            paused,
+            muted,
             Some((source, reader.stamp)),
             &current,
         )
