@@ -70,6 +70,7 @@ pub(super) async fn status(State(state): State<ApiState>) -> Json<Status> {
         "label_album_sort",
         "account_preferences",
         "track_waveform",
+        "dsd_original_playback",
         "mood_rules",
         "mood_audio_features",
         "collection_rename",

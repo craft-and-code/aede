@@ -2,7 +2,7 @@
 
 The unpublished shared `aede-audio` candidate adds DoP 1.1 transport and explicitly requested CoreAudio HAL, WASAPI exclusive/raw and direct ALSA hardware backends. Aède's CLI uses it with `--dsd-output=dop` and an exact native device ID (`coreaudio:<device-UID>`, `wasapi:<endpoint-ID>` or `alsa:hw:<card>,<device>`). Ordinary DSD playback still uses the [listening PCM decoder](native-dsd.md). DoP packs original DSD bits into an integer carrier; it does not run that decoder, a PCM filter, a resampler or gain processing.
 
-This first integration is the local CLI. FlacCompagnon's preview, Phémios's native player and the server/browser PCM protocol still use their existing PCM paths. Updating a shared dependency alone cannot enable DoP in them. Installed Apps, product binaries and published dependency pins are unchanged by source verification.
+The source integration includes the local CLI, FlacCompagnon's explicit DoP preview and Phémios's explicit native DoP mode. PCM remains the default. Aède's server App owns no listening device: it supplies authenticated original DSD words to Phémios, whose native host owns the DAC. Browsers retain PCM. Source verification does not rebuild installed Apps, embedded engines or product bundles.
 
 ## Source and transport
 
@@ -15,6 +15,18 @@ The original valid one-bit length is retained independently of the final carrier
 The typed payload queue holds half a second of stereo carrier frames. Native output uses integer storage only: packed little-endian 24-bit, low-aligned sign-extended 24-in-32, or high-aligned 24-in-32. The HAL render callback has no ordinary allocation, filesystem I/O, logging, mutex or PCM processing. Polled backends preallocate write buffers and perform native route queries on their control thread. Source reads and device control use separate workers. Underruns, unexpected callback geometry, reentry, source faults and route changes permanently stop the visit; there is no PCM/ffplay fallback or concealment of a successful visit.
 
 Startup remains on framed DSD silence until the source queue is full or a shorter source reaches validated EOF. A first read burst alone does not admit programme bits: it may contain fewer frames than one hardware buffer. The existing startup deadline still applies.
+
+## Native client handoff
+
+FlacCompagnon opens the existing file player with initial pause/mute held before programme admission. Explicit DoP requires an exact native DAC selection, retains pause/seek/stop/error/cleanup semantics, and offers no software volume. Non-DSD or unsupported sources are refused rather than silently converted.
+
+Phémios requests `dsd_output:"dop"` on the existing authenticated playback WebSocket after confirming `dsd_original_playback`. Normalization, tone, rate conversion and persistent PCM profiles are incompatible with this mode. The server emits `dsd16le` interleaved chronological sixteen-bit words, genuine `source_rate`, `source_samples` and `position_samples`; `sample_rate` is the carrier clock used by ACKs. History clamps the padded final word to original bits. One socket queue retains one DSD clock; Phémios admits tracks separately so DSD64/128 transitions reopen the matching route.
+
+The shared `dop::stream_output::StreamOutput` accepts bounded original words, not float PCM or a downloaded whole track. It buffers at most half a second, duplicates mono bit for bit and opens the backend only after full prefill or validated short EOF. Preparation emits framed silence until final caller admission. The same drivers/renderers handle file and network output; no gain, EQ, crossfade or PCM fallback is applied. Restoration failures remain errors on repeated retirement.
+
+Pause/output replacement retires the transport while retaining its exact delivered original-bit position. A DoP seek provides `position_samples` instead of `position_ms`, aligned to sixteen bits except at exact EOF. Final Stop/Seek ACKs include native handoff after close; resumed prefixes are never rounded to milliseconds. Old servers and browser/CD/radio routes retain explicit capability/policy boundaries.
+
+The client withholds the last original-DSD frame ACK until native drain and device restoration succeed. A Stop or failed retirement may still report the truthful full consumed count; the server retains that listening duration while leaving a stopped or abandoned DoP visit incomplete. PCM completion rules are unchanged.
 
 ## CoreAudio admission
 

@@ -120,3 +120,7 @@ Personal store format 3 retains IDs across saves and backup merges. Formats 1/2 
 ## Label logos
 
 The additive `label_logos` capability exposes `logo` presence on `/api/v1/labels` rows and `/api/v1/label` details. `/api/v1/artwork?ref=<label-token>&kind=logo` serves only the existing JPEG/static PNG selected under the same confined `assets/labels/<MusicBrainz ID>/` destination as explicit Fanart.tv enrichment. Exact local tag IDs and identified/accepted MusicBrainz identities are eligible; name-only suggestions, rejected claims and path-shaped IDs are not. The ordinary media limits, descriptor checks, parental projection and final account admission apply. GET never requests Fanart.tv or writes a source image. Presence is a filesystem hint, not a promise that an image will remain readable; clients retain an unavailable fallback. Older servers omit `logo` and the capability.
+
+## Original DSD playback capability
+
+The additive `dsd_original_playback` status capability advertises the authenticated original-word extension of the existing playback WebSocket. It is independent of the client's DoP device capability and leaves ordinary PCM requests unchanged. Native clients must check this capability before requesting original-bit transport from an engine that may predate it. See [the wire contract and exact source cursor](playback.md#original-dsd-words-for-native-dop-output).

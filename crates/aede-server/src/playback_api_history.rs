@@ -10,6 +10,7 @@ struct Occurrence {
     sample_rate: u32,
     started_at: u64,
     position_ms: u64,
+    original: Option<DsdFacts>,
 }
 
 #[derive(Default)]
@@ -32,6 +33,7 @@ impl ListeningTimeline {
         frame: &TrackFrame,
         sent: u64,
         sample_rate: u32,
+        original: Option<DsdFacts>,
         sources: &[TrackSource],
     ) -> Result<(), StreamFailure> {
         if frame.index != self.occurrences.len()
@@ -55,6 +57,7 @@ impl ListeningTimeline {
             sample_rate,
             started_at: clock::now_seconds(),
             position_ms: frame.position_ms.unwrap_or(0),
+            original,
         });
         Ok(())
     }
@@ -76,8 +79,37 @@ impl ListeningTimeline {
         Ok(())
     }
 
+    fn played(occurrence: &Occurrence, frames: u64) -> (u64, u32) {
+        match occurrence.original {
+            Some(original) => (
+                frames.saturating_mul(16).min(
+                    original
+                        .source_samples
+                        .saturating_sub(original.position_samples),
+                ),
+                original.source_rate,
+            ),
+            None => (frames, occurrence.sample_rate),
+        }
+    }
+
     pub(super) fn output_rate(&self) -> Option<u32> {
         self.occurrences.first().map(|entry| entry.sample_rate)
+    }
+
+    pub(super) fn original_cursor(&self, consumed: u64) -> Option<u64> {
+        let occurrence = self
+            .occurrences
+            .iter()
+            .rev()
+            .find(|entry| entry.start <= consumed)?;
+        let original = occurrence.original?;
+        if occurrence.end.is_some_and(|end| end <= consumed) {
+            return Some(0);
+        }
+        let frames = consumed.saturating_sub(occurrence.start);
+        let (played, _) = Self::played(occurrence, frames);
+        Some(original.position_samples.saturating_add(played))
     }
 
     pub(super) fn cursor(&self, consumed: u64) -> Option<(usize, u64, bool)> {
@@ -90,13 +122,18 @@ impl ListeningTimeline {
         let frames = consumed
             .min(occurrence.end.unwrap_or(consumed))
             .saturating_sub(occurrence.start);
-        Some((
-            occurrence.index,
-            occurrence
-                .position_ms
-                .saturating_add(frames_to_milliseconds(frames, occurrence.sample_rate)),
-            at_end,
-        ))
+        let (played, rate) = Self::played(occurrence, frames);
+        let position = occurrence.original.map_or_else(
+            || {
+                occurrence
+                    .position_ms
+                    .saturating_add(frames_to_milliseconds(played, rate))
+            },
+            |original| {
+                frames_to_milliseconds(original.position_samples.saturating_add(played), rate)
+            },
+        );
+        Some((occurrence.index, position, at_end))
     }
 
     pub(super) fn listens(&self, consumed: u64, sources: &[TrackSource]) -> Vec<Listened> {
@@ -117,7 +154,8 @@ impl ListeningTimeline {
             .filter_map(|occurrence| {
                 let consumed = consumed.min(occurrence.end.unwrap_or(consumed));
                 let frames = consumed.saturating_sub(occurrence.start);
-                let ms_played = frames_to_milliseconds(frames, occurrence.sample_rate);
+                let (played, rate) = Self::played(occurrence, frames);
+                let ms_played = frames_to_milliseconds(played, rate);
                 let source = sources.get(occurrence.index)?;
                 (frames > 0).then(|| {
                     (
@@ -128,8 +166,8 @@ impl ListeningTimeline {
                             ms_played,
                             completed: occurrence.end.is_some_and(|end| consumed == end),
                         },
-                        frames,
-                        occurrence.sample_rate,
+                        played,
+                        rate,
                     )
                 })
             })

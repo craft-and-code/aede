@@ -100,6 +100,7 @@ dependencies = [
 name = "aede-server"
 version = "0.7.5"
 dependencies = [
+ "aede-audio",
  "aede-core",
  "aede-devices",
  "aede-dsp",
@@ -656,7 +657,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 [[package]]
 name = "flaccompagnon-core"
 version = "0.10.0"
-source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=066458e1d8214f30ab60eef89f83a40cc93f9c09#066458e1d8214f30ab60eef89f83a40cc93f9c09"
+source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=c6dd0c815fd7c8a7a5d27a6f04261477a767a1ef#c6dd0c815fd7c8a7a5d27a6f04261477a767a1ef"
 dependencies = [
  "aede-audio",
  "claxon",
@@ -676,7 +677,7 @@ dependencies = [
 [[package]]
 name = "flaccompagnon-spectrogram"
 version = "0.10.0"
-source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=066458e1d8214f30ab60eef89f83a40cc93f9c09#066458e1d8214f30ab60eef89f83a40cc93f9c09"
+source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=c6dd0c815fd7c8a7a5d27a6f04261477a767a1ef#c6dd0c815fd7c8a7a5d27a6f04261477a767a1ef"
 dependencies = [
  "fontdue",
  "png",

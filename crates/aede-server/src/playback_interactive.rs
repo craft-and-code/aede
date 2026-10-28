@@ -25,7 +25,10 @@ enum Frame {
     Seek {
         epoch: u64,
         frames: u64,
-        position_ms: u64,
+        #[serde(default, deserialize_with = "non_null_field")]
+        position_ms: Option<u64>,
+        #[serde(default, deserialize_with = "non_null_field")]
+        position_samples: Option<u64>,
     },
     EditQueue {
         epoch: u64,
@@ -48,6 +51,7 @@ pub(super) struct Item {
 
 pub(super) enum Control {
     Seek(u64),
+    SeekSamples(u64),
     Edit { revision: u64, items: Vec<Item> },
     Stop,
 }
@@ -60,6 +64,8 @@ pub(super) enum Incoming {
 
 pub(super) struct Epoch {
     number: u64,
+    dsd_output: DsdOutput,
+    position_samples: Option<u64>,
     entries: Vec<PlaybackEntry>,
     base: PlaybackState,
     sender: Option<mpsc::Sender<Snapshot>>,
@@ -144,9 +150,16 @@ pub(super) async fn receive(
                 Frame::Seek {
                     epoch,
                     frames,
-                    position_ms,
-                } if position_ms <= MAX_POSITION_MS => {
-                    (epoch, frames, Some(Control::Seek(position_ms)))
+                    position_ms: Some(position),
+                    position_samples: None,
+                } if position <= MAX_POSITION_MS => (epoch, frames, Some(Control::Seek(position))),
+                Frame::Seek {
+                    epoch: number,
+                    frames,
+                    position_ms: None,
+                    position_samples: Some(position),
+                } if epoch.dsd_output == DsdOutput::Dop => {
+                    (number, frames, Some(Control::SeekSamples(position)))
                 }
                 Frame::Seek { .. } => return Err(StreamFailure::INVALID_SEEK),
                 Frame::EditQueue {
@@ -338,23 +351,35 @@ async fn reset_ack(
     }
 }
 
+struct Announcement {
+    epoch: u64,
+    reset: bool,
+    position_samples: Option<u64>,
+}
+
 async fn announce(
     socket: &mut WebSocket,
     state: &ApiState,
     captured: &auth::Principal,
     shutdown: &mut crate::shutdown::Receiver,
     snapshot: &PlaybackState,
-    epoch: u64,
-    reset: bool,
+    announcement: Announcement,
 ) -> Result<(), StreamFailure> {
     // Source/checkpoint preparation may have yielded to logout or revocation,
     // including when a volatile queue has no authenticated checkpoint write.
     authorized(state, captured, false, shutdown).await?;
     let items: Vec<_> = snapshot.entries.iter().map(|entry| serde_json::json!({"occurrence":entry.occurrence,"track":entry.track.to_token()})).collect();
-    send_json(socket, serde_json::json!({
-        "type":if reset {"reset"} else {"queue"}, "epoch":epoch,"revision":snapshot.revision,
+    let mut frame = serde_json::json!({
+        "type":if announcement.reset {"reset"} else {"queue"},
+        "epoch":announcement.epoch,"revision":snapshot.revision,
         "items":items,"current_occurrence":snapshot.current_occurrence,"position_ms":snapshot.position_ms
-    })).await.map_err(|_| StreamFailure::STREAM_FAILED)
+    });
+    if let Some(position) = announcement.position_samples {
+        frame["position_samples"] = position.into();
+    }
+    send_json(socket, frame)
+        .await
+        .map_err(|_| StreamFailure::STREAM_FAILED)
 }
 
 fn selected_index(snapshot: &PlaybackState) -> Option<usize> {
@@ -521,21 +546,25 @@ pub(super) async fn run(
         .unwrap_or(0);
     let mut visits = BTreeMap::new();
     let mut moved = BTreeSet::new();
+    let mut position_samples = (start.dsd_output == DsdOutput::Dop).then_some(0);
     let mut failure = announce(
         &mut socket,
         &state,
         &captured,
         &mut shutdown,
         &snapshot,
-        number,
-        false,
+        Announcement {
+            epoch: number,
+            reset: false,
+            position_samples,
+        },
     )
     .await
     .err();
     let mut final_worker = None;
     let mut completed = false;
     let mut actions = 0;
-    let mut seek_backup: Option<PlaybackState> = None;
+    let mut seek_backup: Option<(PlaybackState, Option<u64>)> = None;
     while failure.is_none() {
         let Some(index) = selected_index(&snapshot) else {
             completed = true;
@@ -555,7 +584,11 @@ pub(super) async fn run(
             break;
         }
         start.normalize = snapshot.settings.normalize;
-        start.output_rate = snapshot.settings.sample_rate;
+        start.output_rate = if start.dsd_output == DsdOutput::Dop {
+            None
+        } else {
+            snapshot.settings.sample_rate
+        };
         start.tone = match ToneControls::new(snapshot.settings.bass_db, snapshot.settings.treble_db)
         {
             Ok(tone) => tone,
@@ -566,8 +599,11 @@ pub(super) async fn run(
         };
         let mut settings = settings(catalog, state.data_dir.clone(), &start);
         settings.first_position_ms = snapshot.position_ms;
+        settings.first_position_samples = position_samples;
         let epoch = Epoch {
             number,
+            dsd_output: start.dsd_output,
+            position_samples,
             entries,
             base: snapshot.clone(),
             sender: writer.as_ref().map(|writer| writer.sender.clone()),
@@ -607,13 +643,22 @@ pub(super) async fn run(
         ) {
             failure = Some(error)
         }
-        snapshot = if end.sample_rate.is_none() {
-            seek_backup
-                .take()
-                .unwrap_or_else(|| epoch.snapshot(&timeline, end.acknowledged_frames))
+        let acknowledged_samples = timeline
+            .original_cursor(end.acknowledged_frames)
+            .or(epoch.position_samples);
+        (snapshot, position_samples) = if end.sample_rate.is_none() {
+            seek_backup.take().unwrap_or_else(|| {
+                (
+                    epoch.snapshot(&timeline, end.acknowledged_frames),
+                    acknowledged_samples,
+                )
+            })
         } else {
             seek_backup = None;
-            epoch.snapshot(&timeline, end.acknowledged_frames)
+            (
+                epoch.snapshot(&timeline, end.acknowledged_frames),
+                acknowledged_samples,
+            )
         };
         snapshot.settings.sample_rate = end.sample_rate.or(snapshot.settings.sample_rate);
         if end.completed {
@@ -638,7 +683,7 @@ pub(super) async fn run(
             let previous_revision = snapshot.revision;
             match control {
                 Control::Stop => break,
-                Control::Seek(position) => {
+                Control::Seek(position) | Control::SeekSamples(position) => {
                     let Some(id) = snapshot.current_occurrence else {
                         failure = Some(StreamFailure::INVALID_SEEK);
                         break;
@@ -648,8 +693,22 @@ pub(super) async fn run(
                         visit.moved = true;
                         visit.listen.completed = false
                     }
-                    seek_backup = Some(snapshot.clone());
-                    snapshot.position_ms = position;
+                    seek_backup = Some((snapshot.clone(), position_samples));
+                    if matches!(control, Control::SeekSamples(_)) {
+                        // Exact DSD cursor stays process-local; persistent
+                        // PCM checkpoint schemas are never repurposed.
+                        let Some(source_rate) =
+                            end.sample_rate.and_then(|rate| rate.checked_mul(16))
+                        else {
+                            failure = Some(StreamFailure::STREAM_FAILED);
+                            break;
+                        };
+                        snapshot.position_ms = frames_to_milliseconds(position, source_rate);
+                        position_samples = Some(position);
+                    } else {
+                        snapshot.position_ms = position;
+                        position_samples = None;
+                    }
                 }
                 Control::Edit { revision, items } => {
                     if let Err(error) =
@@ -672,10 +731,12 @@ pub(super) async fn run(
                 }
             };
             if let Some(writer) = &writer {
-                let mut published = seek_backup.clone().unwrap_or_else(|| snapshot.clone());
+                let mut published = seek_backup
+                    .as_ref()
+                    .map_or_else(|| snapshot.clone(), |(snapshot, _)| snapshot.clone());
                 published.revision = snapshot.revision;
                 if let Some(backup) = &mut seek_backup {
-                    backup.revision = snapshot.revision;
+                    backup.0.revision = snapshot.revision;
                 }
                 if let Err(error) = writer.save(published, previous_revision).await {
                     failure = Some(error);
@@ -689,8 +750,11 @@ pub(super) async fn run(
                 &captured,
                 &mut shutdown,
                 &snapshot,
-                number,
-                true,
+                Announcement {
+                    epoch: number,
+                    reset: true,
+                    position_samples,
+                },
             )
             .await
             {
@@ -708,7 +772,7 @@ pub(super) async fn run(
             break;
         }
     }
-    if let Some(confirmed) = seek_backup.take() {
+    if let Some((confirmed, _)) = seek_backup.take() {
         snapshot = confirmed;
     }
     // Saving a resume point is independent of listening history and never
@@ -718,6 +782,13 @@ pub(super) async fn run(
         && failure.is_none()
     {
         failure = Some(error);
+    }
+    if start.dsd_output == DsdOutput::Dop && !completed {
+        // Keep the actual consumed duration on Stop/error, but only the
+        // final ACK/EOF handshake certifies successful native DSD cleanup.
+        for visit in visits.values_mut() {
+            visit.listen.completed = false;
+        }
     }
     let mut ordered_visits: Vec<_> = visits
         .values()

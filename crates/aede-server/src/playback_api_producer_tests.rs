@@ -18,12 +18,14 @@ async fn producer_events(
     let (sources, catalog) = current_sources(&fixture.0, &references).await.unwrap();
     let settings = ProducerSettings {
         queue: true,
+        dsd_output: DsdOutput::Pcm,
         output_rate: Some(8_000),
         tone: ToneControls::new(0.0, 0.0).unwrap(),
         normalize: Mode::Off,
         normalization_catalog: catalog,
         data_dir: fixture.0.data_dir.clone(),
         first_position_ms: position_ms,
+        first_position_samples: None,
         interactive,
     };
     let (mut receiver, worker) = spawn_producer(

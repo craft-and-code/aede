@@ -1,6 +1,6 @@
 # Playback (M3)
 
-The unpublished [macOS DoP output](dop-output.md) is a separate original-DSD transport selected by `--dsd-output=dop`. It bypasses the PCM policies/processing below, requires a compatible explicit DAC and retains separate hardware acceptance. Ordinary DSD listening continues to use converted PCM.
+The unpublished [DoP output](dop-output.md) is a separate original-DSD transport selected explicitly by the CLI or native client. It bypasses the PCM policies/processing below, requires a compatible explicit DAC and retains separate hardware acceptance. Ordinary DSD listening continues to use converted PCM.
 
 The [transparent playback and bit-perfect contract](bit-perfect.md) defines local without-effects, strict bit-perfect and DSP policies. `play` defaults to without-effects, with normalization off and flat tone; an explicit DSP policy or non-neutral effects selects processing. Typed sources, exact sessions/adapters and the strict queue share the one local transport driver, with consumption-based exact history. Explicit device selection and rate-first admission refuse unknown route facts. Strict glibc Linux output uses a separate direct ALSA backend; CPAL routes remain ineligible. Digital-capture acceptance of specific physical routes remains pending.
 

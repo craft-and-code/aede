@@ -25,6 +25,7 @@ fn begin(timeline: &mut ListeningTimeline, sources: &[TrackSource], index: usize
             },
             frames,
             8_000,
+            None,
             sources,
         )
         .unwrap();
@@ -122,7 +123,11 @@ fn malformed_track_boundaries_cannot_change_the_attribution() {
         duration_ms: None,
         position_ms: None,
     };
-    assert!(timeline.begin(&wrong_start, 80, 8_000, &sources).is_err());
+    assert!(
+        timeline
+            .begin(&wrong_start, 80, 8_000, None, &sources)
+            .is_err()
+    );
     begin(&mut timeline, &sources, 1, 80);
     assert_eq!(timeline.listens(120, &sources).len(), 2);
 }

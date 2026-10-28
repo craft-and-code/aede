@@ -761,6 +761,8 @@ fn short_acknowledged_segments_accumulate_before_one_duration_rounding() {
         updated_at: 0,
     };
     let epoch = Epoch {
+        dsd_output: DsdOutput::Pcm,
+        position_samples: None,
         number: 0,
         entries,
         base: snapshot,
@@ -783,6 +785,7 @@ fn short_acknowledged_segments_accumulate_before_one_duration_rounding() {
                 },
                 0,
                 8000,
+                None,
                 &sources,
             )
             .unwrap();

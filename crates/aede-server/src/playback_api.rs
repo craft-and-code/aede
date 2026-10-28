@@ -1,7 +1,7 @@
-//! Authenticated, bounded PCM playback for remote clients.
+//! Authenticated, bounded PCM or original-DSD playback for remote clients.
 //!
-//! This module transports processed PCM only. It deliberately does not own a
-//! device or a second audio pipeline. Opt-in controls manage source positioning,
+//! PCM is the default; the explicit DoP mode transports original DSD words.
+//! It never owns a device or frames encoded words as float PCM. Controls manage source positioning,
 //! queue revisions and private checkpoints; decoding, stereo
 //! downmix, normalization, tone controls, rate conversion, and the final
 //! output guard come from `aede-core` and `aede-dsp`, just as they do for local
@@ -97,6 +97,8 @@ enum InitialFrame {
         tracks: Option<Vec<String>>,
         #[serde(default)]
         normalize: Normalize,
+        #[serde(default)]
+        dsd_output: DsdOutput,
         sample_rate: Option<u32>,
         bass: Option<f32>,
         treble: Option<f32>,
@@ -126,6 +128,15 @@ enum Normalize {
     Album,
 }
 
+/// A separate original-bit stream, never a PCM sample representation.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DsdOutput {
+    #[default]
+    Pcm,
+    Dop,
+}
+
 impl Normalize {
     fn mode(self) -> Mode {
         match self {
@@ -146,6 +157,7 @@ struct Start {
     references: Vec<EntityRef>,
     queue: bool,
     normalize: Mode,
+    dsd_output: DsdOutput,
     output_rate: Option<u32>,
     tone: ToneControls,
     interactive: bool,
@@ -160,6 +172,7 @@ impl Start {
             track,
             tracks,
             normalize,
+            dsd_output,
             sample_rate,
             bass,
             treble,
@@ -174,6 +187,7 @@ impl Start {
                 references: Vec::new(),
                 queue: true,
                 normalize: Mode::Track,
+                dsd_output: DsdOutput::Pcm,
                 output_rate: None,
                 tone: ToneControls::FLAT,
                 interactive: true,
@@ -207,10 +221,20 @@ impl Start {
         let bass = bass.unwrap_or(0.0);
         let treble = treble.unwrap_or(0.0);
         let tone = ToneControls::new(bass, treble).map_err(|_| StreamFailure::INVALID_START)?;
+        if dsd_output == DsdOutput::Dop
+            && (!matches!(normalize, Normalize::Off)
+                || sample_rate.is_some()
+                || bass != 0.0
+                || treble != 0.0
+                || profile.is_some())
+        {
+            return Err(StreamFailure::INVALID_START);
+        }
         Ok(Self {
             references,
             queue,
             normalize: normalize.mode(),
+            dsd_output,
             output_rate: sample_rate,
             tone,
             interactive,
@@ -406,8 +430,10 @@ pub(super) fn validate_source(source: &TrackSource) -> Result<(), StreamFailure>
 
 struct ProducerSettings {
     queue: bool,
+    dsd_output: DsdOutput,
     interactive: bool,
     first_position_ms: u64,
+    first_position_samples: Option<u64>,
     output_rate: Option<u32>,
     tone: ToneControls,
     normalize: Mode,
@@ -418,8 +444,10 @@ struct ProducerSettings {
 fn settings(normalization_catalog: Catalog, data_dir: PathBuf, start: &Start) -> ProducerSettings {
     ProducerSettings {
         queue: start.queue,
+        dsd_output: start.dsd_output,
         interactive: start.interactive,
         first_position_ms: 0,
+        first_position_samples: None,
         output_rate: start.output_rate,
         tone: start.tone,
         normalize: start.normalize,
@@ -489,6 +517,10 @@ impl StreamFailure {
         code: "source_unavailable",
         message: "the catalogued audio source is unavailable",
     };
+    const DSD_UNSUPPORTED: Self = Self {
+        code: "unsupported_dsd_output",
+        message: "original DSD transport requires uncompressed DSD64/128 mono/stereo with one source clock per stream",
+    };
     const DECODE_FAILED: Self = Self {
         code: "decode_failed",
         message: "the catalogued audio source could not be decoded",
@@ -539,12 +571,22 @@ impl StreamFailure {
     };
 }
 
+/// Exact original-bit timeline; absent for PCM, independent of carrier padding.
+#[derive(Clone, Copy, Serialize)]
+struct DsdFacts {
+    source_rate: u32,
+    source_samples: u64,
+    position_samples: u64,
+}
+
 #[derive(Serialize)]
 struct FormatFrame {
     #[serde(rename = "type")]
     kind: &'static str,
     track: String,
     encoding: &'static str,
+    #[serde(flatten)]
+    original: Option<DsdFacts>,
     sample_rate: u32,
     channels: u16,
     duration_ms: Option<u64>,
@@ -618,6 +660,9 @@ enum ProducerStop {
     Cancelled,
     Failed(StreamFailure),
 }
+
+#[path = "playback_dsd.rs"]
+mod dsd_transport;
 
 #[path = "playback_api_producer.rs"]
 mod producer;
@@ -1314,6 +1359,7 @@ async fn drive_inner(
                     if !queue
                         || next.start_frame != Some(acknowledgements.sent)
                         || next.sample_rate != format.sample_rate
+                        || next.encoding != format.encoding
                     {
                         return DriveEnd::stopped(
                             &acknowledgements,
@@ -1361,9 +1407,13 @@ async fn drive_inner(
                     }
                 }
                 ProducerEvent::Track(track) => {
-                    if let Err(failure) =
-                        timeline.begin(&track, acknowledgements.sent, format.sample_rate, sources)
-                    {
+                    if let Err(failure) = timeline.begin(
+                        &track,
+                        acknowledgements.sent,
+                        format.sample_rate,
+                        format.original,
+                        sources,
+                    ) {
                         return DriveEnd::stopped(
                             &acknowledgements,
                             Some(format.sample_rate),
@@ -1481,6 +1531,27 @@ async fn drive_inner(
             }
             incoming = interactive::receive(socket, &mut acknowledgements, interactive) => match incoming {
                 Ok(interactive::Incoming::Control(control)) => {
+                    let control = if let (interactive::Control::Seek(ms), Some(original)) = (&control, format.original) {
+                        let requested = u128::from(*ms) * u128::from(original.source_rate) / 1000;
+                        if requested > u128::from(original.source_samples) {
+                            return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
+                                Some(StreamFailure::INVALID_SEEK), true);
+                        }
+                        interactive::Control::SeekSamples(if requested == u128::from(original.source_samples) {
+                            original.source_samples
+                        } else {
+                            (requested / 16 * 16) as u64
+                        })
+                    } else { control };
+                    if let interactive::Control::SeekSamples(position) = &control
+                        && format.original.is_none_or(|original| {
+                            *position > original.source_samples
+                                || (!position.is_multiple_of(16) && *position != original.source_samples)
+                        })
+                    {
+                        return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
+                            Some(StreamFailure::INVALID_SEEK), true);
+                    }
                     if let Err(failure) = authorized(state, captured, true, shutdown).await {
                         return DriveEnd::stopped(&acknowledgements, Some(format.sample_rate),
                             Some(failure), true);
@@ -1805,9 +1876,10 @@ async fn playback_stream(
     } else {
         Vec::new()
     };
-    if !start.queue && !end.completed {
+    if (!start.queue || start.dsd_output == DsdOutput::Dop) && !end.completed {
         // The original singleton contract completes only after the socket's
-        // EOF handshake; additive queue markers must not change that rule.
+        // EOF handshake. Original DSD also requires that final handshake:
+        // a full Stop count may follow failed native drain/restoration.
         for listen in &mut listens {
             listen.completed = false;
         }
@@ -1897,3 +1969,7 @@ mod md5_tests;
 #[cfg(test)]
 #[path = "playback_close_tests.rs"]
 mod close_tests;
+
+#[cfg(test)]
+#[path = "playback_dsd_tests.rs"]
+mod dsd_tests;

@@ -1,4 +1,4 @@
-//! Blocking decode/DSP production for a finite, occurrence-preserving queue.
+//! Blocking PCM/DSP or original-bit production for a finite, occurrence-preserving queue.
 
 use std::convert::Infallible;
 
@@ -9,7 +9,7 @@ use aede_dsp::{PcmFormat, gain_with_headroom_db};
 
 use super::*;
 
-fn emit(
+pub(super) fn emit(
     sender: &mpsc::Sender<ProducerEvent>,
     cancelled: &AtomicBool,
     event: ProducerEvent,
@@ -53,6 +53,7 @@ impl Output<'_> {
                 kind: "format",
                 track: source.reference.to_token(),
                 encoding: "f32le",
+                original: None,
                 sample_rate: format.sample_rate(),
                 channels: format.channels(),
                 duration_ms: source.file.properties.duration_ms,
@@ -204,6 +205,9 @@ fn produce(
     sender: mpsc::Sender<ProducerEvent>,
     cancelled: std::sync::Arc<AtomicBool>,
 ) -> Result<(), ProducerStop> {
+    if settings.dsd_output == DsdOutput::Dop {
+        return dsd_transport::produce(&sources, &settings, &sender, &cancelled);
+    }
     // Existing measurements and tags are reused without observing or saving a
     // new measurement. An arbitrary queue is not declared to be a whole album.
     let paths: Vec<_> = sources.iter().map(|source| source.path.clone()).collect();
