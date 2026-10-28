@@ -2,7 +2,7 @@
 
 ## Scope and shared boundary
 
-`aede-audio`, with its existing `decode` feature, reads uncompressed DSF and DSDIFF (DFF) as progressive PCM without spawning FFmpeg or another program. No new product dependency is introduced. The source is read-only; catalogue, accounts, transport and analysis verdicts remain outside this decoder. Developing the experimental terminal player is not a goal.
+`aede-audio`, with its existing `decode` feature, reads uncompressed DSF and DSDIFF (DFF) as progressive PCM without spawning FFmpeg or another program. No new product dependency is introduced. The source is read-only; catalogue, accounts, transport and analysis verdicts remain outside this decoder. Native DSD/DoP device transport is a separate output capability from eliminating decoder subprocesses.
 
 The initial profile admits the 44.1 kHz family at DSD64 (2,822,400 one-bit samples/s) and DSD128 (5,644,800), mono or stereo. DSF LSB-first and MSB-first byte declarations are respected; DFF byte interleaving and declared stereo order are verified. DSF block padding and partial final bytes never extend the track. DFF duration comes from bounded audio extents. DST-compressed DFF, SACD ISO, other rates and multichannel are explicitly outside native admission.
 

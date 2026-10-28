@@ -55,7 +55,7 @@ pub fn codec_parameters(
     }
 }
 
-/// Construct a shared native codec, including the admitted mono/stereo Opus profile.
+/// Construct a shared native codec, including Opus families zero and one (1–8 channels).
 /// Containers retain packet ownership; this applies no application DSP or volume.
 /// Opus callers use gapless demuxing and require `finalize().verify_ok == Some(true)`.
 /// ALAC callers reject `Some(false)` at EOF: known media ticks must all be covered,

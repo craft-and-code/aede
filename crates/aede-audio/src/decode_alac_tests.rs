@@ -66,6 +66,41 @@ fn optional_layout_must_agree_and_existing_demux_layouts_are_preserved() {
 }
 
 #[test]
+fn explicit_apple_surround_layouts_require_matching_counts_and_reserved_fields() {
+    for (channels, tag, mask) in [
+        (3u8, 113u32, 0x007),
+        (4, 116, 0x107),
+        (5, 120, 0x607),
+        (6, 124, 0x60f),
+        (7, 142, 0x70f),
+        (8, 127, 0x6cf),
+    ] {
+        let mut input = source();
+        let mut cookie = input.extra_data.take().unwrap().into_vec();
+        cookie[9] = channels;
+        cookie.extend_from_slice(&24u32.to_be_bytes());
+        cookie.extend_from_slice(b"chan");
+        cookie.extend_from_slice(&0u32.to_be_bytes());
+        cookie.extend_from_slice(&((tag << 16) | u32::from(channels)).to_be_bytes());
+        cookie.extend_from_slice(&[0; 8]);
+        input.extra_data = Some(cookie.into_boxed_slice());
+        let resolved = parameters(&input).unwrap();
+        assert_eq!(resolved.channels.unwrap().bits(), mask);
+        assert_eq!(resolved.extra_data, input.extra_data);
+        for offset in [24, 28, 32, 36, 39, 40, 44] {
+            let mut invalid = input.clone();
+            invalid.extra_data.as_mut().unwrap()[offset] ^= 1;
+            assert!(
+                parameters(&invalid).is_err(),
+                "{channels} channels, byte {offset}"
+            );
+        }
+        input.extra_data.as_mut().unwrap()[9] = channels - 1;
+        assert!(parameters(&input).is_err());
+    }
+}
+
+#[test]
 fn header_only_inspection_keeps_unqualified_and_partial_properties_separate() {
     let mut input = source();
     let cookie = input.extra_data.as_mut().unwrap();

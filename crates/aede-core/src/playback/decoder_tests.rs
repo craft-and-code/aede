@@ -14,9 +14,18 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn shared_native_opus_plays_and_seeks_without_an_external_decoder() {
-    for (name, channels, expected_frames) in
-        [("opus-mono.opus", 1, 12037), ("opus-stereo.opus", 2, 48013)]
-    {
+    for (name, channels, expected_frames) in [
+        ("opus-mono.opus", 1, 12037),
+        ("opus-stereo.opus", 2, 48013),
+        ("opus-family1-1.opus", 1, 12037),
+        ("opus-family1-2.opus", 2, 12037),
+        ("opus-family1-3.opus", 3, 12037),
+        ("opus-family1-4.opus", 4, 12037),
+        ("opus-family1-5.opus", 5, 12037),
+        ("opus-family1-6.opus", 6, 12037),
+        ("opus-family1-7.opus", 7, 12037),
+        ("opus-family1-8.opus", 8, 12037),
+    ] {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../aede-audio/tests/fixtures")
             .join(name);
@@ -52,6 +61,12 @@ fn shared_native_alac_keeps_rate_channels_samples_and_seek_without_ffmpeg() {
         ("mono16", 44100, 1u16, 10001usize),
         ("stereo24", 96000, 2, 48013),
         ("stereo24-clock48k", 96000, 2, 48013),
+        ("layout3-16", 48000, 3, 10001),
+        ("layout4-16", 48000, 4, 10001),
+        ("layout5-16", 48000, 5, 10001),
+        ("surround16-layout", 48000, 6, 10001),
+        ("layout7-16", 48000, 7, 10001),
+        ("layout8-16", 48000, 8, 10001),
     ] {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../aede-audio/tests/fixtures/native-alac")
@@ -84,15 +99,12 @@ fn shared_native_alac_keeps_rate_channels_samples_and_seek_without_ffmpeg() {
 }
 
 #[test]
-fn unsupported_multistream_opus_keeps_its_explicit_playback_compatibility() {
+fn the_existing_surround_opus_reference_now_plays_without_an_external_decoder() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../aede-audio/tests/fixtures/opus-surround.opus");
-    assert!(FileDecoder::open_native(&path).is_err());
-    if crate::ffmpeg::find().is_some() {
-        let mut decoder = FileDecoder::open(&path).unwrap();
-        assert_eq!(decoder.channels(), 6);
-        assert!(decoder.read_frames(&mut [0.0; 6 * 128]).unwrap() > 0);
-    }
+    let mut decoder = FileDecoder::open_native(&path).unwrap();
+    assert_eq!(decoder.channels(), 6);
+    assert!(decoder.read_frames(&mut [0.0; 6 * 128]).unwrap() > 0);
 }
 
 #[test]

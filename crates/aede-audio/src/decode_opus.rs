@@ -1,7 +1,9 @@
-//! RFC 7845 mapping-family-zero Opus, using the existing safe libopus binding.
+//! RFC 7845 Opus families zero and one, using the existing static libopus.
 use std::sync::Mutex;
 
-use audiopus::{Channels as OpusChannels, SampleRate, coder::Decoder as NativeDecoder};
+#[path = "decode_opus_native.rs"]
+mod native;
+use native::Native;
 use symphonia::core::{
     audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, Signal, SignalSpec},
     codecs::{
@@ -17,7 +19,7 @@ const INVALID: Error = Error::DecodeError("invalid Opus packet or trimming");
 
 pub(super) struct OpusDecoder {
     // libopus state is Send but not Sync. Only this control/decoder worker accesses it.
-    native: Mutex<NativeDecoder>,
+    native: Mutex<Native>,
     params: CodecParameters,
     output: AudioBuffer<f32>,
     scratch: Vec<f32>,
@@ -41,23 +43,18 @@ impl Decoder for OpusDecoder {
             || &head[..8] != b"OpusHead"
             || head[8] == 0
             || head[8] > 15
-            || head[18] != 0
-            || ![1, 2].contains(&head[9])
+            || !matches!(head[18], 0 | 1)
+            || !(1..=8).contains(&head[9])
         {
             return Err(Error::Unsupported(
-                "Opus requires a mono/stereo family-zero header",
+                "Opus requires a known family-zero or family-one header",
             ));
         }
         let channels = usize::from(head[9]);
         let mask = params
             .channels
             .ok_or(Error::Unsupported("missing Opus channels"))?;
-        let valid_layout = match channels {
-            1 => matches!(mask.bits(), 1 | 4),
-            2 => mask.bits() == 3,
-            _ => false,
-        };
-        if params.sample_rate != Some(RATE) || !valid_layout || params.start_ts != 0 {
+        if params.sample_rate != Some(RATE) || params.start_ts != 0 {
             return Err(Error::Unsupported(
                 "unsupported Opus rate, channels or initial timestamp",
             ));
@@ -71,17 +68,9 @@ impl Decoder for OpusDecoder {
                 "Opus requires a known complete frame count",
             ))?;
         let gain = i16::from_le_bytes([head[16], head[17]]);
-        let native = NativeDecoder::new(
-            SampleRate::Hz48000,
-            if channels == 1 {
-                OpusChannels::Mono
-            } else {
-                OpusChannels::Stereo
-            },
-        )
-        .map_err(|_| Error::Unsupported("cannot initialize libopus"))?;
+        let mut native = Native::new(head, mask.bits())?;
         native
-            .set_gain(i32::from(gain))
+            .set_gain(gain)
             .map_err(|_| Error::Unsupported("invalid Opus gain"))?;
         Ok(Self {
             native: Mutex::new(native),
@@ -104,12 +93,11 @@ impl Decoder for OpusDecoder {
         &self.params
     }
     fn reset(&mut self) {
-        use audiopus::coder::GenericCtl;
         self.output.clear();
         self.failed = self
             .native
             .get_mut()
-            .map_or(true, |decoder| decoder.reset_state().is_err());
+            .map_or(true, |decoder| decoder.reset().is_err());
         self.skip = self.pre_skip;
         self.decoded = 0;
         self.at_start = true;
@@ -146,16 +134,9 @@ impl OpusDecoder {
         }
         self.at_start = false;
         // No packet-loss concealment for corrupt local-file input; never pass None to libopus.
-        if packet.data.is_empty() || packet.data.len() > 61_440 {
-            return Err(INVALID);
-        }
         let native = self.native.get_mut().map_err(|_| INVALID)?;
         let frames = native
-            .decode_float(
-                Some(packet.data.as_ref()),
-                self.scratch.as_mut_slice(),
-                false,
-            )
+            .decode(packet.data.as_ref(), self.scratch.as_mut_slice())
             .map_err(|_| INVALID)?;
         if frames == 0 || frames > MAX_FRAMES || self.decoded == self.expected {
             return Err(INVALID);
@@ -198,3 +179,7 @@ impl OpusDecoder {
 #[cfg(test)]
 #[path = "decode_opus_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "decode_opus_multistream_tests.rs"]
+mod multistream_tests;

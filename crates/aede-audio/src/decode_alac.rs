@@ -190,18 +190,28 @@ pub(super) fn parameters(input: &CodecParameters) -> Result<CodecParameters> {
     {
         return Err(Error::DecodeError("invalid ALAC configuration"));
     }
-    let layout = match channels {
-        1 => Channels::FRONT_CENTRE,
-        2 => Channels::FRONT_LEFT | Channels::FRONT_RIGHT,
-        _ => return Err(Error::Unsupported("native ALAC requires mono or stereo")),
+    // Apple's optional layout is mandatory above stereo: a channel count alone
+    // describes discrete channels, not the standard speaker ordering. The
+    // pinned codec emits these named layouts in ascending speaker-mask order.
+    let (mask, tag) = match channels {
+        1 => (0x004, 100),
+        2 => (0x003, 101),
+        3 if cookie.len() == 48 => (0x007, 113),
+        4 if cookie.len() == 48 => (0x107, 116),
+        5 if cookie.len() == 48 => (0x607, 120),
+        6 if cookie.len() == 48 => (0x60f, 124),
+        7 if cookie.len() == 48 => (0x70f, 142),
+        8 if cookie.len() == 48 => (0x6cf, 127),
+        _ => return Err(Error::Unsupported("ALAC requires a known speaker layout")),
     };
+    let layout = Channels::from_bits_truncate(mask);
     if frames > 1_048_576 / u32::from(channels) {
         return Err(Error::Unsupported("ALAC packet exceeds PCM budget"));
     }
     if cookie.len() == 48 {
         let word =
             |at| u32::from_be_bytes([cookie[at], cookie[at + 1], cookie[at + 2], cookie[at + 3]]);
-        let tag = ((99 + u32::from(channels)) << 16) | u32::from(channels);
+        let tag = (tag << 16) | u32::from(channels);
         if word(24) != 24
             || &cookie[28..32] != b"chan"
             || word(32) != 0

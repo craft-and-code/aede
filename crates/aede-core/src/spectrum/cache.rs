@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io::Read, path::Path, time::UNIX_EPOCH};
 const KEY: &str = "AedeSpectrum";
 const GENERATION: &str =
-    "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v2-native-extra-v3";
+    "rust-spectrum-v1-dsd-wideband-v1-opus-v2-alac-config-v5-aac-edit-v2-native-extra-v3";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Input {
     size: u64,

@@ -11,8 +11,9 @@ use symphonia::core::{
 const MONO: &[u8] = include_bytes!("../tests/fixtures/opus-mono.opus");
 const STEREO: &[u8] = include_bytes!("../tests/fixtures/opus-stereo.opus");
 const SHORT: &[u8] = include_bytes!("../tests/fixtures/opus-short.opus");
+const SURROUND: &[u8] = include_bytes!("../tests/fixtures/opus-surround.opus");
 
-fn source(bytes: &[u8]) -> Wave {
+pub(super) fn source(bytes: &[u8]) -> Wave {
     let source = Wave::new(&[], 1);
     std::fs::write(&source.0, bytes).unwrap();
     source
@@ -29,7 +30,7 @@ fn samples(path: &Path) -> (usize, Vec<f32>) {
     assert!(decoder.next_chunk().unwrap().is_none());
     (decoder.channels, samples)
 }
-fn head(bytes: &[u8], change: impl FnOnce(&mut [u8])) -> Vec<u8> {
+pub(super) fn head(bytes: &[u8], change: impl FnOnce(&mut [u8])) -> Vec<u8> {
     let mut bytes = bytes.to_vec();
     let segments = usize::from(bytes[26]);
     let start = 27 + segments;
@@ -54,7 +55,7 @@ fn head(bytes: &[u8], change: impl FnOnce(&mut [u8])) -> Vec<u8> {
     bytes[22..26].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
-fn probed(
+pub(super) fn probed(
     bytes: &[u8],
 ) -> (
     Box<dyn symphonia::core::formats::FormatReader>,
@@ -98,6 +99,17 @@ fn real_mono_stereo_and_single_page_endings_have_only_the_playable_frames() {
             assert!(separation / frames as f32 > 0.05);
         }
     }
+}
+
+#[test]
+fn family_one_surround_has_exact_playable_length_and_speaker_order() {
+    let source = source(SURROUND);
+    let (channels, pcm) = samples(&source.0);
+    assert_eq!((channels, pcm.len()), (6, 2401 * 6));
+    assert_eq!(
+        PcmStreamDecoder::open(&source.0).unwrap().channel_mask,
+        Some(0x3f)
+    );
 }
 
 #[test]

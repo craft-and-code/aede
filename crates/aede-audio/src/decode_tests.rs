@@ -57,6 +57,12 @@ fn native_alac_uses_codec_clock_channels_and_exact_original_samples() {
         ("stereo24", 96_000, 2, 24, 48_013),
         ("stereo24-clock192k", 96_000, 2, 24, 48_013),
         ("stereo24-clock48k", 96_000, 2, 24, 48_013),
+        ("surround16-layout", 48_000, 6, 16, 10_001),
+        ("layout3-16", 48_000, 3, 16, 10_001),
+        ("layout4-16", 48_000, 4, 16, 10_001),
+        ("layout5-16", 48_000, 5, 16, 10_001),
+        ("layout7-16", 48_000, 7, 16, 10_001),
+        ("layout8-16", 48_000, 8, 16, 10_001),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/native-alac")
@@ -64,6 +70,10 @@ fn native_alac_uses_codec_clock_channels_and_exact_original_samples() {
         let before = std::fs::read(&path).unwrap();
         let mut decoder = PcmStreamDecoder::open(&path).unwrap();
         assert_eq!((decoder.sample_rate, decoder.channels), (rate, channels));
+        if channels > 2 {
+            let mask = [0x007, 0x107, 0x607, 0x60f, 0x70f, 0x6cf][channels - 3];
+            assert_eq!(decoder.channel_mask, Some(mask), "{name}");
+        }
         let mut samples = Vec::new();
         while let Some(chunk) = decoder.next_chunk().unwrap() {
             samples.extend(chunk);

@@ -3,7 +3,17 @@ use super::*;
 #[test]
 fn native_alac_spectrogram_never_resolves_ffmpeg() {
     let files = SpectralFiles::new();
-    for name in ["mono16", "stereo24", "stereo24-clock48k"] {
+    for name in [
+        "mono16",
+        "stereo24",
+        "stereo24-clock48k",
+        "layout3-16",
+        "layout4-16",
+        "layout5-16",
+        "surround16-layout",
+        "layout7-16",
+        "layout8-16",
+    ] {
         let audio = files.0.join(format!("{name}.m4a"));
         std::fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -103,6 +113,27 @@ fn native_opus_spectrogram_never_resolves_ffmpeg() {
         .is_err()
     );
     assert_eq!(std::fs::read(&picture).unwrap(), png);
+}
+
+#[test]
+fn native_multistream_opus_spectrograms_never_resolve_ffmpeg() {
+    let files = SpectralFiles::new();
+    for channels in 1..=8 {
+        let audio = files.0.join(format!("family1-{channels}.opus"));
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../aede-audio/tests/fixtures")
+                .join(format!("opus-family1-{channels}.opus")),
+            &audio,
+        )
+        .unwrap();
+        let picture = picture_for(&audio);
+        render_cancellable(&audio, &picture, Size::Half, &|| false, &|| {
+            panic!("qualified multistream Opus must not resolve FFmpeg")
+        })
+        .unwrap();
+        assert!(!out_of_date(&audio, &picture));
+    }
 }
 
 #[test]
