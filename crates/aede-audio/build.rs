@@ -35,6 +35,19 @@ fn compile_codecs() {
     // confined to WavPack; other codecs retain ordinary overflow diagnostics.
     let mut wavpack_build = c.clone();
     wavpack_build.flag_if_supported("-fwrapv");
+    // WavPack uses POSIX/BSD strdup, fileno and strcasecmp with C11. Linux headers
+    // hide their prototypes without the corresponding feature declaration.
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux") {
+        wavpack_build.define("_POSIX_C_SOURCE", "200809L");
+        wavpack_build.define("_DEFAULT_SOURCE", "1");
+    }
+    // GNU/Clang provide clz on Windows too; the reference _WIN64 fallback only
+    // declares its MSVC intrinsic when _MSC_VER is set.
+    let compiler = wavpack_build.get_compiler();
+    if compiler.is_like_gnu() || compiler.is_like_clang() {
+        wavpack_build.define("HAVE___BUILTIN_CLZ", "1");
+    }
+
     for name in [
         "common_utils",
         "decorr_utils",

@@ -93,7 +93,7 @@ class NativeCodecTests(unittest.TestCase):
                 code = folder / (name + ".c")
                 code.write_bytes(source)
                 binary = folder / name
-                command = [compiler, "-std=c11", "-DFLOATING_POINT=1", "-DEXPORT=", "-I" + str(speex / "include"), "-I" + str(speex / "libspeex"), str(AUDIO / "tests/native-c/speex-bits.c"), str(code), "-o", str(binary)]
+                command = [compiler, "-std=c11", "-DFLOATING_POINT=1", "-DEXPORT=", "-I" + str(AUDIO / "native"), "-I" + str(speex / "include"), "-I" + str(speex / "libspeex"), str(AUDIO / "tests/native-c/speex-bits.c"), str(code), "-o", str(binary)]
                 built = subprocess.run(command, cwd=folder, capture_output=True, text=True)
                 self.assertEqual(built.returncode, 0, built.stderr)
                 result = subprocess.run([str(binary)], cwd=folder, capture_output=True, text=True)
