@@ -21,6 +21,7 @@ name = "aede-audio"
 version = "0.7.5"
 dependencies = [
  "aede-dsp",
+ "alsa",
  "ape-decoder",
  "audiopus",
  "audiopus_sys",
@@ -28,6 +29,7 @@ dependencies = [
  "cpal",
  "rtrb",
  "symphonia",
+ "windows",
 ]
 
 [[package]]

@@ -32,6 +32,14 @@ impl PlaybackPolicy {
     }
 }
 
+/// Explicit DSD transport; ordinary playback continues to decode DSD to PCM.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum DsdOutput {
+    #[default]
+    Pcm,
+    Dop,
+}
+
 /// The requested order for a local playback selection.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum PlaybackShuffle {
@@ -137,6 +145,7 @@ const VALUED_WORD: &[&str] = &[
     "normalize",
     "playback",
     "output-device",
+    "dsd-output",
     "bass",
     "treble",
     "seek",
@@ -353,6 +362,32 @@ impl Args {
         Ok(policy)
     }
 
+    /// DoP is an explicit compatible-DAC request and cannot honour PCM effects,
+    /// the existing strict PCM policy, or a PCM-based terminal visualization.
+    pub(crate) fn dsd_output(&self) -> Result<DsdOutput, String> {
+        let mode = match self.playback_value("dsd-output")? {
+            None | Some("pcm") => DsdOutput::Pcm,
+            Some("dop") => DsdOutput::Dop,
+            _ => return Err("--dsd-output expects pcm or dop".into()),
+        };
+        if mode == DsdOutput::Dop {
+            if self.playback_policy()? != PlaybackPolicy::WithoutEffects {
+                return Err("DoP requires --playback=without-effects; DSP and the strict PCM policy do not apply".into());
+            }
+            if !self.playback_device()?.is_some_and(|id| {
+                ["coreaudio:", "wasapi:", "alsa:hw:"]
+                    .iter()
+                    .any(|prefix| id.starts_with(prefix) && id.len() > prefix.len())
+            }) {
+                return Err("DoP requires an explicit coreaudio:<UID>, wasapi:<endpoint-ID> or alsa:hw:<card>,<device> compatible DAC".into());
+            }
+            if self.has("lyrics") {
+                return Err("--lyrics is unavailable with DoP output".into());
+            }
+        }
+        Ok(mode)
+    }
+
     /// Explicit normalization, before the selected policy supplies its default.
     pub(crate) fn playback_normalization(&self) -> Result<Option<NormalizationMode>, String> {
         match self.playback_value("normalize")? {
@@ -412,6 +447,7 @@ impl Args {
         for name in [
             "playback",
             "output-device",
+            "dsd-output",
             "normalize",
             "bass",
             "treble",

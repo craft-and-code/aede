@@ -29,6 +29,7 @@ cargo test -p aede-audio --no-default-features --features decode --locked --offl
 cargo test -p aede-dsp --no-default-features --locked --offline
 source_target="${CARGO_TARGET_DIR:-target}"
 python3 tools/accounts_terminal_tests.py --binary "$source_target/debug/aede"
+python3 tools/playback_terminal_tests.py --binary "$source_target/debug/aede"
 python3 tools/project-stats.py --tests --output "$source_target/project-stats.json"
 python3 tools/build-site.py --check --project-stats "$source_target/project-stats.json"
 RUSTDOCFLAGS="-D warnings" cargo doc --locked --offline --no-deps --quiet

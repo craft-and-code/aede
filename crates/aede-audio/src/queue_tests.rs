@@ -7,6 +7,30 @@ use crate::format::IntegerPcmFormat;
 use aede_dsp::ChannelLayout;
 
 #[test]
+fn frame_reads_are_atomic_and_never_insert_transport_specific_silence() {
+    let (mut producer, mut consumer) = pcm_queue::<i32>(2, 2, true).unwrap();
+    let mut frame = [41, 42];
+    assert!(!consumer.try_read_frame(&mut frame).unwrap());
+    assert_eq!(frame, [41, 42]);
+    assert!(consumer.try_read_frame(&mut [0]).is_err());
+    assert_eq!(producer.write_samples(&[1, 2, 3, 4]).unwrap(), 4);
+    assert!(consumer.try_read_frame(&mut frame).unwrap());
+    assert_eq!(frame, [1, 2]);
+    assert_eq!(consumer.consumed_frames(), 1);
+    assert_eq!(producer.write_samples(&[5, 6]).unwrap(), 2);
+    for expected in [[3, 4], [5, 6]] {
+        assert!(consumer.try_read_frame(&mut frame).unwrap());
+        assert_eq!(frame, expected);
+    }
+    assert_eq!(consumer.consumed_frames(), 3);
+    assert!(!consumer.try_read_frame(&mut frame).unwrap());
+    let previous = frame;
+    producer.failure_handle().fail();
+    assert!(consumer.try_read_frame(&mut frame).is_err());
+    assert_eq!(frame, previous);
+}
+
+#[test]
 fn host_failure_stops_queued_source_without_consumption_or_conversion() {
     let (mut producer, mut consumer) = pcm_queue::<i32>(2, 3, true).expect("queue");
     producer.write_samples(&[-1, 1, -2, 2]).expect("source");

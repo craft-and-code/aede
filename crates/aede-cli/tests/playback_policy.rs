@@ -85,6 +85,59 @@ impl Drop for Library {
     }
 }
 
+fn dop_test_device() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "--output-device=wasapi:fixture-ID"
+    } else if cfg!(target_os = "linux") {
+        "--output-device=alsa:hw:0,0"
+    } else {
+        "--output-device=coreaudio:fixture-UID"
+    }
+}
+
+#[test]
+fn dop_refuses_forced_external_output_without_opening_or_recording_music() {
+    for backend in ["ffplay", "unknown"] {
+        let library = Library::new();
+        let result = library.run(
+            &library.source,
+            &["--dsd-output=dop", dop_test_device()],
+            backend,
+        );
+        assert!(!result.status.success());
+        assert!(
+            String::from_utf8_lossy(&result.stderr)
+                .contains("DoP requires a native exclusive backend")
+        );
+        library.assert_no_output_or_records();
+    }
+}
+
+#[test]
+fn dop_refuses_a_pcm_source_before_resolving_the_native_dac_without_any_fallback() {
+    let library = Library::new();
+    let result = library.run(
+        &library.source,
+        &["--dsd-output=dop", dop_test_device()],
+        "native",
+    );
+    assert!(!result.status.success());
+    let error = String::from_utf8_lossy(&result.stderr);
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+    ))]
+    assert!(error.contains("DSF") || error.contains("DSD"), "{error}");
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+    )))]
+    assert!(error.contains("dop-alsa build feature"), "{error}");
+    library.assert_no_output_or_records();
+}
+
 #[test]
 fn explicit_no_effects_and_strict_policies_refuse_effect_conflicts_before_output() {
     for policy in ["without-effects", "bit-perfect"] {

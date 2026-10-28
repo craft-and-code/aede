@@ -34,6 +34,11 @@ aede-dsp = {{ path = {quoted(aede / 'crates/aede-dsp')} }}
 flaccompagnon-core = {{ path = {quoted(fc / 'core')} }}
 flaccompagnon-spectrogram = {{ path = {quoted(fc / 'spectrogram')} }}
 '''
+    # A dependency's workspace patches do not propagate into this test crate.
+    # Preserve Phémios's reviewed ioctl portability correction when present.
+    cd_reader = phemios / 'vendor/cd-da-reader'
+    if (cd_reader / 'Cargo.toml').is_file():
+        manifest += f'\n[patch.crates-io]\ncd-da-reader = {{ path = {quoted(cd_reader)} }}\n'
     (output / "Cargo.toml").write_text(manifest)
     shutil.copyfile(Path(__file__).with_name("acceptance_tests.rs"), output / "tests/acceptance.rs")
     # Reuse the reviewed dependency versions; Cargo adds the CD reader and

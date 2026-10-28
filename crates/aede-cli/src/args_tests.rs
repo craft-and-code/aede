@@ -11,6 +11,92 @@ fn parse(items: &[&str]) -> Args {
 }
 
 #[test]
+fn dop_requires_an_explicit_native_dac_and_neutral_processing() {
+    let args = parse(&[
+        "play",
+        "--dsd-output",
+        "dop",
+        "--output-device",
+        "coreaudio:fixture-UID",
+        "album",
+    ]);
+    assert_eq!(args.positionals, ["album"]);
+    assert_eq!(args.dsd_output().unwrap(), DsdOutput::Dop);
+    for device in ["wasapi:{fixture-endpoint}", "alsa:hw:CARD=USB,DEV=0"] {
+        assert_eq!(
+            parse(&[
+                "play",
+                "album",
+                "--dsd-output=dop",
+                "--output-device",
+                device
+            ])
+            .dsd_output()
+            .unwrap(),
+            DsdOutput::Dop
+        );
+    }
+    assert_eq!(
+        parse(&["play", "album"]).dsd_output().unwrap(),
+        DsdOutput::Pcm
+    );
+    assert_eq!(
+        parse(&["play", "album", "--dsd-output=pcm"])
+            .dsd_output()
+            .unwrap(),
+        DsdOutput::Pcm
+    );
+    for extra in [
+        "--normalize=track",
+        "--bass=1",
+        "--playback=dsp",
+        "--playback=bit-perfect",
+        "--lyrics",
+    ] {
+        assert!(
+            parse(&[
+                "play",
+                "album",
+                "--dsd-output=dop",
+                "--output-device=coreaudio:fixture-UID",
+                extra
+            ])
+            .dsd_output()
+            .is_err(),
+            "{extra}"
+        );
+    }
+    for option in [
+        "--dsd-output",
+        "--dsd-output=",
+        "--dsd-output=dsd",
+        "--dsd-output=DOP",
+    ] {
+        assert!(
+            parse(&["play", "album", option]).dsd_output().is_err(),
+            "{option}"
+        );
+    }
+    for device in [
+        None,
+        Some("alsa:default"),
+        Some("coreaudio:"),
+        Some("wasapi:"),
+    ] {
+        let mut words = vec!["play", "album", "--dsd-output=dop"];
+        if let Some(id) = device {
+            words.extend(["--output-device", id]);
+        }
+        assert!(parse(&words).dsd_output().is_err());
+    }
+    assert!(
+        parse(&["play", "--list-devices", "--dsd-output=dop"])
+            .lists_playback_devices()
+            .is_err()
+    );
+}
+
+#[test]
 fn playback_policy_defaults_to_without_effects_and_retains_neutral_options() {
     for options in [
         vec![],

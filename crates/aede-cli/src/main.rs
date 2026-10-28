@@ -531,6 +531,7 @@ const OPTIONS: &[&str] = &[
     "normalize",
     "playback",
     "output-device",
+    "dsd-output",
     "list-devices",
     "bass",
     "treble",
@@ -615,6 +616,11 @@ const OPTION_SCOPE: &[(&str, &[&str], &str)] = &[
         "output-device",
         &["play"],
         "select a host-qualified local audio device ID",
+    ),
+    (
+        "dsd-output",
+        &["play"],
+        "select PCM decoding or explicit macOS DoP transport",
     ),
     (
         "list-devices",

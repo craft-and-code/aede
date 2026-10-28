@@ -18,7 +18,7 @@ use aede_core::{clock, model::EntityKind, query, tags};
 use aede_dsp::{OutputMeter, OutputMeterError, ToneControls, gain_with_headroom_db};
 
 use super::{Res, data_dir};
-use crate::args::{Args, PlaybackPolicy, PlaybackShuffle};
+use crate::args::{Args, DsdOutput, PlaybackPolicy, PlaybackShuffle};
 
 #[path = "play_visualizer.rs"]
 mod visualizer;
@@ -41,6 +41,17 @@ use output::LocalOutput;
 #[path = "play_session.rs"]
 mod session;
 
+#[cfg(any(
+    any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+    ),
+    test
+))]
+#[path = "play_dop.rs"]
+mod dop;
+
 #[path = "play_order.rs"]
 mod order;
 use order::PlaybackOrder;
@@ -51,6 +62,30 @@ pub fn play(args: &Args) -> Res {
     }
     let policy = args.playback_policy()?;
     let options = args.playback_options()?;
+    let dsd_output = args.dsd_output()?;
+    if dsd_output == DsdOutput::Dop {
+        match std::env::var("AEDE_AUDIO_BACKEND") {
+            Ok(value) if value == "native" => {}
+            Err(std::env::VarError::NotPresent) => {}
+            _ => {
+                return Err(
+                    "DoP requires a native exclusive backend; AEDE_AUDIO_BACKEND must be unset or native"
+                        .into(),
+                );
+            }
+        }
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+    )))]
+    if dsd_output == DsdOutput::Dop {
+        return Err(
+            "DoP output needs CoreAudio, WASAPI or the dop-alsa build feature with libasound"
+                .into(),
+        );
+    }
     if options.lyrics && !crate::ui::is_interactive() {
         return Err(
             "play --lyrics requires terminal output; use track --lyrics for a static listing"
@@ -59,11 +94,15 @@ pub fn play(args: &Args) -> Res {
     }
     let requested_normalization = normalization_request(args, policy)?;
     let tone = tone_controls(args)?;
-    let mut output = LocalOutput::new(output::NativeSelection {
-        device: args.playback_device()?.map(str::to_owned),
-        strict: policy == PlaybackPolicy::BitPerfect,
-        without_effects: policy == PlaybackPolicy::WithoutEffects,
-    })?;
+    let mut output = if dsd_output == DsdOutput::Dop {
+        None
+    } else {
+        Some(LocalOutput::new(output::NativeSelection {
+            device: args.playback_device()?.map(str::to_owned),
+            strict: policy == PlaybackPolicy::BitPerfect,
+            without_effects: policy == PlaybackPolicy::WithoutEffects,
+        })?)
+    };
     let raw = args.positionals.join(" ");
     if raw.trim().is_empty() {
         return Err(
@@ -114,20 +153,51 @@ pub fn play(args: &Args) -> Res {
         }
         Ok(())
     });
-    let playback_result = session::play_selection(
-        &paths,
-        catalog.as_ref(),
-        &mut normalization,
-        controls.as_ref(),
-        &mut output,
-        &history_send,
-        session::SelectionSettings {
-            normalization_mode,
-            tone,
-            order: &mut order,
-            options,
-        },
-    );
+    let playback_result = if let Some(output) = output.as_mut() {
+        session::play_selection(
+            &paths,
+            catalog.as_ref(),
+            &mut normalization,
+            controls.as_ref(),
+            output,
+            &history_send,
+            session::SelectionSettings {
+                normalization_mode,
+                tone,
+                order: &mut order,
+                options,
+            },
+        )
+    } else {
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+        ))]
+        {
+            dop::play_selection(
+                &paths,
+                catalog.as_ref(),
+                controls.as_ref(),
+                &history_send,
+                &mut order,
+                options,
+                args.playback_device()?
+                    .ok_or("DoP requires a selected DAC")?,
+            )
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+        )))]
+        {
+            Err(
+                "DoP output needs CoreAudio, WASAPI or the dop-alsa build feature with libasound"
+                    .into(),
+            )
+        }
+    };
     drop(history_send);
     let history_result = history_worker
         .join()
@@ -305,6 +375,45 @@ impl PlaybackClock {
         Ok(())
     }
 
+    fn cycle_repeat(&mut self) {
+        self.clear_visualizer();
+        self.repeat = match self.repeat {
+            Repeat::Off => Repeat::One,
+            Repeat::One => Repeat::All,
+            Repeat::All => Repeat::Off,
+        };
+        println!(
+            "Repeat: {}",
+            match self.repeat {
+                Repeat::Off => "off",
+                Repeat::One => "one",
+                Repeat::All => "all",
+            }
+        );
+    }
+
+    fn cycle_shuffle(&mut self) {
+        self.clear_visualizer();
+        self.shuffle = match self.shuffle {
+            PlaybackShuffle::Off => PlaybackShuffle::Random,
+            PlaybackShuffle::Random if self.smart_available => PlaybackShuffle::Smart,
+            PlaybackShuffle::Random => {
+                eprintln!("Smart shuffle unavailable without a scanned catalog");
+                PlaybackShuffle::Off
+            }
+            PlaybackShuffle::Smart => PlaybackShuffle::Off,
+        };
+        self.shuffle_revision = self.shuffle_revision.wrapping_add(1);
+        println!(
+            "Shuffle: {} (future entries)",
+            match self.shuffle {
+                PlaybackShuffle::Off => "off",
+                PlaybackShuffle::Random => "random",
+                PlaybackShuffle::Smart => "smart",
+            }
+        );
+    }
+
     fn toggle_pause(&mut self, output: &impl PlaybackOutput) -> Res {
         if let Some(paused_since) = self.paused_since.take() {
             output.resume()?;
@@ -338,43 +447,8 @@ fn control_action(
             Some(Action::Next) => return Ok(Some(PlaybackEnd::Next)),
             Some(Action::Previous) => return Ok(Some(PlaybackEnd::Previous)),
             Some(Action::SeekRelative(delta)) => return Ok(Some(PlaybackEnd::SeekRelative(delta))),
-            Some(Action::CycleRepeat) => {
-                clock.clear_visualizer();
-                clock.repeat = match clock.repeat {
-                    Repeat::Off => Repeat::One,
-                    Repeat::One => Repeat::All,
-                    Repeat::All => Repeat::Off,
-                };
-                println!(
-                    "Repeat: {}",
-                    match clock.repeat {
-                        Repeat::Off => "off",
-                        Repeat::One => "one",
-                        Repeat::All => "all",
-                    }
-                );
-            }
-            Some(Action::CycleShuffle) => {
-                clock.clear_visualizer();
-                clock.shuffle = match clock.shuffle {
-                    PlaybackShuffle::Off => PlaybackShuffle::Random,
-                    PlaybackShuffle::Random if clock.smart_available => PlaybackShuffle::Smart,
-                    PlaybackShuffle::Random => {
-                        eprintln!("Smart shuffle unavailable without a scanned catalog");
-                        PlaybackShuffle::Off
-                    }
-                    PlaybackShuffle::Smart => PlaybackShuffle::Off,
-                };
-                clock.shuffle_revision = clock.shuffle_revision.wrapping_add(1);
-                println!(
-                    "Shuffle: {} (future entries)",
-                    match clock.shuffle {
-                        PlaybackShuffle::Off => "off",
-                        PlaybackShuffle::Random => "random",
-                        PlaybackShuffle::Smart => "smart",
-                    }
-                );
-            }
+            Some(Action::CycleRepeat) => clock.cycle_repeat(),
+            Some(Action::CycleShuffle) => clock.cycle_shuffle(),
             None if clock.paused_since.is_some() => clock.toggle_pause(output)?,
             None => return Ok(None),
         }

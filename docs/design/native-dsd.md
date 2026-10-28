@@ -4,6 +4,8 @@
 
 `aede-audio`, with its existing `decode` feature, reads uncompressed DSF and DSDIFF (DFF) as progressive PCM without spawning FFmpeg or another program. No new product dependency is introduced. The source is read-only; catalogue, accounts, transport and analysis verdicts remain outside this decoder. Native DSD/DoP device transport is a separate output capability from eliminating decoder subprocesses.
 
+The separate unpublished [native DoP output](dop-output.md) now reuses the raw container reader and transports original bits from the CLI without these PCM filters. It requires an explicit compatible DAC; existing PCM consumers keep the profiles below.
+
 The initial profile admits the 44.1 kHz family at DSD64 (2,822,400 one-bit samples/s) and DSD128 (5,644,800), mono or stereo. DSF LSB-first and MSB-first byte declarations are respected; DFF byte interleaving and declared stereo order are verified. DSF block padding and partial final bytes never extend the track. DFF duration comes from bounded audio extents. DST-compressed DFF, SACD ISO, other rates and multichannel are explicitly outside native admission.
 
 `dsd::supports_pcm_profile` is the common rate/channel capability used by the decoder and FlacCompagnon's native/external selection. It does not validate a file, infer compression or admit a payload by itself: the chosen reader must still parse and validate the actual source. This keeps analysis and spectrogram selection in step with the shared decoder without copying its admitted-rate list.

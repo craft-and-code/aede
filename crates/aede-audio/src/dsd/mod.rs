@@ -1,16 +1,18 @@
 //! Progressive native DSF/DFF decoding, without an external process.
 //!
 //! Based on Sony DSF 1.01 and Philips DSDIFF 1.5. Only uncompressed DSD64/128
-//! mono/stereo is admitted. Conversion produces PCM, never native DSD/DoP.
+//! mono/stereo is admitted for PCM. Raw bit transport is kept separate.
 use std::{
     fmt,
     fs::{self, File},
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     path::Path,
 };
 mod container;
 mod filter;
+mod source;
 use filter::{BitFilter, ListeningFilter};
+pub use source::{RawBlock, RawSource};
 
 /// Invalid, unsupported, cancelled or unreadable DSD input.
 #[derive(Debug)]
@@ -114,13 +116,7 @@ pub fn read_dff_header(reader: &mut impl Read) -> Result<u64, DsdError> {
 }
 /// Native bounded reader. Drop retires it immediately; no process/thread is owned.
 pub struct Decoder {
-    file: File,
-    layout: container::Layout,
-    buffer: Vec<u8>,
-    at: usize,
-    loaded: bool,
-    buffered_frames: usize,
-    byte_index: u64,
+    source: RawSource,
     filters: Vec<BitFilter>,
     primed: bool,
     wide_emitted: u64,
@@ -138,28 +134,26 @@ impl Decoder {
         Self::from_file(File::open(path)?, profile)
     }
     /// Use a previously opened source; container parsing and audio share that descriptor.
-    pub fn from_file(mut file: File, profile: Profile) -> Result<Self, DsdError> {
-        let length = source_length(&file)?;
-        let layout = container::parse(&mut file, length)?;
-        file.seek(SeekFrom::Start(layout.offset))?;
-        let channels = layout.info.channels;
-        let wide_rate = layout.info.sample_rate / 8;
+    pub fn from_file(file: File, profile: Profile) -> Result<Self, DsdError> {
+        let source = RawSource::from_file(file)?;
+        let info = source.info();
+        if !supports_pcm_profile(info.sample_rate, info.channels) {
+            return Err(DsdError(
+                "native DSD supports DSD64/128 mono/stereo only".into(),
+            ));
+        }
+        let channels = info.channels;
+        let wide_rate = info.sample_rate / 8;
         let listening =
             (profile == Profile::Listening).then(|| ListeningFilter::new(wide_rate, channels));
         let divisor = if listening.is_some() {
-            layout.info.sample_rate / LISTENING_SAMPLE_RATE
+            info.sample_rate / LISTENING_SAMPLE_RATE
         } else {
             8
         };
-        let target = layout.info.samples.div_ceil(u64::from(divisor));
+        let target = info.samples.div_ceil(u64::from(divisor));
         Ok(Self {
-            buffer: vec![0; 4096 * channels],
-            file,
-            layout,
-            at: 0,
-            loaded: false,
-            buffered_frames: 0,
-            byte_index: 0,
+            source,
             filters: (0..channels).map(|_| BitFilter::new()).collect(),
             primed: false,
             wide_emitted: 0,
@@ -171,56 +165,29 @@ impl Decoder {
     }
     /// Genuine one-bit source properties, not derived output precision.
     pub fn info(&self) -> Info {
-        self.layout.info
+        self.source.info()
     }
     /// Derived PCM rate; this is not the original DSD clock.
     pub fn sample_rate(&self) -> u32 {
         if self.listening.is_some() {
             LISTENING_SAMPLE_RATE
         } else {
-            self.layout.info.sample_rate / 8
+            self.info().sample_rate / 8
         }
     }
     fn byte_frame(&mut self, output: &mut [f32]) -> Result<(), DsdError> {
-        let byte_count = self.layout.info.samples.div_ceil(8);
-        let real = self.byte_index < byte_count;
-        if real && (!self.loaded || self.at == self.buffered_frames) {
-            self.buffered_frames = if self.layout.block == 1 {
-                (byte_count - self.byte_index).min(4096) as usize
-            } else {
-                4096
-            };
-            self.file
-                .read_exact(&mut self.buffer[..self.buffered_frames * self.layout.info.channels])?;
-            self.at = 0;
-            self.loaded = true;
-        }
+        let frame = self.source.next_byte_frame()?;
         for (channel, (filter, sample)) in self.filters.iter_mut().zip(output).enumerate() {
-            let mut byte = if real {
-                self.buffer[if self.layout.block == 1 {
-                    self.at * self.layout.info.channels + channel
-                } else {
-                    channel * self.layout.block + self.at
-                }]
+            // Keep the existing PCM edge convention. Raw transport retains
+            // valid-bit counts and chooses its own link-level silence padding.
+            let byte = if let Some(frame) = &frame {
+                let mask = ((1u16 << frame.valid_bits) - 1) as u8;
+                frame.bytes[channel] | (0x69 & !mask)
             } else {
                 0x69
             };
-            if real && !self.layout.lsb {
-                byte = byte.reverse_bits();
-            }
-            if real
-                && self.byte_index + 1 == byte_count
-                && !self.layout.info.samples.is_multiple_of(8)
-            {
-                let mask = (1u16 << (self.layout.info.samples % 8)) as u8 - 1;
-                byte = (byte & mask) | (0x69 & !mask);
-            }
             *sample = filter.push(byte);
         }
-        if real {
-            self.at += 1;
-        }
-        self.byte_index += 1;
         Ok(())
     }
     fn wide_frame(&mut self, frame: &mut [f32]) -> Result<bool, DsdError> {
@@ -230,7 +197,7 @@ impl Decoder {
             }
             self.primed = true;
         }
-        if self.wide_emitted == self.layout.info.samples.div_ceil(8) {
+        if self.wide_emitted == self.info().samples.div_ceil(8) {
             return Ok(false);
         }
         self.byte_frame(frame)?;
@@ -261,7 +228,7 @@ impl Decoder {
         if self.emitted == self.target {
             return Ok(None);
         }
-        let channels = self.layout.info.channels;
+        let channels = self.info().channels;
         let mut output = Vec::with_capacity(2048 * channels);
         let mut wide = [0.0; 2];
         let mut audible = [0.0; 2];
@@ -289,3 +256,7 @@ impl Decoder {
 #[cfg(test)]
 #[path = "../dsd_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../dsd_test_fixtures.rs"]
+pub(crate) mod test_fixtures;

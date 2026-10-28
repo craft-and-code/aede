@@ -77,6 +77,24 @@ pub struct PcmConsumer<T: QueueSample = f32> {
     strict: bool,
 }
 
+/// Allocation-free failure from a single-frame callback read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameReadError {
+    InvalidLength,
+    Failed,
+    Unavailable,
+}
+impl std::fmt::Display for FrameReadError {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.write_str(match self {
+            Self::InvalidLength => "complete frame required",
+            Self::Failed => "audio frame queue is retired",
+            Self::Unavailable => "audio frame queue changed unexpectedly",
+        })
+    }
+}
+impl std::error::Error for FrameReadError {}
+
 /// Allocate the queue before starting the audio stream. Zero channels, zero
 /// capacity and capacities that overflow an allocation are rejected.
 pub fn pcm_queue<T: QueueSample>(
@@ -252,6 +270,34 @@ impl PcmProducer<f32> {
 }
 
 impl<S: QueueSample> PcmConsumer<S> {
+    /// Remove one whole frame into caller-owned storage, without conversion or
+    /// synthesized silence. Specialized transports supply their own idle bits;
+    /// an empty queue is not classified as an underrun by this primitive.
+    pub fn try_read_frame(&mut self, output: &mut [S]) -> Result<bool, FrameReadError> {
+        if output.len() != self.channels {
+            return Err(FrameReadError::InvalidLength);
+        }
+        if self.has_failed() {
+            return Err(FrameReadError::Failed);
+        }
+        if self.ring.slots() < self.channels {
+            return Ok(false);
+        }
+        let chunk = self
+            .ring
+            .read_chunk(self.channels)
+            .map_err(|_| FrameReadError::Unavailable)?;
+        let (first, second) = chunk.as_slices();
+        for (output, input) in output.iter_mut().zip(first.iter().chain(second)) {
+            *output = *input;
+        }
+        chunk.commit_all();
+        self.counters
+            .consumed_samples
+            .fetch_add(self.channels as u64, Ordering::Release);
+        Ok(true)
+    }
+
     /// Source frames actually removed by this consumer, excluding inserted silence.
     pub fn consumed_frames(&self) -> u64 {
         self.counters.consumed_samples.load(Ordering::Acquire) / self.channels as u64

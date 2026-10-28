@@ -154,10 +154,15 @@ pub(super) fn musepack(file: &mut File) -> Result<()> {
                 }
                 let mut prefix = [0; 5];
                 file.read_exact(&mut prefix)?;
-                if prefix[4] != 8 || varint(file)? > MAX_SAMPLES {
+                let samples = varint(file)?;
+                if prefix[4] != 8 || samples == 0 || samples > MAX_SAMPLES {
                     return Err(Error("unsupported Musepack sample count".into()));
                 }
-                let _silence = varint(file)?;
+                if varint(file)? >= samples {
+                    return Err(Error(
+                        "Musepack leading silence leaves no playable samples".into(),
+                    ));
+                }
                 let mut layout = [0; 2];
                 file.read_exact(&mut layout)?;
                 if layout[1] >> 4 > 1 || file.stream_position()? > end {

@@ -13,7 +13,7 @@ AEDE_AUDIO_BACKEND chooses local output: unset tries native then ffplay; native 
 ## Syntax and arguments
 
 ```text
-aede play <file|folder|m3u|collection|artist|album|track> [--playback without-effects|bit-perfect|dsp] [--output-device ID] [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
+aede play <file|folder|m3u|collection|artist|album|track> [--playback without-effects|bit-perfect|dsp] [--output-device ID] [--dsd-output pcm|dop] [--seek TIME] [--repeat off|one|all] [--shuffle off|random|smart] [--seed U64] [--lyrics] [--normalize off|track|album] [--bass DB] [--treble DB]
 aede play --list-devices
 ```
 
@@ -25,6 +25,7 @@ One selection; quote names/paths containing spaces. Prefix a saved collection wi
 | --- | --- |
 | `--playback without-effects\|bit-perfect\|dsp` | Choose the local playback policy. Default without-effects unless non-neutral effects explicitly request DSP. Strict bit-perfect requires an eligible `--output-device`. |
 | `--output-device ID` | Choose the exact host-qualified native device ID reported by `--list-devices`. A missing or unsupported device is an error; no default substitution or ffplay fallback. |
+| `--dsd-output pcm\|dop` | Default PCM. `dop` transports original DSF/DFF DSD64/128 bits to an explicitly selected DoP-compatible CoreAudio, WASAPI or ALSA hardware DAC, without PCM conversion or fallback. Requires without-effects; effects and lyrics are refused. |
 | `--list-devices` | List local native device names and IDs without playing audio. Use on its own, without a selection or playback options. |
 | `--seek TIME` | Start the first played occurrence at seconds, `mm:ss` or `hh:mm:ss`, with up to three decimal places. Default zero. |
 | `--repeat off\|one\|all` | Stop at selection end, repeat the current track, or repeat the selection. Default off. |
@@ -64,6 +65,20 @@ Strict Pause requires hardware pause without discarding programme frames. If the
 A present FLAC audio MD5 is checked during decoding in all three policies, independently of the sink. Its verdict becomes final only at complete source EOF, before a successful source completion. A missing digest remains unknown; the check is not a continuous comparison with the DAC. See [playback integrity](../integrity.md#flac-audio-md5-during-playback).
 
 To validate a route, follow the [strict acceptance protocol](../coding/bit-perfect-acceptance.md) and retain its source, native-platform and digital-capture evidence separately. The [output guide](../dsp/output.md#bit-perfect-acceptance-evidence) summarizes what each check establishes. A synthetic comparison or a software loopback is not a hardware DAC verdict.
+
+## DSD without PCM conversion
+
+The unpublished candidate adds `--dsd-output=dop` with a known compatible native device: `coreaudio:<UID>` on macOS, `wasapi:<endpoint-ID>` on Windows, or `alsa:hw:<card>,<device>` on Linux. `aede play --list-devices` lists identifiers without starting audio; enumeration does not certify DoP compatibility. Example:
+
+```sh
+aede play "/path/to/track.dsf" --dsd-output=dop --output-device="coreaudio:COMPATIBLE-DAC-UID"
+```
+
+The source must be uncompressed DSF/DFF, DSD64/128, mono/stereo. Mono is copied bit for bit to both DAC channels. The carrier is 176.4/352.8 kHz; its payload remains DSD. CoreAudio requires matching non-mixable integer I/O; WASAPI requests exclusive RAW output; ALSA opens the exact hardware substream. All require stereo storage with 24 valid bits, the exact carrier rate and neutral controls. An incompatible DAC, file or format fails without PCM/ffplay fallback. `AEDE_AUDIO_BACKEND` must be unset or `native`. Set listening level on the DAC/amplifier.
+
+Linux GNU enables ALSA DoP by default. The static musl build requires opting into `dop-alsa` with target libasound support. Windows/Linux native execution and all DAC trials remain pending; local cross checks establish source compilation only.
+
+Pause, seek, order and history are supported; the PCM spectrum and `--lyrics` are unavailable. Track changes/seeks recreate the route and do not promise gaplessness. History counts original bits handed to native output, without physical DAC acknowledgement. Existing Apps and Phémios PCM transport remain unchanged. DAC recognition, restoration and physical bit identity still need hardware qualification. See the [DoP engineering contract](../design/dop-output.md).
 
 ## Examples
 

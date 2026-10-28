@@ -4,6 +4,7 @@
 //! The worker never substitutes silence, recovers an xrun, or changes controls.
 //! Source admission and allocation finish before that worker is launched.
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 use std::ffi::CString;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use std::fmt::Write as _;
@@ -18,15 +19,14 @@ use std::time::Duration;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use std::time::Instant;
 
+#[cfg(test)]
+use aede_audio::alsa_hw::{ControlKind, ControlMap, neutral_control, verify_control_map};
+use aede_audio::alsa_hw::{channel_layout, hardware_name, matches_identity, selection};
 use aede_core::playback::exact_output::{
     ExactOutputFormat, ExactPcmAdapter, ExactSampleRepresentation,
 };
 use aede_core::playback::format::IntegerPcmFormat;
 use aede_dsp::ChannelLayout;
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-use alsa::ctl::{ElemIface, ElemType, ElemValue};
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-use alsa::hctl::HCtl;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 use alsa::pcm::{Access, Format, Frames, HwParams, PCM, State};
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -135,136 +135,6 @@ fn admit(source: IntegerPcmFormat, actual: Readback) -> Result<ExactOutputFormat
     Ok(format)
 }
 
-fn channel_layout(text: &str) -> Option<ChannelLayout> {
-    match text.trim() {
-        "MONO" | "FC" => Some(ChannelLayout::MONO),
-        "FL FR" => Some(ChannelLayout::STEREO),
-        _ => None,
-    }
-}
-
-struct ControlMap<'a> {
-    card: i32,
-    device: u32,
-    subdevice: u32,
-    index: u32,
-    integer: bool,
-    positions: &'a [i32],
-}
-
-fn verify_control_map(
-    selected: (i32, u32, u32),
-    pcm: ChannelLayout,
-    actual: Option<ControlMap<'_>>,
-) -> Result<(), String> {
-    let actual = actual.ok_or("selected ALSA hardware channel-map control is missing")?;
-    if selected.0 < 0
-        || actual.card != selected.0
-        || actual.device != selected.1
-        || actual.index != selected.2
-        || actual.subdevice != 0
-        || !actual.integer
-    {
-        return Err("ALSA hardware channel-map control identity or type is unverified".to_owned());
-    }
-    // ALSA's stable channel-position IDs: MONO=2, FL=3, FR=4, FC=7.
-    // Extra channel flags/positions are not assumptions about this route.
-    let hardware = match actual.positions {
-        [2] | [7] => ChannelLayout::MONO,
-        [3, 4] => ChannelLayout::STEREO,
-        _ => {
-            return Err(
-                "ALSA hardware channel-map positions are unknown or unsupported".to_owned(),
-            );
-        }
-    };
-    if hardware != pcm {
-        return Err("configured ALSA PCM mapping differs from the hardware control".to_owned());
-    }
-    Ok(())
-}
-
-struct Selection {
-    card: String,
-    device: u32,
-    subdevice: u32,
-}
-
-fn number(value: &str) -> Result<u32, String> {
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err("ALSA device/subdevice index must be an unsigned decimal integer".to_owned());
-    }
-    value
-        .parse()
-        .map_err(|_| "ALSA device/subdevice index exceeds u32".to_owned())
-}
-
-fn selection(name: &str) -> Result<Selection, String> {
-    if !name.starts_with("hw:") || name.len() > 256 || name[3..].is_empty() {
-        return Err("strict ALSA output requires an explicit hw: device ID".to_owned());
-    }
-    let fields = name[3..].split(',').collect::<Vec<_>>();
-    if !(2..=3).contains(&fields.len()) {
-        return Err("strict ALSA selection requires CARD and DEV, with optional SUBDEV".to_owned());
-    }
-    let (card, device, subdevice) = if fields.iter().any(|field| field.contains('=')) {
-        let (mut card, mut device, mut subdevice) = (None, None, None);
-        for field in &fields {
-            match field.split_once('=') {
-                Some(("CARD", value)) if card.is_none() => card = Some(value),
-                Some(("DEV", value)) if device.is_none() => device = Some(number(value)?),
-                Some(("SUBDEV", value)) if subdevice.is_none() => subdevice = Some(number(value)?),
-                _ => return Err("ALSA selection has an unknown or duplicated field".to_owned()),
-            }
-        }
-        (
-            card.ok_or("ALSA selection is missing CARD")?,
-            device.ok_or("ALSA selection is missing DEV")?,
-            subdevice.unwrap_or(0),
-        )
-    } else {
-        (
-            fields[0],
-            number(fields[1])?,
-            if fields.len() == 3 {
-                number(fields[2])?
-            } else {
-                0
-            },
-        )
-    };
-    if card.is_empty()
-        || !card
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    {
-        return Err(
-            "ALSA card ID must be a numeric index or a simple symbolic identifier".to_owned(),
-        );
-    }
-    Ok(Selection {
-        card: card.to_owned(),
-        device,
-        subdevice,
-    })
-}
-
-fn matches_identity(
-    requested: &Selection,
-    resolved_card: i32,
-    actual: (i32, u32, u32),
-    substreams: u32,
-) -> bool {
-    resolved_card >= 0
-        && substreams == 1
-        && actual == (resolved_card, requested.device, requested.subdevice)
-}
-
-fn hardware_name(name: &str) -> Result<CString, String> {
-    selection(name)?;
-    CString::new(name).map_err(|_| "ALSA device ID contains a NUL byte".to_owned())
-}
-
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn observe(pcm: &PCM, encoding: Encoding) -> Result<Readback, String> {
     let hw = pcm.hw_params_current().map_err(|error| error.to_string())?;
@@ -286,166 +156,6 @@ fn observe(pcm: &PCM, encoding: Encoding) -> Result<Readback, String> {
         interleaved: hw.get_access().map_err(|error| error.to_string())? == Access::RWInterleaved,
         encoding,
     })
-}
-
-// Admit only standard controls with a directly observable neutral meaning.
-// Unknown effects, enumerations, routing and vendor controls are refusals.
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum ControlKind {
-    Integer,
-    Boolean,
-    Unknown,
-}
-
-fn neutral_control(name: &str, kind: ControlKind, values: &[i64], db: Option<&[i64]>) -> bool {
-    match name {
-        "PCM Playback Volume"
-        | "Master Playback Volume"
-        | "Speaker Playback Volume"
-        | "Headphone Playback Volume" => {
-            kind == ControlKind::Integer
-                && !values.is_empty()
-                && db.is_some_and(|db| {
-                    db.len() == values.len() && db.iter().all(|value| *value == 0)
-                })
-        }
-        "PCM Playback Switch"
-        | "Master Playback Switch"
-        | "Speaker Playback Switch"
-        | "Headphone Playback Switch" => {
-            kind == ControlKind::Boolean
-                && !values.is_empty()
-                && values.iter().all(|value| *value == 1)
-        }
-        _ => false,
-    }
-}
-
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
-fn controls(card: i32, device: u32, subdevice: u32, layout: ChannelLayout) -> Result<Ctl, String> {
-    if card < 0 {
-        return Err("ALSA hardware card identity is unknown".to_owned());
-    }
-    let name = format!("hw:{card}");
-    let ctl = Ctl::new(&name, true).map_err(|error| error.to_string())?;
-    let actual_card = ctl
-        .card_info()
-        .map_err(|error| error.to_string())?
-        .get_card()
-        .get_index();
-    if actual_card != card {
-        return Err("ALSA controls resolved to another hardware card".to_owned());
-    }
-    ctl.subscribe_events(true)
-        .map_err(|error| error.to_string())?;
-    let inventory = ctl.elem_list().map_err(|error| error.to_string())?;
-    if inventory.get_used() > 256 {
-        return Err("ALSA control inventory exceeds the bounded strict profile".to_owned());
-    }
-    let hctl =
-        HCtl::new(&name, true).map_err(|error| format!("cannot observe ALSA controls: {error}"))?;
-    hctl.load().map_err(|error| error.to_string())?;
-    let mut verified_map = false;
-    for index in 0..inventory.get_used() {
-        let id = inventory.get_id(index).map_err(|error| error.to_string())?;
-        let name = id.get_name().map_err(|error| error.to_string())?;
-        let display_name = crate::ui::literal(name);
-        let is_map = inventory
-            .get_interface(index)
-            .map_err(|error| error.to_string())?
-            == ElemIface::PCM
-            && name == "Playback Channel Map";
-        if is_map && (id.get_device() != device || id.get_index() != subdevice) {
-            continue;
-        }
-        let element = hctl
-            .find_elem(&id)
-            .ok_or("ALSA control metadata changed during admission")?;
-        let info = element.info().map_err(|error| error.to_string())?;
-        if !(1..=2).contains(&info.get_count()) {
-            return Err(format!("unknown ALSA control shape: {display_name}"));
-        }
-        let mut value = ElemValue::new(info.get_type()).map_err(|error| error.to_string())?;
-        value.set_id(&id);
-        // Read values and retain event monitoring on the same verified card
-        // handle. PCM::get_chmap can instead return an ALSA config override.
-        ctl.elem_read(&mut value)
-            .map_err(|error| error.to_string())?;
-        if is_map {
-            if verified_map {
-                return Err("ALSA selected channel-map control is ambiguous".to_owned());
-            }
-            let positions = (0..info.get_count())
-                .map(|channel| {
-                    value
-                        .get_integer(channel)
-                        .ok_or("invalid ALSA channel-map control")
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            verify_control_map(
-                (card, device, subdevice),
-                layout,
-                Some(ControlMap {
-                    card: actual_card,
-                    device: id.get_device(),
-                    subdevice: id.get_subdevice(),
-                    index: id.get_index(),
-                    integer: info.get_type() == ElemType::Integer,
-                    positions: &positions,
-                }),
-            )?;
-            verified_map = true;
-            continue;
-        }
-        let mut values = Vec::with_capacity(info.get_count() as usize);
-        let mut decibels = Vec::with_capacity(info.get_count() as usize);
-        for channel in 0..info.get_count() {
-            match info.get_type() {
-                ElemType::Integer => {
-                    let integer = value
-                        .get_integer(channel)
-                        .ok_or("invalid ALSA integer control")?;
-                    values.push(i64::from(integer));
-                    decibels.push(
-                        ctl.convert_to_db(&id, i64::from(integer))
-                            .map_err(|error| {
-                                format!("unknown ALSA gain for {display_name}: {error}")
-                            })?
-                            .0,
-                    );
-                }
-                ElemType::Boolean => values.push(i64::from(
-                    value
-                        .get_boolean(channel)
-                        .ok_or("invalid ALSA switch control")?,
-                )),
-                _ => {
-                    return Err(format!(
-                        "unknown ALSA enhancement or routing control: {display_name}"
-                    ));
-                }
-            }
-        }
-        let kind = match info.get_type() {
-            ElemType::Integer => ControlKind::Integer,
-            ElemType::Boolean => ControlKind::Boolean,
-            _ => ControlKind::Unknown,
-        };
-        if !neutral_control(
-            name,
-            kind,
-            &values,
-            (!decibels.is_empty()).then_some(decibels.as_slice()),
-        ) {
-            return Err(format!(
-                "ALSA control is modifying or unverified: {display_name}; strict output does not change system controls"
-            ));
-        }
-    }
-    if !verified_map {
-        verify_control_map((card, device, subdevice), layout, None)?;
-    }
-    Ok(ctl)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -995,7 +705,12 @@ impl AlsaOutput {
         drop(configured);
         pcm.prepare().map_err(|error| error.to_string())?;
         let card = pcm.info().map_err(|error| error.to_string())?.get_card();
-        let controls = controls(card, requested.device, requested.subdevice, source.layout())?;
+        let controls = aede_audio::alsa_hw::open_controls(
+            card,
+            requested.device,
+            requested.subdevice,
+            source.layout(),
+        )?;
         let (producer, pending) = pcm_queue::<i32>(usize::from(source.channels()), capacity, true)
             .map_err(|error| error.to_string())?;
         let shared = Arc::new(Shared::default());

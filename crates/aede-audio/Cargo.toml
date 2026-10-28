@@ -14,7 +14,18 @@ decode = ["dep:symphonia", "dep:audiopus", "dep:audiopus_sys", "dep:ape-decoder"
 # File-handle based original PCM16 and exact APE seeking for CUE clients.
 ape-pcm16 = ["decode"]
 queue = ["dep:rtrb", "dsp"]
-output = ["decode", "queue", "dep:cpal"]
+output = ["decode", "queue", "dep:cpal", "dop-output"]
+# Exclusive integer DoP on macOS/Windows; no CPAL requirement on musl.
+dop-output = ["decode", "queue", "dep:windows"]
+# Explicit ALSA support also works for custom musl builds with libasound.
+dop-alsa = ["dop-output", "dep:alsa"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", optional = true, features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Retain the reviewed hardware-observation methods even outside this workspace.
+alsa = { version = "=0.11.0", path = "../../vendor/alsa-0.11.0", optional = true }
 
 [dependencies]
 aede-dsp = { path = "../aede-dsp", default-features = false, optional = true }

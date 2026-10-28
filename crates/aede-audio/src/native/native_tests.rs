@@ -251,6 +251,25 @@ fn repair_sv8_header_crc(bytes: &mut [u8]) {
 }
 
 #[test]
+fn musepack_leading_silence_cannot_erase_or_underflow_the_declared_audio_length() {
+    let dir = Scratch::new("mpc-leading-silence");
+    for (samples, silence) in [(64, 65), (64, 64), (0, 0)] {
+        let mut bytes = fs::read(fixture("tone-sv8.mpc")).unwrap();
+        // Keep the existing three-byte size representation and packet extents.
+        // The independently expected playable length is samples - silence > 0.
+        bytes[12..15].copy_from_slice(&[0x80, 0x80, samples]);
+        bytes[15] = silence;
+        repair_sv8_header_crc(&mut bytes);
+        let path = dir.write(&format!("invalid-{samples}-{silence}.mpc"), &bytes);
+        assert!(
+            Decoder::open(&path).is_err(),
+            "an impossible Musepack duration was published"
+        );
+        assert!(preflight::musepack(&mut File::open(&path).unwrap()).is_err());
+    }
+}
+
+#[test]
 fn musepack_rejects_seek_exponents_that_overflow_the_reference_word_before_ffi() {
     let dir = Scratch::new("mpc-seek-power");
     let mut bytes = fs::read(fixture("tone-sv8.mpc")).unwrap();

@@ -38,6 +38,19 @@ pub(super) fn list_devices() -> Result<(), Box<dyn Error>> {
         println!(
             "Bit-perfect currently requires a validated direct ALSA hw: route on Linux GNU; CoreAudio and WASAPI strict routes are refused."
         );
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "windows",
+            all(target_os = "linux", any(target_env = "gnu", feature = "dop-alsa"))
+        ))]
+        {
+            println!(
+                "DoP IDs (explicit compatible-DAC request; enumeration does not prove DoP support):"
+            );
+            for (id, name) in aede_audio::dop::output::devices()? {
+                println!("{}  {}", crate::ui::literal(&id), crate::ui::literal(&name));
+            }
+        }
         Ok(())
     }
     #[cfg(not(any(
@@ -46,6 +59,14 @@ pub(super) fn list_devices() -> Result<(), Box<dyn Error>> {
         all(target_os = "linux", target_env = "gnu")
     )))]
     {
+        #[cfg(all(target_os = "linux", feature = "dop-alsa"))]
+        {
+            for (id, name) in aede_audio::dop::output::devices()? {
+                println!("{}  {}", crate::ui::literal(&id), crate::ui::literal(&name));
+            }
+            Ok(())
+        }
+        #[cfg(not(all(target_os = "linux", feature = "dop-alsa")))]
         Err("native output device discovery is unavailable on this build; ordinary playback uses ffplay".into())
     }
 }

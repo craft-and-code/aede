@@ -504,6 +504,7 @@ Complete guides to Aède's features and architecture:
 - [Playback & Gapless Audio](docs/design/playback.md) — Precise sample-accurate playback
 - [Shared Audio Foundation](docs/design/shared-audio.md) — Common PCM primitives and the minimal FlacCompagnon player
 - [Native DSD Input](docs/design/native-dsd.md) — Candidate DSF/DFF decoding, measurement/listening profiles and coordinated publication limits
+- [Native DoP Output](docs/design/dop-output.md) — Original DSD transport, exclusive native admission and separate DAC acceptance
 - [Additional Native Codecs](docs/design/native-additional-codecs.md) — WavPack, Musepack, Speex and APE profiles, bounds, provenance and regression coverage
 - [Local Native Audio Qualification](docs/design/native-audio-platform-validation.md) — Cross compilation/linking versus native runtime evidence, without rebuilding Apps
 - [Audio Format Matrix](docs/design/audio-format-matrix.md) — Cross-application decoder coverage, remaining external tools and replacement acceptance

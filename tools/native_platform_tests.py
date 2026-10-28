@@ -15,6 +15,18 @@ def module(name):
     return result
 
 class NativePlatformTests(unittest.TestCase):
+    def test_prepare_preserves_the_cd_reader_musl_source_override(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            aede, fc, ph, output = [root / p for p in ['aede', 'fc', 'ph', 'acceptance']]
+            aede.mkdir(); (aede / 'Cargo.lock').write_text('reviewed lock\n')
+            reader = ph / 'vendor/cd-da-reader'
+            reader.mkdir(parents=True)
+            (reader / 'Cargo.toml').write_text('[package]\nname="cd-da-reader"\nversion="1.0.0"\n')
+            module('prepare').prepare(aede, fc, ph, output)
+            manifest = (output / 'Cargo.toml').read_text()
+            self.assertIn('[patch.crates-io]', manifest)
+            self.assertIn('cd-da-reader = { path = ' + json.dumps(str(reader.resolve())) + ' }', manifest)
     def test_prepare_creates_only_test_targets_and_keeps_an_existing_frozen_lock(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

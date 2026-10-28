@@ -49,6 +49,7 @@ if os.environ.get("SOURCE_GATE_FAIL") and name == "cargo" and sys.argv[1] == "te
         result = self.run_gate("--sources-only")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.calls()
+        self.assertIn(["python3", "tools/playback_terminal_tests.py", "--binary", str(self.root / "target/debug/aede")], calls)
         for verb in ["test", "clippy", "doc"]:
             self.assertTrue(any(row[:2] == ["cargo", verb] for row in calls), verb)
         for row in calls:

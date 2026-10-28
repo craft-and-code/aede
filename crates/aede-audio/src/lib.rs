@@ -6,8 +6,12 @@
 //! bit-perfect route. Rich applications retain their transport policy.
 #[cfg(feature = "dsp")]
 pub use aede_dsp as dsp;
+#[cfg(feature = "queue")]
+pub mod alsa_hw;
 #[cfg(feature = "decode")]
 pub mod decode;
+#[cfg(feature = "decode")]
+pub mod dop;
 #[cfg(feature = "decode")]
 pub mod dsd;
 #[cfg(feature = "dsp")]

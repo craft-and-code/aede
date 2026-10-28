@@ -17,9 +17,10 @@ path = "src/main.rs"
 [features]
 default = ["fetch"]
 fetch = ["aede-core/fetch", "aede-server/fetch"]
+dop-alsa = ["aede-audio/dop-alsa"]
 
 [dependencies]
-aede-audio = { path = "../aede-audio", features = ["queue"] }
+aede-audio = { path = "../aede-audio", features = ["queue", "dop-output"] }
 # `default-features = false` so that turning this crate's `fetch` off
 # really does leave the library with no network code compiled in.
 aede-core = { path = "../aede-core", default-features = false }
@@ -33,3 +34,4 @@ cpal = "0.18.1"
 
 [target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
 alsa = "=0.11.0"
+aede-audio = { path = "../aede-audio", features = ["dop-alsa"] }
