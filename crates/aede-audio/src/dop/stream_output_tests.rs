@@ -22,7 +22,9 @@ fn held(channels: usize, samples: u64, position: u64) -> (StreamOutput, Arc<Atom
 fn a_short_packet_does_not_open_a_device_or_admit_incomplete_eof() {
     let (mut output, opened) = held(2, 160, 0);
     assert_eq!(output.write(&[Payload(1), Payload(2)]).unwrap(), 2);
+    assert!(!output.is_admitted());
     assert!(!output.poll_admitted(|| Ok(())).unwrap().completed);
+    assert!(!output.is_admitted());
     assert_eq!(opened.load(Ordering::Acquire), 0);
     assert!(output.finish().is_err());
     assert!(output.write(&[Payload(1), Payload(2)]).is_err());
@@ -178,11 +180,13 @@ fn pause_and_initial_mute_use_silence_without_losing_original_time() {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(output.consumed_frames(), 0);
+        assert!(output.is_admitted());
         assert!(trace.words.lock().unwrap().is_empty());
         output.resume();
         assert!(complete(&mut output).completed);
         assert_eq!(trace.words.lock().unwrap().is_empty(), muted);
         output.close().unwrap();
+        assert!(!output.is_admitted());
     }
 }
 #[test]

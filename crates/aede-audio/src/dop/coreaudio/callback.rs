@@ -187,10 +187,23 @@ impl Session {
         input: PcmConsumer<Payload>,
         signals: Arc<Signals>,
     ) -> Result<Self, String> {
-        let prepared = device::prepare(uid, format, &|| signals.current())?;
-        let renderer = Renderer::new(input, format, prepared.plan.carrier, signals.clone());
-        let client = Box::new(Client::new(renderer, signals.clone(), prepared.frame_limit));
-        let context = Context::new(&REGISTRY, client)?;
+        let Prepared {
+            lease,
+            plan,
+            frame_limit,
+            tail,
+            watched,
+        } = device::prepare(uid, format, &|| signals.current())?;
+        let renderer = Renderer::new(input, format, plan.carrier, signals.clone());
+        let client = Box::new(Client::new(renderer, signals.clone(), frame_limit));
+        let (lease, context) = lease.checked(Context::new(&REGISTRY, client))?;
+        let prepared = Prepared {
+            lease,
+            plan,
+            frame_limit,
+            tail,
+            watched,
+        };
         let mut session = Self {
             prepared: Some(prepared),
             context: Some(context),

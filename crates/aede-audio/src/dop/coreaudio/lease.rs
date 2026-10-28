@@ -95,6 +95,17 @@ impl<B: Backend> Lease<B> {
         }
     }
 
+    /// Keep post-acquisition setup and the device lease in one ownership scope.
+    pub fn checked<T>(mut self, result: Result<T, String>) -> Result<(Self, T), String> {
+        match result {
+            Ok(value) => Ok((self, value)),
+            Err(error) => match self.restore() {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(format!("{error}; device rollback failed: {cleanup}")),
+            },
+        }
+    }
+
     fn matches(&self) -> Result<bool, String> {
         Ok(self.backend.rate()? == self.plan.physical.rate
             && self.backend.physical()? == self.plan.physical

@@ -199,6 +199,13 @@ impl StreamOutput {
         }
         Ok(snapshot)
     }
+    /// Native preparation and the final caller admission have succeeded. A
+    /// caller can hold pause until this boundary, recheck its latest controls,
+    /// then resume without allowing programme bits during preparation. False
+    /// after explicit close; route health still belongs to `poll_admitted`.
+    pub fn is_admitted(&self) -> bool {
+        !self.closed && self.signals.admitted.load(Ordering::Acquire)
+    }
     /// Carrier frames delivered relative to this visit, for network ACKs.
     /// This is software handoff evidence, not a physical DAC acknowledgement.
     pub fn consumed_frames(&self) -> u64 {

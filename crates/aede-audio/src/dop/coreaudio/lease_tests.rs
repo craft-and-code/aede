@@ -172,3 +172,37 @@ fn admission_retirement_during_preparation_still_restores_the_device() {
     );
     restored(&fake);
 }
+
+#[test]
+fn failed_post_acquisition_setup_returns_its_rollback_failure_to_the_caller() {
+    for stage in ["geometry query failed", "callback capacity exhausted"] {
+        let fake = Fake::new();
+        let lease = Lease::acquire(fake.clone(), plan(), 77, &|| Ok(())).unwrap();
+        fake.0.borrow_mut().fail = Some("hog");
+        let failure = lease.checked::<()>(Err(stage.into()));
+        let error = failure.err().expect("setup must fail");
+        assert!(error.contains(stage), "{error}");
+        assert!(error.contains("injected hog"), "{error}");
+        assert!(error.contains("did not release"), "{error}");
+        assert_eq!(fake.0.borrow().hog, 77);
+    }
+}
+
+#[test]
+fn post_acquisition_setup_keeps_ownership_on_success_and_restores_on_failure() {
+    let fake = Fake::new();
+    let lease = Lease::acquire(fake.clone(), plan(), 77, &|| Ok(())).unwrap();
+    let (mut lease, geometry) = lease
+        .checked(Ok(256))
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(geometry, 256);
+    assert_eq!(fake.0.borrow().hog, 77);
+    lease.restore().unwrap();
+    restored(&fake);
+    let lease = Lease::acquire(fake.clone(), plan(), 77, &|| Ok(())).unwrap();
+    assert_eq!(
+        lease.checked::<()>(Err("geometry refused".into())).err(),
+        Some("geometry refused".into())
+    );
+    restored(&fake);
+}

@@ -109,8 +109,7 @@ pub(super) fn prepare(
             Duration::from_secs_f64(tail as f64 / f64::from(format.carrier_rate())),
         ))
     })();
-    // Lease's fallback reports rollback errors if geometry cannot be queried.
-    let (frame_limit, tail) = geometry?;
+    let (lease, (frame_limit, tail)) = lease.checked(geometry)?;
     let mut watched = vec![
         (device, Property::global(b"oink")),
         (device, Property::global(b"nsrt")),
