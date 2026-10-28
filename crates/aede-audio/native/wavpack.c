@@ -24,8 +24,10 @@ static WavpackStreamReader64 reader = {
 };
 void *aede_wv_open(AedeReader *r,AedeInfo *info) {
     char error[80] = {0};
-    /* No filesystem names, correction-file discovery, gain or thread flags. */
-    WavpackContext *w = WavpackOpenFileInputEx64(&reader,r,0,error,0,0);
+    /* Adapt floating-point source exponents to the shared +/-1 PCM domain.
+       This is format scaling, without playback gain or loudness processing.
+       No filesystem names, correction-file discovery or codec threads. */
+    WavpackContext *w = WavpackOpenFileInputEx64(&reader,r,0,error,OPEN_NORMALIZE,0);
     if (!w) return 0;
     info->rate=WavpackGetSampleRate(w);
     info->channels=WavpackGetNumChannels(w);

@@ -1,4 +1,4 @@
-//! ALAC codec configuration, independent of incomplete MP4 sample-entry hints.
+//! ALAC codec configuration, independent of incomplete container hints.
 //! Fields follow Apple's public ALACMagicCookieDescription.txt, not decoder code.
 use symphonia::core::{
     audio::Channels,
@@ -163,7 +163,7 @@ impl PacketTimeline {
 
 pub(super) fn parameters(input: &CodecParameters) -> Result<CodecParameters> {
     let mut output = input.clone();
-    if input.codec != CODEC_TYPE_ALAC || input.channels.is_some() {
+    if input.codec != CODEC_TYPE_ALAC {
         return Ok(output);
     }
     let cookie = input
@@ -221,6 +221,13 @@ pub(super) fn parameters(input: &CodecParameters) -> Result<CodecParameters> {
         {
             return Err(Error::Unsupported("unsupported ALAC channel layout"));
         }
+    }
+    // A container may synthesize a mask from the channel count (notably CAF).
+    // The pinned decoder derives PCM speaker roles from the cookie instead.
+    // Refuse contradictory hints before publishing PCM or allocating a codec;
+    // a matching hint still requires every configuration and budget check.
+    if input.channels.is_some_and(|hint| hint != layout) {
+        return Err(Error::Unsupported("conflicting ALAC speaker layout"));
     }
     // MP4 v0 sample entries can carry a 48 kHz placeholder for high-rate ALAC.
     // The codec cookie, retained unchanged, declares the actual PCM properties.

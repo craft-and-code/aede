@@ -222,3 +222,7 @@ mod tests;
 #[cfg(test)]
 #[path = "ape_legacy_tests.rs"]
 mod ape_legacy_tests;
+
+#[cfg(test)]
+#[path = "codec_conformance_tests.rs"]
+mod codec_conformance_tests;

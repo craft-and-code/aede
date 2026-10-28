@@ -45,12 +45,20 @@ void *aede_spx_open(int mode, int channels, int *size, int *lookahead, int *vers
 }
 
 int aede_spx_decode(void *p, const unsigned char *packet, int bytes,
-                    int frames, float *out, int capacity) {
+                    int frames, int terminal, float *out, int capacity) {
     Context *c = p;
     if (frames < 1 || frames > 16 || c->size * frames * c->channels > capacity)
         return -1;
     speex_bits_read_from(&c->bits, (char *)packet, bytes);
     for (int i = 0; i < frames; i++) {
+        /* The official encoder fills unused final packet slots with the
+           five-bit 0b01111 terminator. A decoder return of -1 alone is not
+           enough: it also means fewer than five bits remain after truncation.
+           Only an explicit marker after complete speech frames at EOS may
+           shorten the nominal packet; every decode error stays fatal. */
+        if (terminal && i > 0 && speex_bits_remaining(&c->bits) >= 5 &&
+            speex_bits_peek_unsigned(&c->bits, 5) == 15)
+            return c->size * i;
         float *block = out + i * c->size * c->channels;
         if (speex_decode(c->state, &c->bits, block) != 0 ||
             speex_bits_remaining(&c->bits) < 0)

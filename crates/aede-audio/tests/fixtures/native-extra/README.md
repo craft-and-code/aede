@@ -17,6 +17,20 @@ python3 generate.py /path/to/mpcenc /path/to/fixture-speex-encode /path/to/speex
 
 Build the test-only `speex-encode.c` against libspeex 1.2.1 public headers and library. Official `mpcenc`/`speexdec` are reference tools used only during fixture generation; they are not product dependencies and tests run from checked-in bytes without them. Archive provenance/hashes are in `../../../vendor/README.md`. `sha256.json` records the fixture bytes; regeneration must be reviewed rather than accepted merely because the current decoder agrees.
 
+## Public API conformance vectors
+
+`float32-norm142.wv` contains four original mono float samples at 44.1 kHz: `[16384, -16384, 8192, -8192]`, with the valid WavPack `float_norm_exp=142`. Its normalized PCM is exactly `[0.5, -0.5, 0.25, -0.25]`. The test-only `wavpack-normalization.c` uses public WavPack 5.9.0 encoder APIs, then checks both the raw and `OPEN_NORMALIZE` reference decodes, their exponents and zero CRC errors. The [official library documentation, section 3](https://www.wavpack.com/WavPack5LibraryDoc.pdf) defines this source exponent adaptation; it is not loudness normalization. The regression failed before the adapter enabled `OPEN_NORMALIZE` with offset zero.
+
+`speex-final-partial.spx` is original mono narrowband audio at 8 kHz, with two nominal frames per packet. The first packet contains two 160-frame speech frames. The last contains one speech frame and the explicit five-bit `15` end marker, with no second encoded speech frame. The source has 400 input frames; the last 80-frame input is zero-padded, encoder lookahead is 40, and page granules are 280/400. This matches the terminal packet convention in [official `speexenc` 1.2.1](https://raw.githubusercontent.com/xiph/speex/Speex-1.2.1/src/speexenc.c), lines 890–905. `speex-final-packet.c` uses public libspeex encoder APIs and verifies reference decode statuses `[0, 0]`, then `[0, -1]`, without bit underflow. The shared reader deliberately returns the three complete coded speech frames (480 frames), retaining its existing policy on priming/tail trimming. The regression failed before explicit short EOS packets were admitted. Separate negative cases remove EOS, remove the end marker, truncate speech data and supply an empty marker-only packet; each must retire the reader without publishing that packet's PCM.
+
+Compile these two original test-only C programs against the pinned public headers and libraries, then regenerate only these vectors:
+
+```sh
+python3 generate-conformance.py /path/to/wavpack-normalization /path/to/speex-final-packet
+```
+
+Neither generator copies a codec algorithm or ships with the product. `sha256.json` records the reviewed encoded bytes. Existing independent PCM references are unchanged; test generation does not require FFmpeg or an App build.
+
 ## Historical APE vectors
 
 `silence-3950.ape` and `silence-3970.ape` are original 882,000-frame stereo PCM16/44.1-kHz silence, with three historical codec frames (294,912 + 294,912 + 292,176). `generate-legacy-ape.py` uses the approved SDK 13.43 encoder's special-silence packet, reconstructs the historical 32-byte header/seek table and independently computes each PCM CRC. Both SDK decoding and FFmpeg with errors made fatal must reproduce exactly 3,528,000 zero bytes before generation succeeds. This qualifies the old layout, CRC, complete-frame staging and exact seek boundaries; silence does not qualify historical prediction filters. No historical encoder is falsely attributed to these generated containers. Existing nonzero 3.99 references remain unchanged.

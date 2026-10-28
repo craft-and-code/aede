@@ -23,3 +23,9 @@ These original integer ramps contain no third-party recording. `generate.py` cre
 - `surround16-layout.m4a` SHA-256: `b5414b090853354926c8c54b0aaacd24bcbb76df6466c682e4f8a3b49f0496bc`
 - `layout7-16.m4a` SHA-256: `fcffd8954a3bfdf1638eba9652939a3463fcd00c7adad0f3796b3387972c9aea`
 - `layout8-16.m4a` SHA-256: `fbd57d8304cf3ec2f0ce2c409b8c8923f3fa39faf88375c9116e8e06ee66c437`
+
+`generate_caf_hint_conflict.py` remuxes the original `layout4-16.m4a` packets without re-encoding into `layout4-16-hint-conflict.caf`. It retains CAF's MPEG_4_0_A layout (L R C Cs) and exposes the corresponding standard 48-byte ALAC cookie, with encoded MPEG_4_0_B ordering (C L R Cs), by removing FFmpeg's legacy `frma`/`alac` wrapper. The wrapper and raw-cookie forms are described in [Apple's cookie specification](https://raw.githubusercontent.com/macosforge/alac/master/ALACMagicCookieDescription.txt); CAF tags are defined in [Apple's CAF specification](https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_spec/CAF_spec.html). The generator checks all 10,001 decoded PCM16 frames against the original four-channel ramp using FFmpeg independently.
+
+The pinned CAF reader does not recognize that CAF layout tag and substitutes its first-four-channel mask (`0x00f`, FL FR FC LFE). The ALAC decoder emits the cookie's canonical mask (`0x107`, FL FR FC Cs). This is a refusal regression: a prefilled container hint must not bypass cookie validation or allow the rear-centre samples to be published as LFE. The fixture does not qualify CAF packet-table/tail handling or expand the native CAF profile. The checked-in fixture was generated with FFmpeg 9.0.2; tests do not invoke it.
+
+- `layout4-16-hint-conflict.caf` SHA-256: `678bc24e55b5261e24e8694ff7405809aa5d4dd7977c9cd12f73660cc44d4a88`

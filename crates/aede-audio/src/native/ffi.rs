@@ -34,6 +34,7 @@ unsafe extern "C" {
         packet: *const u8,
         bytes: i32,
         frames: i32,
+        terminal: i32,
         out: *mut f32,
         capacity: i32,
     ) -> i32;
@@ -204,7 +205,7 @@ impl Speex {
         }
         Ok(codec)
     }
-    pub fn decode(&mut self, packet: &[u8], frames: usize) -> Result<Vec<f32>> {
+    pub fn decode(&mut self, packet: &[u8], frames: usize, terminal: bool) -> Result<Vec<f32>> {
         if !(1..=16).contains(&frames) || packet.is_empty() || packet.len() > 65536 {
             return Err(Error("invalid Speex packet budget".into()));
         }
@@ -217,13 +218,21 @@ impl Speex {
                 packet.as_ptr(),
                 packet.len() as i32,
                 frames as i32,
+                i32::from(terminal),
                 pcm.as_mut_ptr(),
                 pcm.len() as i32,
             )
         };
-        if count != (self.size * frames) as i32 {
-            return Err(Error("Speex packet failed".into()));
-        }
+        let count = usize::try_from(count)
+            .ok()
+            .filter(|count| {
+                *count > 0
+                    && *count <= self.size * frames
+                    && count.is_multiple_of(self.size)
+                    && (terminal || *count == self.size * frames)
+            })
+            .ok_or_else(|| Error("Speex packet failed".into()))?;
+        pcm.truncate(count * self.channels);
         for sample in &mut pcm {
             *sample /= 32768.0;
         }

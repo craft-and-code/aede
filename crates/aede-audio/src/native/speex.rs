@@ -99,7 +99,9 @@ impl Decoder {
             return Ok(Vec::new());
         };
         current()?;
-        let pcm = self.codec.decode(&packet.data, self.frames_per_packet)?;
+        let pcm = self
+            .codec
+            .decode(&packet.data, self.frames_per_packet, packet.eos)?;
         self.decoded = self
             .decoded
             .checked_add((pcm.len() / self.info.channels) as u64)

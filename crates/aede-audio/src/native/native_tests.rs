@@ -1,4 +1,5 @@
 use super::*;
+
 pub(super) fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/native-extra")

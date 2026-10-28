@@ -48,7 +48,7 @@ fn malformed_alac_configuration_cannot_allocate_or_guess_a_layout() {
 }
 
 #[test]
-fn optional_layout_must_agree_and_existing_demux_layouts_are_preserved() {
+fn optional_layout_must_agree_and_matching_demux_layouts_use_codec_properties() {
     let mut input = source();
     let mut cookie = input.extra_data.take().unwrap().into_vec();
     cookie.extend_from_slice(&24u32.to_be_bytes());
@@ -62,7 +62,83 @@ fn optional_layout_must_agree_and_existing_demux_layouts_are_preserved() {
     assert!(parameters(&input).is_err());
     let mut known = source();
     known.channels = Some(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
-    assert_eq!(parameters(&known).unwrap().sample_rate, known.sample_rate);
+    let resolved = parameters(&known).unwrap();
+    assert_eq!(resolved.sample_rate, Some(96000));
+    assert_eq!(resolved.channels, known.channels);
+    assert_eq!(resolved.bits_per_sample, Some(24));
+    assert_eq!(resolved.extra_data, known.extra_data);
+}
+
+#[test]
+fn prefilled_channels_cannot_bypass_alac_configuration_or_pcm_budget() {
+    for invalid_cookie in [None, Some(Box::default())] {
+        let mut input = source();
+        input.channels = Some(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+        input.extra_data = invalid_cookie;
+        assert!(parameters(&input).is_err());
+    }
+    for (offset, value) in [(4, 1), (5, 0), (9, 0), (9, 6)] {
+        let mut input = source();
+        input.channels = Some(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+        input.extra_data.as_mut().unwrap()[offset] = value;
+        assert!(parameters(&input).is_err(), "cookie byte {offset}");
+    }
+    for range in [0..4, 20..24] {
+        let mut input = source();
+        input.channels = Some(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+        input.extra_data.as_mut().unwrap()[range].fill(0);
+        assert!(parameters(&input).is_err());
+    }
+    let mut input = source();
+    input.channels = Some(Channels::FRONT_LEFT | Channels::FRONT_RIGHT);
+    input.extra_data.as_mut().unwrap()[..4].copy_from_slice(&524_289u32.to_be_bytes());
+    assert!(matches!(
+        parameters(&input),
+        Err(Error::Unsupported("ALAC packet exceeds PCM budget"))
+    ));
+}
+
+#[test]
+fn prefilled_speaker_hints_must_match_the_validated_cookie() {
+    let mut input = source();
+    input.channels = Some(Channels::FRONT_CENTRE);
+    assert!(matches!(
+        parameters(&input),
+        Err(Error::Unsupported("conflicting ALAC speaker layout"))
+    ));
+
+    let mut cookie = input.extra_data.take().unwrap().into_vec();
+    cookie[9] = 4;
+    cookie.extend_from_slice(&24u32.to_be_bytes());
+    cookie.extend_from_slice(b"chan");
+    cookie.extend_from_slice(&0u32.to_be_bytes());
+    cookie.extend_from_slice(&((116u32 << 16) | 4).to_be_bytes());
+    cookie.extend_from_slice(&[0; 8]);
+    input.extra_data = Some(cookie.into_boxed_slice());
+    // A CAF count-only hint can label the rear-centre PCM as LFE.
+    input.channels = Channels::from_bits(0x00f);
+    assert!(matches!(
+        parameters(&input),
+        Err(Error::Unsupported("conflicting ALAC speaker layout"))
+    ));
+    input.channels = Channels::from_bits(0x107);
+    assert_eq!(parameters(&input).unwrap().channels, input.channels);
+}
+
+#[test]
+fn caf_count_hint_cannot_publish_rear_centre_pcm_as_lfe() {
+    let path = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/native-alac/layout4-16-hint-conflict.caf"
+    ));
+    let error = super::super::PcmStreamDecoder::open(path)
+        .err()
+        .expect("CAF must be refused before rear-centre PCM can be published as LFE");
+    assert!(
+        error
+            .to_string()
+            .contains("conflicting ALAC speaker layout")
+    );
 }
 
 #[test]
@@ -87,13 +163,19 @@ fn explicit_apple_surround_layouts_require_matching_counts_and_reserved_fields()
         let resolved = parameters(&input).unwrap();
         assert_eq!(resolved.channels.unwrap().bits(), mask);
         assert_eq!(resolved.extra_data, input.extra_data);
+        let mut hinted = input.clone();
+        hinted.channels = resolved.channels;
+        assert_eq!(parameters(&hinted).unwrap().channels, resolved.channels);
         for offset in [24, 28, 32, 36, 39, 40, 44] {
-            let mut invalid = input.clone();
-            invalid.extra_data.as_mut().unwrap()[offset] ^= 1;
-            assert!(
-                parameters(&invalid).is_err(),
-                "{channels} channels, byte {offset}"
-            );
+            for hint in [None, resolved.channels] {
+                let mut invalid = input.clone();
+                invalid.channels = hint;
+                invalid.extra_data.as_mut().unwrap()[offset] ^= 1;
+                assert!(
+                    parameters(&invalid).is_err(),
+                    "{channels} channels, byte {offset}, hint {hint:?}"
+                );
+            }
         }
         input.extra_data.as_mut().unwrap()[9] = channels - 1;
         assert!(parameters(&input).is_err());
