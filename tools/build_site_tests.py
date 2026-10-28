@@ -249,6 +249,22 @@ class HomeTests(unittest.TestCase):
 
 
 class PublishTests(unittest.TestCase):
+    def test_share_preview_uses_current_localized_image_on_home_and_documentation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = StatisticsFixture(directory)
+            fixture.write("site/index.html", '<html lang="fr"><head><title>Aède</title><meta name="description" content="Accueil"><!-- aede-social-image --></head><body><a href="docs/fr/index.html">Documentation</a></body></html>')
+            builder.build(fixture.root)
+            for language, home, asset in (("fr", "index.html", builder.SOCIAL_IMAGE), ("en", "en/index.html", builder.SOCIAL_IMAGE_EN)):
+                for page in (home, f"docs/{language}/manual/project-statistics.html"):
+                    text = (fixture.root / "dist-site" / page).read_text()
+                    self.assertIn(builder.BASE_URL + asset, text)
+                    self.assertIn('property="og:image:width" content="1200"', text)
+                    self.assertIn('property="og:image:height" content="630"', text)
+                    self.assertIn('name="twitter:image"', text)
+                    self.assertNotIn('/assets/og-image.png', text)
+                    self.assertEqual(text.count('property="og:image"'), 1)
+                self.assertTrue((fixture.root / "dist-site" / asset).exists())
+
     def test_documentation_reloads_changed_assets_without_invalidating_unchanged_ones(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = StatisticsFixture(directory)
@@ -294,7 +310,7 @@ class PublishTests(unittest.TestCase):
             root=Path(directory); (root/'site/assets').mkdir(parents=True); (root/'docs').mkdir()
             (root/'site/index.html').write_text('<html lang="fr"><head><title>Accueil</title><meta name="description" content="Accueil Aède"><link rel="stylesheet" href="styles.css"><script src="app.js" defer></script></head><body><a class="ae-language" href="en/" lang="en" hreflang="en" data-lang="en" aria-label="Read in English">EN</a><a href="docs/fr/index.html">Documentation</a></body></html>', encoding="utf-8")
             (root/'site/home-translations.json').write_text(json.dumps({'en':{'Accueil':'Home','Accueil Aède':'Aède home'}}), encoding="utf-8")
-            for asset in ('app.js','styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/wordmark.svg','assets/og-image.png'):
+            for asset in ('app.js','styles.css','guide.css','guide.js','explainers.js','assets/favicon.svg','assets/wordmark.svg','assets/og-image-v2.png','assets/og-image-v2-en.png'):
                 (root/'site'/asset).write_text('', encoding="utf-8")
             pages=[]
             for section in ('manual','cli','server','dsp'):
@@ -358,7 +374,7 @@ class StatisticsFixture:
     def __init__(self, root):
         self.root = Path(root)
         self.write("site/index.html", '<html lang="fr"><head><title>Aède</title><meta name="description" content="Accueil"></head><body><a href="docs/fr/index.html">Documentation</a></body></html>')
-        for asset in ("styles.css", "guide.css", "guide.js", "explainers.js", "assets/favicon.svg", "assets/wordmark.svg", "assets/og-image.png"):
+        for asset in ("styles.css", "guide.css", "guide.js", "explainers.js", "assets/favicon.svg", "assets/wordmark.svg", "assets/og-image-v2.png", "assets/og-image-v2-en.png"):
             self.write("site/" + asset, "")
         self.write("Cargo.toml", '[workspace]\nmembers = ["crates/aede-core"]\n')
         self.write("crates/aede-core/Cargo.toml", '[package]\nname = "aede-core"\nversion = "0.1.0"\n')

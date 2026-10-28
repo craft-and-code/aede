@@ -49,6 +49,81 @@ fn completed_records_survive_restart_and_changed_sources_are_missing_not_reused(
     assert!(load(&fixture.0, &stored.input).unwrap().is_some());
 }
 #[test]
+fn legacy_decoder_records_are_not_reused_or_deleted() {
+    let fixture = Fixture::new();
+    let stored = record();
+    let input = &stored.input;
+    let token = format!(
+        "{}\0{}\0{}\0{}",
+        input.path, input.size, input.modified, input.nanos
+    );
+    let legacy = fixture
+        .0
+        .join(format!("acoustic-v{}", aede_moods::PROFILE))
+        .join(format!("{:x}.json", Md5::digest(token.as_bytes())));
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let bytes = serde_json::to_vec(&serde_json::json!({"path":input.path,"size":input.size,"modified":input.modified,"nanos":input.nanos,"features":stored.features})).unwrap();
+    fs::write(&legacy, &bytes).unwrap();
+    assert!(
+        load(&fixture.0, input).unwrap().is_none(),
+        "old PCM scale must not survive decoder correction"
+    );
+    assert_eq!(fs::read(&legacy).unwrap(), bytes);
+    save(&fixture.0, &stored).unwrap();
+    assert_eq!(load(&fixture.0, input).unwrap().unwrap(), stored);
+}
+#[test]
+fn decoder_expiry_withholds_training_vectors_without_changing_private_labels() {
+    let fixture = Fixture::new();
+    let labels = fixture.0.join("user.json");
+    let private = br#"{"owner":"alice","tags":["calm"]}"#;
+    fs::write(&labels, private).unwrap();
+    let mut first = record();
+    first.features.frames = 8192;
+    first.features.windows = 8;
+    first.features.rms_dbfs = Some(-20.);
+    let mut second = first.clone();
+    second.input.path.push_str(".second");
+    assert!(aede_moods::AcousticModel::new(&[&first.features, &second.features]).is_some());
+    for stored in [&first, &second] {
+        let input = &stored.input;
+        let token = format!(
+            "{}\0{}\0{}\0{}",
+            input.path, input.size, input.modified, input.nanos
+        );
+        let legacy = fixture
+            .0
+            .join(format!("acoustic-v{}", aede_moods::PROFILE))
+            .join(format!("{:x}.json", Md5::digest(token.as_bytes())));
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::write(&legacy, serde_json::to_vec(&serde_json::json!({"path":input.path,"size":input.size,"modified":input.modified,"nanos":input.nanos,"features":stored.features})).unwrap()).unwrap();
+    }
+    let current: Vec<_> = [&first, &second]
+        .into_iter()
+        .filter_map(|record| load(&fixture.0, &record.input).unwrap())
+        .collect();
+    let seeds: Vec<_> = current.iter().map(|record| &record.features).collect();
+    assert!(aede_moods::AcousticModel::new(&seeds).is_none());
+    for stored in [&first, &second] {
+        save(&fixture.0, stored).unwrap();
+    }
+    let refreshed: Vec<_> = [&first, &second]
+        .into_iter()
+        .map(|record| load(&fixture.0, &record.input).unwrap().unwrap())
+        .collect();
+    assert!(
+        aede_moods::AcousticModel::new(
+            &refreshed
+                .iter()
+                .map(|record| &record.features)
+                .collect::<Vec<_>>()
+        )
+        .is_some()
+    );
+    assert_eq!(fs::read(labels).unwrap(), private);
+    assert_eq!(aede_moods::PROFILE, 1);
+}
+#[test]
 fn corrupt_or_wrong_profile_cache_is_refused_without_resetting_existing_bytes() {
     let fixture = Fixture::new();
     let stored = record();

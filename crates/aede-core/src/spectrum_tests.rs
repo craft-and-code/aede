@@ -137,10 +137,10 @@ fn native_multistream_opus_spectrograms_never_resolve_ffmpeg() {
 }
 
 #[test]
-fn rendering_publishes_only_a_completed_picture() {
+fn rendering_publishes_only_a_completed_native_picture() {
     for succeeds in [false, true] {
         let dir = std::env::temp_dir().join(format!(
-            "aede_spectrum_publication_{}_{succeeds}",
+            "aede_native_spectrum_publication_{}_{succeeds}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -151,6 +151,7 @@ fn rendering_publishes_only_a_completed_picture() {
         let result = publish_with(&picture, &|| false, |output| {
             assert_ne!(output, picture.as_path());
             assert_eq!(output.extension().unwrap(), "png");
+            assert_eq!(std::fs::read(&picture).unwrap(), b"previous picture");
             staged = Some(output.to_path_buf());
             std::fs::write(output, b"completed picture").unwrap();
             if succeeds {
@@ -322,6 +323,7 @@ fn missing_and_unversioned_pictures_are_scheduled_but_missing_sources_are_not_ch
 #[test]
 fn size_is_read_from_what_a_reader_typed() {
     assert_eq!(Size::parse("full"), Some(Size::Full));
+    assert_eq!(Size::parse("standard"), Some(Size::Half));
     assert_eq!(Size::parse(" Half "), Some(Size::Half));
     for unusable in ["", "1800x940", "large", "fullscreen"] {
         assert_eq!(Size::parse(unusable), None, "unusable: {unusable:?}");
@@ -329,10 +331,9 @@ fn size_is_read_from_what_a_reader_typed() {
 }
 
 #[test]
-fn half_shrinks_the_picture_by_a_quarter_not_by_half() {
-    // Assert plotted area, not a compression/storage ratio for encoded PNGs.
+fn standard_and_large_plot_sizes_come_from_the_shared_renderer() {
+    assert_eq!(Size::Half.dimensions(), (1200, 627));
     assert_eq!(Size::Full.dimensions(), (1800, 940));
-    assert_eq!(Size::Half.dimensions(), (900, 470));
 }
 
 struct SpectralFiles(std::path::PathBuf);
@@ -394,7 +395,7 @@ fn native_pcm_and_dsd_publish_valid_versioned_png_without_probing_a_decoder() {
         let reader = png::Decoder::new(std::io::BufReader::new(file))
             .read_info()
             .unwrap();
-        assert_eq!((reader.info().width, reader.info().height), (1148, 746));
+        assert_eq!((reader.info().width, reader.info().height), (1448, 903));
         let record = &reader
             .info()
             .uncompressed_latin1_text
@@ -877,6 +878,8 @@ fn images_from_before_native_header_validation_are_stale() {
     let picture = picture_for(&audio);
     std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
     for generation in [
+        "rust-spectrum-v1-dsd-wideband-v1-opus-v2-alac-config-v5-aac-edit-v2-native-extra-v3-green-standard-v1",
+        "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-native-extra-v3",
         "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v2-native-extra-v1",
         "rust-spectrum-v1-dsd-wideband-v1-opus-v1-alac-config-v4-aac-edit-v2-native-extra-v2",
     ] {
@@ -970,6 +973,128 @@ fn zero_frame_sv7_headers_cannot_replace_an_existing_spectrogram() {
     );
     assert_eq!(std::fs::read(picture).unwrap(), b"retained picture");
     assert_eq!(std::fs::read(audio).unwrap(), bytes);
+}
+
+fn info(bits: Option<u32>, format: &str) -> flaccompagnon_core::BasicInfo {
+    flaccompagnon_core::BasicInfo {
+        sample_rate: 44100,
+        channels: 2,
+        bits,
+        format: format.into(),
+    }
+}
+
+#[test]
+fn labels_describe_actual_depth_and_keep_lossy_depth_unspecified() {
+    let lossless = image_labels(
+        Path::new("one.flac"),
+        Some("Track"),
+        &info(Some(16), "FLAC"),
+    );
+    assert_eq!(lossless.generator, "Aède");
+    assert_eq!(lossless.title, "Track");
+    assert_eq!(lossless.audio_description, "44.1 kHz · 16-bit · Stereo");
+    let lossy = image_labels(Path::new("one.mp3"), None, &info(None, "MP3"));
+    assert!(!lossy.audio_description.contains("float"));
+    assert!(!lossy.audio_description.contains("-bit"));
+    assert!(lossy.audio_description.contains("MP3"));
+}
+
+#[test]
+fn native_labels_preserve_unicode_and_quotes_without_a_filter_expression() {
+    let title = "Été — l'oiseau, bleu : première partie";
+    let labels = image_labels(Path::new("one.flac"), Some(title), &info(Some(24), "FLAC"));
+    assert_eq!(labels.title, title);
+}
+
+#[test]
+fn missing_titles_and_degenerate_description_values_remain_safe() {
+    let mut source = info(None, "WAV");
+    source.sample_rate = 0;
+    source.channels = 0;
+    let labels = image_labels(Path::new("Été.wav"), Some(""), &source);
+    assert_eq!(labels.title, "Été");
+    assert!(labels.audio_description.starts_with("0 kHz"));
+}
+
+#[test]
+fn a_missing_picture_is_drawn_and_a_fresh_one_is_left_alone() {
+    let dir = std::env::temp_dir().join("aede_spectrum_current_stamp_dates");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let audio = dir.join("one.flac");
+    let picture = dir.join("one.png");
+    std::fs::write(&audio, b"music").unwrap();
+    assert!(out_of_date(&audio, &picture), "nothing drawn yet");
+
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 1, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[0, 0, 0, 0]).unwrap();
+    }
+    let bytes = cache::stamp(bytes, cache::Input::read(&audio).unwrap(), "native").unwrap();
+    std::fs::write(&picture, bytes).unwrap();
+    assert!(
+        !out_of_date(&audio, &picture),
+        "drawn after the music was written"
+    );
+
+    // The music moves on: the picture is now of bytes nobody has any more.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(120);
+    std::fs::File::options()
+        .write(true)
+        .open(&audio)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    assert!(out_of_date(&audio, &picture), "the track changed since");
+
+    // A track that cannot be read at all is not evidence of a change, and
+    // must not make every run redraw it.
+    assert!(!out_of_date(&dir.join("gone.flac"), &picture));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn native_pcm_generation_writes_png_without_an_external_decoder() {
+    let dir = std::env::temp_dir().join(format!("aede_native_spectrum_pcm_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("one.wav");
+    let picture = dir.join("one.png");
+    let bytes = 4410_u32 * 2;
+    let mut wav = b"RIFF".to_vec();
+    wav.extend_from_slice(&(36 + bytes).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&44100_u32.to_le_bytes());
+    wav.extend_from_slice(&88200_u32.to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&bytes.to_le_bytes());
+    wav.resize(44 + bytes as usize, 0);
+    std::fs::write(&input, &wav).unwrap();
+    render(None, &input, &picture, Size::Half, Some("Native PCM")).unwrap();
+    render(
+        "absent-compatibility-decoder",
+        &input,
+        &picture,
+        Size::Half,
+        Some("Native PCM"),
+    )
+    .unwrap();
+    assert!(
+        std::fs::read(&picture)
+            .unwrap()
+            .starts_with(b"\x89PNG\r\n\x1a\n")
+    );
+    assert_eq!(std::fs::read(&input).unwrap(), wav);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

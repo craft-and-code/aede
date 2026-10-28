@@ -1,5 +1,11 @@
 use super::*;
 
+fn known_flac_source() -> crate::json::Json {
+    let mut source = crate::json::Json::obj();
+    source.set("format", "FLAC".into());
+    source
+}
+
 #[cfg(unix)]
 #[test]
 fn loudness_identity_refuses_paths_that_cannot_be_persisted_without_collisions() {
@@ -156,6 +162,7 @@ fn imported_loudness_requires_current_bytes_and_attributed_success() {
         size_bytes: 42,
         modified_unix: 7,
         integrated_lufs: Some(-16.0),
+        source_data: Some(known_flac_source()),
         true_peak_dbtp: Some(-3.0),
         ..Default::default()
     };
@@ -181,6 +188,118 @@ fn imported_loudness_requires_current_bytes_and_attributed_success() {
 }
 
 #[test]
+fn imported_legacy_wavpack_float_loudness_does_not_supply_fresh_gain() {
+    let file = ProgrammeFile {
+        path: "/music/float.wv".into(),
+        size: 42,
+        mtime: 7,
+        mtime_subseconds: None,
+    };
+    let mut source = crate::json::Json::obj();
+    source.set("format", "WavPack".into());
+    source.set("codec", "WavPack".into());
+    source.set("declared_bits", crate::json::Json::Null);
+    source.set("channels", 2u32.into());
+    let retained = FileAnalysis {
+        path: file.path.clone(),
+        source: "flaccompagnon".into(),
+        size_bytes: 42,
+        modified_unix: 7,
+        integrated_lufs: Some(-16.),
+        source_data: Some(source),
+        ..Default::default()
+    };
+    assert!(from_flaccompagnon(std::slice::from_ref(&retained), &file).is_none());
+    assert_eq!(
+        retained.integrated_lufs,
+        Some(-16.),
+        "historical evidence is retained"
+    );
+    let mut current = retained.clone();
+    current
+        .source_data
+        .as_mut()
+        .unwrap()
+        .set("decoder_provenance", crate::PCM_DECODER_PROVENANCE.into());
+    assert!(from_flaccompagnon(&[current], &file).is_some());
+    let mut alac = retained;
+    let source = alac.source_data.as_mut().unwrap();
+    source.set("format", "ALAC/MP4".into());
+    source.set("codec", "ALAC".into());
+    source.set("channels", 6u32.into());
+    source.set("declared_bits", 24u32.into());
+    assert!(from_flaccompagnon(std::slice::from_ref(&alac), &file).is_none());
+    alac.source_data
+        .as_mut()
+        .unwrap()
+        .set("decoder_provenance", crate::PCM_DECODER_PROVENANCE.into());
+    assert!(from_flaccompagnon(&[alac], &file).is_some());
+}
+
+#[test]
+fn imported_alac_without_known_channels_cannot_bypass_decoder_provenance() {
+    let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../aede-audio/tests/fixtures/native-alac");
+    let mut unexpected = Vec::new();
+    for channels in [
+        None,
+        Some(serde_json::Value::Null),
+        Some(0.into()),
+        Some(1.into()),
+        Some(2.into()),
+        Some(6.into()),
+    ] {
+        let count = channels.as_ref().and_then(serde_json::Value::as_u64);
+        let (name, actual_channels, bits) = match count {
+            Some(1) => ("mono16.m4a", 1, 16),
+            Some(2) => ("stereo24.m4a", 2, 24),
+            _ => ("surround16-layout.m4a", 6, 16),
+        };
+        let path = fixtures.join(name);
+        let original = std::fs::read(&path).unwrap();
+        let decoder = super::super::decoder::FileDecoder::open_native(&path).unwrap();
+        assert_eq!(decoder.channels(), actual_channels);
+        let file = identity(&path).unwrap();
+        for corrected in [false, true] {
+            let mut row = serde_json::json!({"path":file.path,"format":"ALAC/MP4","codec":"ALAC","size_bytes":file.size,"modified_unix":file.mtime,"declared_bits":bits,"integrated_lufs":-16.0});
+            if let Some(channels) = &channels {
+                row["channels"] = channels.clone();
+            }
+            if corrected {
+                row["decoder_provenance"] = crate::PCM_DECODER_PROVENANCE.into();
+            }
+            let text = serde_json::json!({"format":"flaccompagnon-report","version":1,"report":{"root":fixtures,"files":[row]}}).to_string();
+            let report = crate::analysis::parse_report(&text).unwrap();
+            let retained = crate::conclusions::Conclusions {
+                analyses: report.files,
+                ..Default::default()
+            };
+            let stored = crate::conclusions::to_json(&retained);
+            let restored = crate::conclusions::from_json(&stored).unwrap();
+            let gain = from_flaccompagnon(&restored.analyses, &file);
+            let expected = corrected || matches!(count, Some(1 | 2));
+            println!(
+                "channels={channels:?}; corrected={corrected}; gain_available={}; expected={expected}",
+                gain.is_some()
+            );
+            if gain.is_some() != expected {
+                unexpected.push((channels.clone(), corrected));
+            }
+            assert_eq!(
+                restored.analyses, retained.analyses,
+                "provenance admission must not rewrite retained evidence"
+            );
+            assert_eq!(restored.analyses[0].integrated_lufs, Some(-16.));
+        }
+        assert_eq!(std::fs::read(path).unwrap(), original);
+    }
+    assert!(
+        unexpected.is_empty(),
+        "incorrect gain admission: {unexpected:?}"
+    );
+}
+
+#[test]
 fn imported_true_peak_cannot_justify_gain_above_a_known_sample_peak() {
     let file = ProgrammeFile {
         path: "/music/last-frame.flac".into(),
@@ -199,6 +318,7 @@ fn imported_true_peak_cannot_justify_gain_above_a_known_sample_peak() {
             size_bytes: file.size,
             modified_unix: file.mtime,
             integrated_lufs: Some(-36.0),
+            source_data: Some(known_flac_source()),
             peak_dbfs: Some(sample_dbfs),
             true_peak_dbtp: Some(true_dbtp),
             ..Default::default()

@@ -5415,8 +5415,7 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
     let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
     assert!(ok);
 
-    // --dry-run answers before ffmpeg is even looked for, so this half of the
-    // test runs on a machine that has none.
+    // A dry run answers before decoding and never creates an image folder.
     let (out, _, ok) = sandbox.run(&["spectrum", "--dry-run"]);
     assert!(ok, "output: {out}");
     assert!(out.contains("spectrograms"), "the folder is named: {out}");
@@ -5425,11 +5424,6 @@ fn a_spectrogram_is_drawn_once_and_only_once() {
         !album.join("spectrograms").exists(),
         "a dry run writes nothing at all"
     );
-
-    if !ffmpeg_is_installed() {
-        let _ = std::fs::remove_dir_all(&root);
-        return;
-    }
 
     let (out, err, ok) = sandbox.run(&["spectrum"]);
     assert!(ok, "stderr: {err}");
@@ -5483,16 +5477,11 @@ fn size_changes_the_picture_but_never_by_itself() {
     let (_, _, ok) = sandbox.run(&["scan", root.to_str().unwrap()]);
     assert!(ok);
 
-    // Refused before ffmpeg is even looked for: an unknown value is not
+    // Refused before decoding: an unknown value is not
     // something to guess at and silently fall back from.
     let (out, err, ok) = sandbox.run(&["spectrum", "--size", "huge"]);
     assert!(!ok, "output: {out}");
     assert!(err.contains("--size"), "stderr: {err}");
-
-    if !ffmpeg_is_installed() {
-        let _ = std::fs::remove_dir_all(&root);
-        return;
-    }
 
     let (_, err, ok) = sandbox.run(&["spectrum", "--size", "half"]);
     assert!(ok, "stderr: {err}");
@@ -5500,9 +5489,10 @@ fn size_changes_the_picture_but_never_by_itself() {
     let half = std::fs::read(&picture).unwrap();
     let half_dimensions = png_support::dimensions(&half).unwrap();
     let modified = std::fs::metadata(&picture).unwrap().modified().unwrap();
-    assert!(
-        half_dimensions.0 > 900 && half_dimensions.1 > 470,
-        "the half-size graph includes its legend: {half_dimensions:?}"
+    assert_eq!(
+        half_dimensions,
+        (1448, 903),
+        "the legacy half alias selects the 1200×627 standard plot plus its frame"
     );
 
     // Switching --size alone redraws nothing: the picture is still current
@@ -5522,14 +5512,14 @@ fn size_changes_the_picture_but_never_by_itself() {
         "changing --size alone does not touch the picture"
     );
 
-    // --full changes the plotted graph from 900x470 to 1800x940. FFmpeg adds
-    // the same legend margins to both; encoded PNG size depends on compression.
+    // --full changes the plotted graph from 1200×627 to 1800×940. The native
+    // renderer keeps its frame; encoded byte count depends on PNG compression.
     let (_, err, ok) = sandbox.run(&["spectrum", "--full", "--size", "full"]);
     assert!(ok, "stderr: {err}");
     let full = std::fs::read(&picture).unwrap();
     assert_eq!(
         png_support::dimensions(&full).unwrap(),
-        (half_dimensions.0 + 900, half_dimensions.1 + 470),
+        (2048, 1216),
         "--full redraws the requested full-size graph with its legend"
     );
 

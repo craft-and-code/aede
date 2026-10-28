@@ -66,7 +66,7 @@ Zéro ou plusieurs dossiers existants ou noms. Citer les noms composés. Un chem
 | `--banners` | Récupérer aussi une bannière d’artiste avec --logos ou la passe complète --fanart. |
 | `--labels` | Identifier les labels via MusicBrainz. Les propositions fondées sur le nom restent à examiner. |
 | `--discogs` | Récupérer les profils Discogs des labels sans biographie Wikipédia par identifiant lié. Associer à `--labels` pour identifier les labels avant ; les profils récents sont conservés sauf avec `--full`. |
-| `--size VALUE` | Avec fetch --covers : 250, 500, 1200 (défaut) ou original. Avec spectrum : half (défaut) ou full. |
+| `--size VALUE` | Avec fetch --covers : 250, 500, 1200 (défaut) ou original. Avec spectrum : standard (défaut) ou full ; half reste un alias. |
 | `--lang CODE` | Langue préférée des résumés --summaries, par exemple fr. L’anglais reste le recours ; ce réglage seul ne crée pas de demande de résumé. |
 | `--images` | Seulement avec --covers, télécharger aussi les images Cover Art Archive autres que la pochette dans artwork/. Refusé sans --covers. |
 | `--dry-run` | Afficher le travail prévu sans télécharger ni créer de résultats. Les outils et entrées peuvent être vérifiés. |

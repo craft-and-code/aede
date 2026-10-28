@@ -1,62 +1,64 @@
-<div id="spectrograms-the-ultimate-acoustic-truth" data-legacy-anchor></div>
+# Spectrogrammes PNG natifs
 
-# Spectrogrammes : la réalité acoustique en images
+Aède partage le calcul et le rendu PNG Rust de FlacCompagnon via sa dépendance
+flaccompagnon-core et le crate indépendant flaccompagnon-spectrogram inclus
+dans la même version. Aucun dépôt voisin, processus Python, moteur graphique
+externe ou police installée n’est nécessaire.
 
-Un spectrogramme est un outil de diagnostic visuel lorsque l’origine d’un fichier est incertaine. Les métadonnées peuvent être incorrectes ou trompeuses. Un fichier FLAC provenant d’une conversion de MP3 peut toujours indiquer un codec ou un conteneur sans perte, tandis que son spectre apporte des indices supplémentaires sur l’histoire de son audio. Une coupure spectrale autour de 16 kHz ne prouve pas, à elle seule, une conversion depuis un format avec perte : le matériau d’origine et des traitements antérieurs peuvent également limiter la bande passante. Ni un spectrogramme ni les tags seuls ne garantissent une origine sans perte ou une provenance complète.
-
-Aède fournit une vue détaillée du signal que vous archivez.
+## Génération
 
 ```sh
-aede spectrum                       # reveal the acoustic truth of the entire catalog
-aede spectrum ~/Music/Ozzy          # focus the microscope on a specific shelf
-aede spectrum --dry-run             # preview the effort without drawing a single pixel
-aede spectrum --full                # fiercely redraw everything, overriding current files
-aede spectrum --size full           # match FlacCompagnon's exact dimensions for direct comparison
+aede spectrum
+aede spectrum ~/Music/Album --dry-run
+aede spectrum ~/Music/Album --size standard
+aede spectrum ~/Music/Album --size full --full
 ```
 
-<div id="the-physical-toll-of-acoustic-analysis" data-legacy-anchor></div>
+La zone spectrale verte mesure 1200×627 par défaut ; le grand format conserve
+1800×940. Le cadre ajoute la signature Aède, le titre, les propriétés audio
+réellement décodées, les axes temps/fréquences et la légende des niveaux.
+L’ancienne option --size half reste un alias de standard. Le PNG est sans perte.
 
-## Le coût du traitement acoustique
+L’échelle −120…0 dBFS/bin est fixe, sans gain automatique par morceau. Les canaux
+sont transformés séparément puis leurs puissances sont combinées, pour conserver
+le contenu en opposition de phase. Les métadonnées PNG décrivent les réglages.
+Une coupure spectrale ne prouve pas, isolément, une origine avec perte.
 
-**Sans dossier indiqué, Aède analyse toute la bibliothèque.** Pour une grande collection, le calcul représente un travail important. Chaque piste doit être entièrement décodée, puis une transformée de Fourier rapide (FFT) est appliquée au fil de l’audio. À plusieurs secondes par piste, visualiser des dizaines de milliers de morceaux peut prendre des heures, quel que soit le nombre de cœurs utilisés.
+## Dépendances et fichiers
 
-Ce coût justifie de commencer par `--dry-run` pour évaluer le périmètre exact de l’opération. Indiquer un dossier, par exemple `~/Music/Ozzy`, permet de réserver ce travail aux nouvelles extractions ou aux fichiers suspects.
+Dans la version candidate intégrée, le PCM natif et le profil DSF/DFF DSD64/128
+mono/stéréo ne demandent plus FFmpeg. La mesure DSD emploie le PCM large bande
+352,8/705,6 kHz, séparément du profil d’écoute. WavPack, Musepack, Speex et l’APE
+moderne utilisent aussi le lecteur commun dans ses profils admis. Les autres
+configurations conservent le décodage de compatibilité optionnel. Une piste en
+échec ne supprime pas les images terminées des autres pistes.
 
-Arrêter une longue exécution en cours ne supprime pas le travail déjà terminé. À l’exécution suivante, Aède reprend ce qui reste à produire et préserve les images déjà dessinées.
+Les PNG restent dans spectrograms/ à côté des sources, ouvertes en lecture
+seule. Une sortie temporaire privée est publiée uniquement après un succès.
+Les images existantes sont préservées en cas d’erreur ; les liens et sorties
+spéciales sont refusés avant le travail et avant la publication. Cette politique
+ne constitue pas un sandbox contre le remplacement hostile de dossiers parents.
 
-<div id="visual-provenance-and-flaccompagnon" data-legacy-anchor></div>
+Sans chemin, la commande considère le catalogue. --threads règle les traitements
+simultanés ; --dry-run permet d’en voir la portée. Une image récente est
+conservée selon son empreinte de version, la taille de la source et sa date
+complète, nanosecondes comprises. Les anciennes images sans empreinte sont
+régénérées une fois. Un changement de taille seul conserve une image à jour ;
+--full permet de la régénérer. Les versions de mesure/dessin invalident les
+anciens résultats.
 
-## Cohérence visuelle avec FlacCompagnon
+Le crate partagé accepte dimensions, fenêtre, recouvrement, plage et échelle de
+fréquences, canaux, réduction des pixels, palettes, limites en dB, textes,
+police, marges, axes, légende, grille et annotations mesurées. Aède choisit pour
+l’instant les réglages verts communs ; sa CLI expose la taille.
 
-Chaque image est enregistrée en PNG dans un sous-dossier `spectrograms/`, à côté des fichiers audio qu’elle décrit.
+Le serveur conserve ses routes PNG authentifiées. Phémios affiche les nouvelles
+dimensions sans changement de protocole ; son moteur embarqué devra être
+reconstruit après publication de la version correspondante d’Aède.
 
-FFmpeg écrit dans un dossier temporaire privé à côté de la destination. Le dessin réussi remplace l’image finale ; un échec laisse l’ancienne image intacte. Aède refuse les liens et fichiers spéciaux à destination avant le dessin, puis avant la publication. Cette règle réutilise les sorties temporaires des listes de lecture et des copies ; elle ne constitue pas un bac à sable contre un remplacement concurrent hostile du dossier parent. Les autres pistes sélectionnées restent traitées, mais la commande et sa tâche d’administration signalent finalement un échec. Les images terminées restent disponibles.
-
-Les images sont produites avec **le même filtre FFmpeg et la même palette que [FlacCompagnon](https://craft-and-code.github.io/FlacCompagnon/)**. Ce choix facilite l’utilisation des deux outils : des spectrogrammes utilisant des gains ou des palettes différents seraient difficiles à lire _ensemble_. La même méthode permet une représentation acoustique cohérente entre les outils.
-
-<div id="frame-size-and-storage-footprint" data-legacy-anchor></div>
-
-## Dimensions et espace de stockage
-
-Vous choisissez les dimensions de l’image :
-
-- **`--size half` (par défaut) :** produit une image de `900x470`, soit exactement un quart des pixels de l’image FlacCompagnon d’origine, de `1800x940`. Ces dimensions réduites peuvent économiser de l’espace, mais la taille du PNG et l’économie obtenue dépendent du contenu de l’image et de sa compression. La taille du fichier n’est pas garantie à un quart de celle de l’original ; une archive de milliers de pistes n’est pas non plus garantie de rester à l’échelle des mégaoctets plutôt que des gigaoctets.
-- **`--size full` :** reprend les dimensions exactes de FlacCompagnon pour une comparaison côte à côte à la même échelle, pixel par pixel.
-
-Changer `--size` ne redessine pas automatiquement les images existantes. Une image n’est recréée que si elle manque ou est périmée. Pour imposer un changement de taille à toute la bibliothèque, utilisez `aede spectrum --full`.
-
-<div id="orchestration-and-dependencies" data-legacy-anchor></div>
-
-## Organisation et dépendances
-
-Aède traite plusieurs pistes en parallèle. Chaque image nécessite son propre décodage et son propre calcul FFT, sans état partagé avec les autres images. `--threads` fixe le nombre de traitements simultanés, selon la même logique que `aede scan`.
-
-Aède organise le traitement, mais s’appuie sur un moteur externe pour décoder l’audio. **FFmpeg doit être installé** sur votre système : `brew install ffmpeg` sur macOS ou `sudo apt install ffmpeg` sur Debian/Ubuntu. Aède vérifie cette dépendance une seule fois, avant le premier fichier. Si elle manque, une seule notification est affichée, au lieu d’une erreur répétée pour chaque piste.
-
-<div id="the-second-run-silent-and-safe" data-legacy-anchor></div>
-
-## Une deuxième exécution sans travail inutile
-
-**Une deuxième exécution sur une bibliothèque inchangée ne dessine rien.**
-
-Une image est recréée uniquement si elle manque entièrement ou si la date de modification de la piste audio est postérieure à la date de création de l’image. Cette vérification lit directement les dates sur le disque, pas dans le catalogue. Elle sert à déterminer si le visuel doit être actualisé pour correspondre au fichier actuellement présent.
+Le décodage progressif utilise deux passages bornés, sans charger un morceau
+entier ni écrire d’audio converti. Une annulation coopérative, une source modifiée
+ou une erreur native préserve l’ancienne image ; aucune récupération externe
+d’un préfixe plus court n’est publiée après admission native. Les API partagées
+attendent une publication coordonnée ; les versions publiées et les Apps déjà
+installées ne changent pas lors de cette intégration de sources.

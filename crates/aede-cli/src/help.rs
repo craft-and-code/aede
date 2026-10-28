@@ -383,16 +383,15 @@ pub fn print_index() {
                        artwork/ subfolder (--dry-run says which folders, and
                        writes nothing). Also answers to: artwork
   spectrum [folder…]   Draw a spectrogram of every track into a spectrograms/
-                       folder beside it, through ffmpeg, several at a time.
+                       folder beside it, using shared native Rust PNG rendering.
                        Only what is missing or older than its track is drawn,
                        so a second run over an unchanged library draws nothing
                        (--full redraws everything, --dry-run only says what it
                        would draw, --threads sets how many run at once).
-                       --size half (the default) keeps a library's pictures in
-                       the megabytes rather than the gigabytes; --size full
-                       matches FlacCompagnon's own dimensions exactly, for
-                       putting the two side by side. Changing --size does not
-                       redraw what is already there on its own — --full does
+                       --size standard (default) draws a green 1200x627 plot;
+                       --size full draws 1800x940. Legacy half means standard.
+                       PNG is lossless; FFmpeg is optional for unadmitted codec profiles.
+                       Changing --size keeps current pictures; --full redraws.
   analyze [folder…]    Run FlacCompagnon's acoustic analysis on catalogued albums.
                        --json saves <album>.json in each album folder;
                        --threads sets how many tracks run at once.

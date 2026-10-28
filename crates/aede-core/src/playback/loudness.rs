@@ -108,6 +108,7 @@ pub fn from_flaccompagnon(analyses: &[FileAnalysis], file: &ProgrammeFile) -> Op
             || analysis.source != "flaccompagnon"
             || analysis.error.is_some()
             || !analysis.still_applies(file.size, file.mtime)
+            || !analysis.decoder_is_current()
         {
             return None;
         }

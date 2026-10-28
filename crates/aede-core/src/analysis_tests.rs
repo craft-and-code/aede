@@ -7,6 +7,18 @@
 use super::*;
 
 #[test]
+fn decoder_identity_is_not_invented_from_a_renamed_legacy_path() {
+    let retained = FileAnalysis {
+        path: "/music/renamed.flac".into(),
+        source: "flaccompagnon".into(),
+        integrated_lufs: Some(-16.),
+        ..Default::default()
+    };
+    assert!(!retained.decoder_is_current());
+    assert_eq!(retained.integrated_lufs, Some(-16.));
+}
+
+#[test]
 fn imported_bit_depth_never_wraps_into_a_plausible_measurement() {
     for invalid in ["65552", "4294967295", "-1", "16.5", "\"16\"", "true"] {
         let text = example("").replace(

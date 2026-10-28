@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = "https://github.com/craft-and-code/aede"
 REPOSITORY_BRANCH = "main"
 BASE_URL = "https://craft-and-code.github.io/aede/"
+SOCIAL_IMAGE = "assets/og-image-v2.png"
+SOCIAL_IMAGE_EN = "assets/og-image-v2-en.png"
 TOPICS = {
     "desktop": ("server", "Desktop server application", "Application serveur desktop"),
     "library": ("manual", "Understanding your library", "Comprendre sa bibliothèque"),
@@ -415,6 +417,12 @@ def sidebar(pages: list[dict], language: str, output: str, current="") -> str:
     return f'<a class="guide-docs-home" href="{esc(home)}">{"Toute la documentation" if language == "fr" else "All documentation"}</a><label class="guide-search">{placeholder}<input type="search" placeholder="{placeholder}" aria-controls="guide-nav"></label><p class="guide-search-status" role="status"></p><nav id="guide-nav" aria-label="Documentation">{"".join(sections)}<a class="guide-rustdoc" href="{esc(rust)}">RustDoc ↗</a></nav>'
 
 
+def social_metadata(language, base_url=BASE_URL):
+    alt = "Aède — Votre musique. Toute une galaxie. App serveur, CLI et DSP partagé." if language == "fr" else "Aède — Your music. A whole galaxy. Server App, CLI and shared DSP."
+    url = esc(base_url + (SOCIAL_IMAGE_EN if language == "en" else SOCIAL_IMAGE))
+    return f'<meta property="og:image" content="{url}"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="{esc(alt)}"><meta name="twitter:image" content="{url}"><meta name="twitter:image:alt" content="{esc(alt)}">'
+
+
 def document_shell(page: dict, language: str, content: Rendered, pages: list[dict], base_url=BASE_URL, counterpart_content=None, asset_versions=None) -> str:
     slug = page["slug"]
     output = f"docs/{language}/{slug}.html" if slug else f"docs/{language}/index.html"
@@ -457,7 +465,7 @@ def document_shell(page: dict, language: str, content: Rendered, pages: list[dic
 <html lang="{language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)} — Aède</title><meta name="description" content="{esc(description)}"><meta name="robots" content="{'noindex,follow' if page.get('noindex') else 'index,follow'}">
 <link rel="canonical" href="{esc(canonical)}"><link rel="alternate" hreflang="{language}" href="{esc(canonical)}"><link rel="alternate" hreflang="{other}" href="{esc(base_url + counterpart)}"><link rel="alternate" hreflang="x-default" href="{esc(base_url + 'docs/index.html')}">
-<meta property="og:type" content="article"><meta property="og:title" content="{esc(title)} — Aède"><meta property="og:description" content="{esc(description)}"><meta property="og:url" content="{esc(canonical)}"><meta property="og:image" content="{esc(base_url + 'assets/og-image.png')}">
+<meta property="og:type" content="article"><meta property="og:title" content="{esc(title)} — Aède"><meta property="og:description" content="{esc(description)}"><meta property="og:url" content="{esc(canonical)}">{social_metadata(language, base_url)}
 <meta name="theme-color" content="#121317"><link rel="icon" type="image/svg+xml" href="{esc(relative(output, 'assets/favicon.svg'))}"><link rel="stylesheet" href="{esc(asset_href(output, 'styles.css', asset_versions))}"><link rel="stylesheet" href="{esc(asset_href(output, 'guide.css', asset_versions))}"><script src="{esc(asset_href(output, 'guide.js', asset_versions))}" defer></script><script src="{esc(asset_href(output, 'explainers.js', asset_versions))}" defer></script>
 </head><body class="guide-document" data-section="{esc(page.get('section', 'manual'))}"><a class="guide-skip" href="#main">{"Aller au contenu" if language == "fr" else "Skip to content"}</a>
 <header class="guide-header"><a class="guide-logo" href="{esc(home)}" aria-label="Aède — {"accueil" if language == "fr" else "home"}"><img src="{esc(relative(output, 'assets/wordmark.svg'))}" alt="aède."></a><a class="guide-header-label" href="{esc(relative(output, f'docs/{language}/index.html'))}">Documentation</a><div class="guide-header-actions"><a class="guide-project" href="{REPOSITORY}">{"Le projet" if language == "fr" else "Project"}</a><nav class="guide-language" aria-label="{"Langue" if language == "fr" else "Language"}"><a href="{esc(relative(output, counterpart))}" lang="{other}" hreflang="{other}" aria-label="{"Read in English" if other == "en" else "Lire en français"}" data-language="{other}" data-fragment-map="{esc(json.dumps(fragment_map, ensure_ascii=False))}">{other.upper()}</a></nav><button type="button" class="guide-menu" aria-controls="guide-sidebar" aria-expanded="false">Menu</button></div></header>
@@ -630,6 +638,7 @@ def build(root=ROOT, destination=None, base_url=BASE_URL, stats_path=None) -> li
     for language in ("fr", "en"):
         output = "index.html" if language == "fr" else "en/index.html"
         source = (root / "site/index.en.html").read_text(encoding="utf-8") if language == "en" and (root / "site/index.en.html").exists() else localize_home(home_source, translations, language)
+        source = source.replace("<!-- aede-social-image -->", social_metadata(language, base_url))
         source = re.sub(r'\b(href|src)="([^"?#]+)"',
                         lambda m: m[1] + '="' + m[2] + ('?v=' + asset_versions[m[2]] if m[2] in asset_versions else '') + '"', source)
         source = source.replace("docs/fr/", f"docs/{language}/")

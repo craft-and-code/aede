@@ -4,6 +4,7 @@
 //! it never computes the FFT or renders a picture. Source files remain read-only.
 
 use crate::tags::AudioProperties;
+pub use engine::requires_dsd_decoder;
 use flaccompagnon_core::spectrogram::{
     self as engine, AnalysisOptions, ImageLabels, RenderOptions,
 };
@@ -21,33 +22,32 @@ pub const FOLDER: &str = "spectrograms";
 pub enum Size {
     /// A `1800x940` plotted graph, matching FlacCompagnon.
     Full,
-    /// A `900x470` plotted graph, used unless `--size full` is given.
+    /// Standard 1200×627 plot; `half` retains its legacy API spelling.
     Half,
 }
 
 impl Size {
-    /// Reads what a reader typed after `--size`.
-    pub fn parse(text: &str) -> Option<Size> {
+    /// Parse `standard` or `full`; `half` remains a compatibility alias.
+    pub fn parse(text: &str) -> Option<Self> {
         match text.trim().to_ascii_lowercase().as_str() {
-            "full" => Some(Size::Full),
-            "half" => Some(Size::Half),
+            "full" => Some(Self::Full),
+            "standard" | "half" => Some(Self::Half),
             _ => None,
         }
     }
-
     /// Plot dimensions, excluding the surrounding frame.
     pub fn dimensions(self) -> (u32, u32) {
         match self {
-            Size::Full => (1800, 940),
-            Size::Half => (900, 470),
+            Self::Full => engine::PlotSize::Large,
+            Self::Half => engine::PlotSize::Standard,
         }
+        .dimensions()
     }
-
-    /// How this size reads in a message.
+    /// Human-readable preferred size, independent of legacy API names.
     pub fn as_str(self) -> &'static str {
         match self {
-            Size::Full => "full",
-            Size::Half => "half",
+            Self::Full => "full",
+            Self::Half => "standard",
         }
     }
 }
@@ -96,17 +96,21 @@ pub fn caption(properties: &AudioProperties) -> String {
         .collect()
 }
 
-/// Compatibility entry point. The decoder path is only consulted for unsupported
-/// codecs. Labels now come from decoded properties and optional file metadata;
-/// the old preformatted caption argument is retained for source compatibility.
-pub fn render(
-    ffmpeg: &str,
+/// Generate an image with an optional compatibility decoder and catalogue title.
+/// Actual decoded properties define the labels and spectral axes.
+pub fn render<'a>(
+    ffmpeg: impl Into<Option<&'a str>>,
     audio: &Path,
     picture: &Path,
     size: Size,
-    _caption: Option<&str>,
+    title: Option<&str>,
 ) -> Result<(), String> {
-    render_cancellable(audio, picture, size, &|| false, &|| Ok(ffmpeg.to_string()))
+    let ffmpeg = ffmpeg.into();
+    render_cancellable_with_title(audio, picture, size, title, &|| false, &|| {
+        ffmpeg
+            .map(str::to_owned)
+            .ok_or_else(|| crate::ffmpeg::missing("decoding this spectrogram format"))
+    })
 }
 
 /// Generate with cooperative cancellation and a lazy optional legacy decoder.
@@ -117,6 +121,18 @@ pub fn render_cancellable(
     audio: &Path,
     picture: &Path,
     size: Size,
+    cancelled: &dyn Fn() -> bool,
+    external: &dyn Fn() -> Result<String, String>,
+) -> Result<(), String> {
+    render_cancellable_with_title(audio, picture, size, None, cancelled, external)
+}
+
+/// Generate with the same source/decoder safeguards and an optional catalogue title.
+pub fn render_cancellable_with_title(
+    audio: &Path,
+    picture: &Path,
+    size: Size,
+    title: Option<&str>,
     cancelled: &dyn Fn() -> bool,
     external: &dyn Fn() -> Result<String, String>,
 ) -> Result<(), String> {
@@ -200,18 +216,8 @@ pub fn render_cancellable(
         };
         admit(cancelled)?;
         identity.unchanged(audio)?;
-        let labels = ImageLabels {
-            generator: "Aède".into(),
-            title: tags.first("title").map(str::to_owned).unwrap_or_else(|| {
-                audio
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            }),
-            artist: tags.first("artist").unwrap_or("").to_string(),
-            audio_description: engine::audio_description(&info),
-        };
+        let mut labels = image_labels(audio, title.or_else(|| tags.first("title")), &info);
+        labels.artist = tags.first("artist").unwrap_or("").to_string();
         let bytes = engine::render_png(&data, &labels, &RenderOptions::default())
             .map_err(|e| e.to_string())?;
         admit(cancelled)?;
@@ -222,6 +228,28 @@ pub fn render_cancellable(
         identity.unchanged(audio)
     })
 }
+fn image_labels(
+    audio: &Path,
+    title: Option<&str>,
+    info: &flaccompagnon_core::BasicInfo,
+) -> ImageLabels {
+    ImageLabels {
+        generator: "Aède".into(),
+        title: title
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                audio
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            }),
+        artist: String::new(),
+        audio_description: engine::audio_description(info),
+    }
+}
+
 fn admit(cancelled: &dyn Fn() -> bool) -> Result<(), String> {
     if cancelled() {
         return Err("spectrogram generation cancelled".into());
@@ -234,6 +262,12 @@ fn publish_with(
     render: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
     admit(cancelled)?;
+    if !picture
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+    {
+        return Err("Spectrogram destination must use a .png extension".into());
+    }
     let output = crate::copy::TemporaryOutput::new(picture)?;
     render(output.path())?;
     admit(cancelled)?;

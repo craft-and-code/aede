@@ -62,7 +62,7 @@ Version 0.7.5 prepares separate **CLI** and **App** downloads. The [Aède deskto
 
 - **Rust Toolchain:** Rust compiler (1.89+) and `cargo`, including `rustfmt` and `clippy`.
 - **Python 3.9+:** Standard library only, for the published-release build helper.
-- **FFmpeg (Optional, Recommended):** Required for on-the-fly transcoding (`aede copy --compress`) and acoustic spectrogram generation (`aede spectrum`).
+- **FFmpeg (Optional, Recommended):** Used for optional on-the-fly transcoding (`aede copy --compress`), fingerprint workflows and explicit compatibility decoding outside the native format profiles. Admitted PCM and DSF/DFF DSD64/128 mono/stereo spectrograms use native decoding and the shared Rust renderer.
 
 ### System Dependencies
 
@@ -326,7 +326,7 @@ disappears; `aede doctor --severity=info` then makes it visible.
 | Command           | Arguments       | Key Options                                                                                                                             | Description                                                                                            |
 | :---------------- | :-------------- | :-------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------- |
 | `aede copy`       | `<destination>` | `--query`, `--collection`, `--compress <fmt>`, `--quality <q>`, `--extras <mode>`, `--verify`, `--safe-names`, `--dry-run`, `--threads` | Copies audio to external devices, preserving folder layouts and transcoding lossless files on the fly. |
-| `aede spectrum`   | `[path]`        | `--size <half\|full>`, `--dry-run`, `--full`, `--threads`                                                                               | Generates $900 \times 470$ or $1800 \times 940$ FFT acoustic spectrogram PNGs via FFmpeg.              |
+| `aede spectrum` | `[path]` | `--size <standard\|full>` (`half` alias), `--dry-run`, `--full`, `--threads` | Generates native Rust lossless PNG spectrograms: green, 1200×627 or 1800×940; admitted PCM and DSD profiles need no FFmpeg. |
 | `aede playlist`   | `[path]`        | `--simple`, `--artists`, `--dry-run`                                                                                                    | Writes relative `.m3u` playlist files directly into physical album directories.                        |
 | `aede collection` | `<name>`        | `--query <expr>`, `--m3u`, `--csv`, `--json`, `--remove`                                                                                | Defines or manages dynamic, self-refreshing smart playlists.                                           |
 | `aede export`     | None            | `--csv`, `--tracks`, `--graph`, `--json`, `--output=<file>`                                                                             | Export the catalog, a flat table, or every attributed graph layer in one JSON document.                |

@@ -28,6 +28,7 @@ component "flaccompagnon\nDesktop App" as FApp
 component "flaccompagnon-cli\nCommand-line analysis" as FCli
 component "flaccompagnon-services\nTags / conversion / organization" as FServices
 component "flaccompagnon-core\nAnalysis / integrity / reports" as FCore #3B4930
+component "flaccompagnon-spectrogram\nSpectral engine / lossless PNG" as FSpectrogram #3B4930
 }
 package "Aède" {
 component "aede-desktop\nServer desktop console" as AApp
@@ -51,6 +52,7 @@ FApp --> FServices
 FApp --> FCore
 FCli --> FCore
 FServices --> FCore
+FCore --> FSpectrogram
 FApp -[#D8F36A]-> AAudio : output
 FCore -[#D8F36A]-> AAudio : decode
 AApp --> AConsole

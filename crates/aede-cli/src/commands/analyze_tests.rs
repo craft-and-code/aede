@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn corrected_native_codecs_do_not_reuse_unversioned_reports() {
+    let directory =
+        std::env::temp_dir().join(format!("aede-decoder-report-reuse-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("source.audio");
+    std::fs::write(&path, b"retained input").unwrap();
+    let mut file = fc::analyze_file(&path, &ScanOptions::default());
+    file.error = None;
+    file.decoder_provenance = None;
+    file.format = "WavPack".into();
+    file.codec = Some("WavPack".into());
+    file.channels = 2;
+    file.declared_bits = None;
+    assert!(!reusable(&file, &path));
+    file.decoder_provenance = Some(fc::provenance::DECODER_PROVENANCE.into());
+    assert!(reusable(&file, &path));
+    file.decoder_provenance = None;
+    file.format = "ALAC/MP4".into();
+    file.codec = Some("ALAC".into());
+    file.channels = 6;
+    file.declared_bits = Some(24);
+    assert!(!reusable(&file, &path));
+    file.decoder_provenance = Some(fc::provenance::DECODER_PROVENANCE.into());
+    assert!(reusable(&file, &path));
+    assert_eq!(std::fs::read(path).unwrap(), b"retained input");
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn an_unavailable_album_does_not_block_other_catalogued_folders() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

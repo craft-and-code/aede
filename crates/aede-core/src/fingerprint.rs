@@ -25,7 +25,7 @@
 //!
 //! - **ffmpeg**, *when* it was built with `--enable-chromaprint`. Debian and
 //!   Ubuntu build it that way, so on those machines this is no new dependency
-//!   at all — Aède already requires ffmpeg for `spectrum` and
+//!   at all — Aède already uses optional ffmpeg for DSD and
 //!   `copy --compress`.
 //! - **`fpcalc`**, the tool Chromaprint itself ships. Canonical, and the one
 //!   AcoustID's own documentation names.

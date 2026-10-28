@@ -656,7 +656,7 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 [[package]]
 name = "flaccompagnon-core"
 version = "0.10.0"
-source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=bd3e0a5aa303d144a7d954ca07ef33b2606a0384#bd3e0a5aa303d144a7d954ca07ef33b2606a0384"
+source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=066458e1d8214f30ab60eef89f83a40cc93f9c09#066458e1d8214f30ab60eef89f83a40cc93f9c09"
 dependencies = [
  "aede-audio",
  "claxon",
@@ -676,7 +676,7 @@ dependencies = [
 [[package]]
 name = "flaccompagnon-spectrogram"
 version = "0.10.0"
-source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=bd3e0a5aa303d144a7d954ca07ef33b2606a0384#bd3e0a5aa303d144a7d954ca07ef33b2606a0384"
+source = "git+https://github.com/craft-and-code/FlacCompagnon?rev=066458e1d8214f30ab60eef89f83a40cc93f9c09#066458e1d8214f30ab60eef89f83a40cc93f9c09"
 dependencies = [
  "fontdue",
  "png",

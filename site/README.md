@@ -113,3 +113,7 @@ python3 tools/render-ecosystem-diagrams.py --jar /path/to/plantuml.jar
 ```
 
 Rendering uses Smetana and the SANDBOX security profile; source diagrams are not sent to a remote service. PlantUML is an optional authoring tool, not a website-build/runtime dependency. The normal site workflow publishes the checked-in assets on a push to main, without an Aède version/tag change. Update the shared node/edge definitions and both translations together when the crate architecture changes.
+
+## Link sharing preview
+
+Open Graph and Twitter image metadata use localized 1200×630 PNG cards (`assets/og-image-v2.png` and `assets/og-image-v2-en.png`), with current vector wordmark and site artwork. The editable SVG sources live alongside them. To regenerate after editing, use an SVG renderer such as `rsvg-convert` (an optional authoring tool, not a site build dependency). The publisher writes the same localized image metadata on home and documentation pages; it never captures an App or contacts a remote image service. A new filename avoids reusing the earlier image URL. Sharing services can retain an already fetched page preview until their next rescrape; updating authored files alone does not deploy the site.

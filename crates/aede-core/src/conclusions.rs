@@ -117,6 +117,10 @@ pub fn to_json(conclusions: &Conclusions) -> Json {
     let mut root = Json::obj();
     root.set("format_version", FORMAT_VERSION.into());
     root.set("loudness_method_version", LOUDNESS_METHOD_VERSION.into());
+    root.set(
+        "loudness_decoder_revision",
+        crate::PCM_DECODER_PROVENANCE.into(),
+    );
     let mut files = Vec::with_capacity(conclusions.files.len());
     for (path, record) in &conclusions.files {
         let mut row = Json::obj();
@@ -315,7 +319,12 @@ pub fn from_json(value: &Json) -> Result<Conclusions, StoreError> {
     for row in value.get("analysis").and_then(Json::as_arr).unwrap_or(&[]) {
         result.analyses.push(store::analysis_from_json(row)?);
     }
-    if value.field_u32("loudness_method_version") == Some(LOUDNESS_METHOD_VERSION) {
+    if value.field_u32("loudness_method_version") == Some(LOUDNESS_METHOD_VERSION)
+        && value
+            .get("loudness_decoder_revision")
+            .and_then(Json::as_str)
+            == Some(crate::PCM_DECODER_PROVENANCE)
+    {
         for row in value
             .get("loudness_track")
             .and_then(Json::as_arr)

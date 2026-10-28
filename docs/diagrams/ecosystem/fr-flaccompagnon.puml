@@ -28,6 +28,7 @@ component "flaccompagnon\nApp desktop" as FApp
 component "flaccompagnon-cli\nAnalyse en ligne de commande" as FCli
 component "flaccompagnon-services\nTags / conversion / organisation" as FServices
 component "flaccompagnon-core\nAnalyse / intégrité / rapports" as FCore #3B4930
+component "flaccompagnon-spectrogram\nSpectrogrammes / PNG sans perte" as FSpectrogram #3B4930
 }
 package "Aède · socle partagé" {
 component "aede-audio\nDécodage / files PCM / sortie minimale" as AAudio #3B4930
@@ -38,6 +39,7 @@ FApp --> FServices
 FApp --> FCore
 FCli --> FCore
 FServices --> FCore
+FCore --> FSpectrogram
 FApp -[#D8F36A]-> AAudio : output
 FCore -[#D8F36A]-> AAudio : decode
 legend bottom

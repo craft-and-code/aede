@@ -372,6 +372,7 @@ fn reusable(file: &fc::FileAnalysis, path: &Path) -> bool {
     // Native analysis requests every measurement, even when a valid upstream
     // report was deliberately restricted to a smaller selection.
     if file.error.is_some()
+        || !file.decoder_is_current()
         || !file.covers_selection(fc::AnalysisSelection::all())
         || Path::new(&file.path) != path
     {

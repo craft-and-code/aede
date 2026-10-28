@@ -3,8 +3,7 @@ use png::text_metadata::{EncodableTextChunk, TEXtChunk};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::Read, path::Path, time::UNIX_EPOCH};
 const KEY: &str = "AedeSpectrum";
-const GENERATION: &str =
-    "rust-spectrum-v1-dsd-wideband-v1-opus-v2-alac-config-v5-aac-edit-v2-native-extra-v3";
+const GENERATION: &str = "rust-spectrum-v1-dsd-wideband-v1-opus-v2-alac-config-v5-aac-edit-v2-native-extra-v3-green-standard-v1";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Input {
     size: u64,
@@ -43,6 +42,8 @@ impl Input {
 #[derive(Serialize, Deserialize)]
 struct Stamp {
     generation: String,
+    #[serde(default)]
+    decoder_provenance: String,
     input: Input,
     decoder: String,
 }
@@ -58,6 +59,7 @@ pub(super) fn stamp(mut png: Vec<u8>, input: Input, decoder: &str) -> Result<Vec
     let suffix = png.split_off(33);
     let record = serde_json::to_string(&Stamp {
         generation: GENERATION.into(),
+        decoder_provenance: crate::PCM_DECODER_PROVENANCE.into(),
         input,
         decoder: decoder.into(),
     })
@@ -98,5 +100,7 @@ pub(super) fn current(audio: &Path, picture: &Path) -> bool {
     let Ok(record) = serde_json::from_str::<Stamp>(&records[0].text) else {
         return false;
     };
-    record.generation == GENERATION && record.input == input
+    record.generation == GENERATION
+        && record.decoder_provenance == crate::PCM_DECODER_PROVENANCE
+        && record.input == input
 }

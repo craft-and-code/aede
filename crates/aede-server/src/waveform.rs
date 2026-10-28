@@ -73,10 +73,11 @@ async fn read(
             source.mtime_subseconds,
         )
             .hash(&mut hash);
-        let path = state
-            .data_dir
-            .join("waveforms")
-            .join(format!("v1-{:016x}.json", hash.finish()));
+        let path = state.data_dir.join("waveforms").join(format!(
+            "v1-{}-{:016x}.json",
+            aede_core::PCM_DECODER_PROVENANCE,
+            hash.finish()
+        ));
         if let Ok(metadata) = fs::symlink_metadata(&path)
             && metadata.is_file()
             && !metadata.file_type().is_symlink()

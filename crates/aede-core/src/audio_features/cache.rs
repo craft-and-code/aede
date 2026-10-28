@@ -25,8 +25,12 @@ pub struct Record {
 }
 fn location(root: &Path, input: &InputIdentity) -> PathBuf {
     let token = format!(
-        "{}\0{}\0{}\0{}",
-        input.path, input.size, input.modified, input.nanos
+        "{}\0{}\0{}\0{}\0{}",
+        crate::PCM_DECODER_PROVENANCE,
+        input.path,
+        input.size,
+        input.modified,
+        input.nanos
     );
     let hash = Md5::digest(token.as_bytes());
     root.join(format!("acoustic-v{}", aede_moods::PROFILE))

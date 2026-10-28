@@ -61,3 +61,6 @@ pub mod wikipedia;
 
 /// Version of the linked FlacCompagnon core from the workspace lockfile.
 pub const FLACCOMPAGNON_VERSION: &str = env!("FLACCOMPAGNON_VERSION");
+/// Decoder provenance used to expire PCM-derived caches after shared codec corrections.
+/// This is independent of report schemas and acoustic measurement definitions.
+pub const PCM_DECODER_PROVENANCE: &str = flaccompagnon_core::provenance::DECODER_PROVENANCE;

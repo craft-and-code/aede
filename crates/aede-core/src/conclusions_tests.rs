@@ -13,6 +13,45 @@ fn malformed_present_tables_are_not_read_as_empty_conclusions() {
 }
 
 #[test]
+fn legacy_decoder_loudness_is_expired_without_erasing_attributed_reports() {
+    let mut stored = Conclusions::default();
+    stored.loudness_tracks.insert(
+        "/music/float.wv".into(),
+        CachedTrack {
+            size: 42,
+            mtime: 7,
+            mtime_subseconds: Some(0),
+            measurement: None,
+        },
+    );
+    stored.loudness_programmes.push(CachedProgramme {
+        files: vec![ProgrammeFile {
+            path: "/music/float.wv".into(),
+            size: 42,
+            mtime: 7,
+            mtime_subseconds: Some(0),
+        }],
+        measurement: None,
+    });
+    let imported = FileAnalysis {
+        path: "/music/float.wv".into(),
+        source: "flaccompagnon".into(),
+        integrated_lufs: Some(-16.),
+        ..Default::default()
+    };
+    stored.analyses.push(imported.clone());
+    let mut legacy = to_json(&stored);
+    if let Json::Obj(fields) = &mut legacy {
+        fields.remove("loudness_decoder_revision");
+    }
+    let restored = from_json(&legacy).unwrap();
+    assert!(restored.loudness_tracks.is_empty());
+    assert!(restored.loudness_programmes.is_empty());
+    assert_eq!(restored.analyses, vec![imported]);
+    assert_eq!(stored.loudness_tracks.len(), 1);
+}
+
+#[test]
 fn malformed_analysis_rows_are_refused_without_rewriting_either_store() {
     #[cfg(unix)]
     let directory = crate::store_lock::test_support::Directory::new("analysis_rows");

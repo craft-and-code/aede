@@ -2,9 +2,9 @@
 
 La version candidate de spectrum dessine des spectrogrammes à côté de la musique cataloguée avec le moteur Rust partagé de FlacCompagnon pour la FFT et le PNG. Ils montrent les fréquences dans le temps ; une coupure visuelle aide l’enquête mais ne prouve pas à elle seule un transcodage.
 
-Le PCM natif et le profil DSF/DFF DSD64/128 mono/stéréo ne nécessitent aucun exécutable FFmpeg. Les codecs et profils FLAC 32 bits non gérés par les lecteurs natifs conservent un décodage externe optionnel ; calcul spectral et dessin restent en Rust. Ce raccordement attend une publication coordonnée des composants : les versions actuellement installées ne changent pas.
+La zone spectrale verte standard mesure 1200×627 par défaut ; --size full choisit 1800×940. half reste un alias de standard. Le PCM natif et le profil DSF/DFF DSD64/128 mono/stéréo ne nécessitent aucun exécutable FFmpeg. Les configurations non admises conservent un décodage externe optionnel ; calcul spectral et dessin restent en Rust.
 
-Les images sont en demi-taille par défaut ; --size full choisit la taille complète. Les images portant une empreinte de génération à jour sont conservées sans --full, même si la taille demandée a changé. Les anciennes images sans cette version sont régénérées une fois ; la fraîcheur compare la taille du fichier et sa date complète, nanosecondes comprises. --dry-run liste les résultats prévus sans dessin ; --threads règle le parallélisme.
+Les images portant une empreinte de génération à jour sont conservées sans --full, même si la taille demandée a changé. Les anciennes images sans cette version sont régénérées une fois ; la fraîcheur compare la taille du fichier et sa date complète, nanosecondes comprises. --dry-run liste les résultats prévus sans dessin ; --threads règle le parallélisme. Ces API candidates attendent une publication coordonnée.
 
 Les valeurs invalides de `--threads` sont refusées avant tout traitement, même pour une sélection vide, des images à jour ou un aperçu `--dry-run`.
 
@@ -25,7 +25,7 @@ Dossiers catalogués facultatifs ; sans argument : tout le catalogue.
 | Option | Effet |
 | --- | --- |
 | `--full` | Redessiner les spectrogrammes existants, notamment après changement de taille. |
-| `--size VALUE` | Avec fetch --covers : 250, 500, 1200 (défaut) ou original. Avec spectrum : half (défaut) ou full. |
+| `--size VALUE` | Avec fetch --covers : 250, 500, 1200 (défaut) ou original. Avec spectrum : standard (défaut) ou full ; half reste un alias. |
 | `--threads N` | Nombre de traitements parallèles. Un entier positif fixe ce nombre ; 0 le choisit automatiquement. La copie simple utilise un traitement par défaut. |
 | `--dry-run` | Afficher le travail prévu sans télécharger ni créer de résultats. Les outils et entrées peuvent être vérifiés. |
 

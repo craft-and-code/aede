@@ -132,6 +132,37 @@ pub struct FileAnalysis {
 }
 
 impl FileAnalysis {
+    /// Whether an imported report is current enough to drive fresh decoded-audio decisions.
+    /// Historical reports remain attached and readable when decoder provenance is old.
+    pub fn decoder_is_current(&self) -> bool {
+        let source = self.source_data.as_ref();
+        let format = source
+            .and_then(|source| source.get("format"))
+            .and_then(Json::as_str);
+        let codec = source
+            .and_then(|source| source.get("codec"))
+            .and_then(Json::as_str);
+        if format.is_none() && codec.is_none() {
+            // A legacy projection can describe a renamed container. Its suffix
+            // cannot establish decoder identity; retain it without gain reuse.
+            return false;
+        }
+        flaccompagnon_core::provenance::decoder_is_current(
+            format.unwrap_or_default(),
+            codec,
+            // Unknown counts cannot prove the legacy ALAC mono/stereo exemption.
+            source
+                .and_then(|source| source.field_u64("channels"))
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|channels| *channels > 0)
+                .unwrap_or(usize::MAX),
+            source.and_then(|source| source.field_u32("declared_bits")),
+            source
+                .and_then(|source| source.get("decoder_provenance"))
+                .and_then(Json::as_str),
+        )
+    }
+
     /// `true` when the analysis still describes the file as it is now.
     ///
     /// Uses the source report's unchanged size and whole-second modification

@@ -39,6 +39,7 @@ component "aede-dsp\nAudio signal processing" as ADsp #3B4930
 }
 package "FlacCompagnon" {
 component "flaccompagnon-core\nAnalysis / integrity / reports" as FCore #3B4930
+component "flaccompagnon-spectrogram\nSpectral engine / lossless PNG" as FSpectrogram #3B4930
 }
 AApp --> AConsole
 ACli --> AServer
@@ -57,6 +58,7 @@ ACore --> AMoods
 ACore --> ADsp
 ACore --> AAudio : decode + dsp
 ACore -[#D8F36A]-> FCore
+FCore --> FSpectrogram
 AAudio --> ADsp
 AConsole -[#71CDE1,dashed]right-> ACli : starts a process
 legend bottom

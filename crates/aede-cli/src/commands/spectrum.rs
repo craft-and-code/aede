@@ -18,10 +18,8 @@ use crate::ui::{self, Align, Table};
 
 /// The size used when `--size` is not given.
 ///
-/// Half of FlacCompagnon's plotted graph, with a quarter of its plotted pixels.
-/// The final PNG includes legend margins; its encoded size depends on content
-/// and compression. The smaller graph is the default for library-wide runs,
-/// while `--size full` keeps FlacCompagnon's dimensions for comparisons.
+/// Shared standard plot, 1200×627, with a green palette and lossless PNG.
+/// The legacy Half variant remains an API/CLI compatibility spelling.
 pub const DEFAULT_SIZE: spectrum::Size = spectrum::Size::Half;
 
 pub fn spectrum(args: &Args) -> Res {
@@ -31,8 +29,9 @@ pub fn spectrum(args: &Args) -> Res {
     let redraw_everything = args.has("full");
     let dry_run = args.has("dry-run");
     let size = match args.value("size") {
-        Some(text) => spectrum::Size::parse(text)
-            .ok_or_else(|| format!("--size takes full or half; \"{text}\" is neither"))?,
+        Some(text) => spectrum::Size::parse(text).ok_or_else(|| {
+            format!("--size takes standard, full or the legacy half alias; \"{text}\" is neither")
+        })?,
         None => DEFAULT_SIZE,
     };
 
@@ -66,7 +65,7 @@ pub fn spectrum(args: &Args) -> Res {
 
     if dry_run {
         let mut t = Table::new(&["Picture", "Track"]);
-        for (audio, picture) in work.iter().take(20) {
+        for (audio, picture, _) in work.iter().take(20) {
             t.push(vec![
                 ui::literal(&picture.display().to_string()),
                 ui::literal(aede_core::text::file_name(&audio.display().to_string())),
@@ -80,26 +79,31 @@ pub fn spectrum(args: &Args) -> Res {
         return Ok(());
     }
 
-    // Resolve only if a codec actually needs the optional fallback. Native
-    // PCM/DSD batches do not even probe an external executable.
+    // Resolve only when the selected native source requires compatibility.
     let program = OnceLock::new();
-
     let total = work.len();
     let threads = aede_core::scan::resolve_threads(requested_threads).min(total.max(1));
-    draw_pictures(work, threads, |audio, picture| {
-        spectrum::render_cancellable(audio, picture, size, &|| false, &|| {
-            program
-                .get_or_init(ffmpeg::find)
-                .clone()
-                .ok_or_else(|| ffmpeg::missing("decoding this spectrogram format"))
-        })
+    draw_pictures(work, threads, |audio, picture, title| {
+        spectrum::render_cancellable_with_title(
+            audio,
+            picture,
+            size,
+            Some(title),
+            &|| false,
+            &|| {
+                program
+                    .get_or_init(ffmpeg::find)
+                    .clone()
+                    .ok_or_else(|| ffmpeg::missing("decoding this spectrogram format"))
+            },
+        )
     })
 }
 
 fn draw_pictures(
-    work: Vec<(PathBuf, PathBuf)>,
+    work: Vec<(PathBuf, PathBuf, String)>,
     threads: usize,
-    draw: impl Fn(&Path, &Path) -> Result<(), String> + Sync,
+    draw: impl Fn(&Path, &Path, &str) -> Result<(), String> + Sync,
 ) -> Res {
     let total = work.len();
     let queue = Mutex::new(work);
@@ -110,9 +114,9 @@ fn draw_pictures(
         for _ in 0..threads {
             scope.spawn(|| {
                 // A poisoned lock must not abandon the rest of the work:
-                // one worker that panicked is not a reason to stop drawing.
-                while let Some((audio, picture)) = super::take_queued(&queue) {
-                    if let Err(said) = draw(&audio, &picture) {
+                // one renderer that panicked is not a reason to stop drawing.
+                while let Some((audio, picture, title)) = super::take_queued(&queue) {
+                    if let Err(said) = draw(&audio, &picture, &title) {
                         failures
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -148,7 +152,7 @@ fn draw_pictures(
     print!("{}", t.render());
 
     if !failures.is_empty() {
-        super::print_failure_table("What ffmpeg could not draw", "File", &failures);
+        super::print_failure_table("What could not be drawn", "File", &failures);
         if failures.len() > 20 {
             println!(
                 "{}",
@@ -160,11 +164,15 @@ fn draw_pictures(
     Ok(())
 }
 
-/// The pictures that have to be drawn: `(track, picture)`.
+/// The pictures that have to be drawn: `(track, picture, title)`.
 ///
 /// Everything already drawn and still current is left out here rather than
 /// skipped later, so the count on screen is the work and not the library.
-fn to_draw(catalog: &Catalog, scope: &[String], everything: bool) -> Vec<(PathBuf, PathBuf)> {
+fn to_draw(
+    catalog: &Catalog,
+    scope: &[String],
+    everything: bool,
+) -> Vec<(PathBuf, PathBuf, String)> {
     catalog
         .files
         .iter()
@@ -173,7 +181,15 @@ fn to_draw(catalog: &Catalog, scope: &[String], everything: bool) -> Vec<(PathBu
             let audio = PathBuf::from(&file.path);
             let picture = spectrum::picture_for(&audio);
             let wanted = everything || spectrum::out_of_date(&audio, &picture);
-            wanted.then_some((audio, picture))
+            wanted.then(|| {
+                let title = file
+                    .tags
+                    .get("title")
+                    .and_then(|values| values.first())
+                    .cloned()
+                    .unwrap_or_default();
+                (audio, picture, title)
+            })
         })
         .collect()
 }

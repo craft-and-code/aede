@@ -54,12 +54,15 @@ fn observe_unsupported_file(session: &mut ReadyNormalization<'_>, path: &Path) {
 
 fn fresh_analysis(path: &Path) -> FileAnalysis {
     let file = loudness::identity(path).expect("file identity");
+    let mut source = crate::json::Json::obj();
+    source.set("format", "WAV".into());
     FileAnalysis {
         path: file.path,
         source: "flaccompagnon".into(),
         size_bytes: file.size,
         modified_unix: file.mtime,
         integrated_lufs: Some(-16.0),
+        source_data: Some(source),
         true_peak_dbtp: Some(-3.0),
         ..Default::default()
     }

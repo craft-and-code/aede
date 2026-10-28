@@ -2,9 +2,9 @@
 
 The candidate spectrum implementation draws images beside selected catalogued music using FlacCompagnon's shared Rust FFT and PNG renderer. A spectrogram shows frequency content over time; a visual cutoff can inform an investigation but is not by itself proof that audio was transcoded.
 
-Native PCM and the admitted DSF/DFF DSD64/128 mono/stereo profile need no FFmpeg executable. Codecs and 32-bit FLAC modes outside the available native decoders retain optional external decoding only; FFT and rendering stay in Rust. See the delivery boundary in the detailed guide below.
+The standard green 1200×627 plot is the default; --size full uses 1800×940. The legacy half spelling selects standard. Native PCM and the admitted DSF/DFF DSD64/128 mono/stereo profile need no FFmpeg executable. Unsupported native configurations retain explicit optional compatibility decoding; FFT and rendering stay in Rust.
 
-Half-size images are the default; --size full uses the full drawing size. Current version-stamped pictures are reused unless --full is supplied, including when only the size changed. Historical unstamped images regenerate once; freshness compares source size and the full modification timestamp. --dry-run lists planned outputs without drawing, and --threads controls concurrent work.
+Current version-stamped pictures are reused unless --full is supplied, including when only the size changed. Historical unstamped images regenerate once; freshness compares source size and its full modification timestamp. --dry-run lists planned outputs without drawing, and --threads controls concurrent work. Shared candidate APIs still require coordinated publication.
 
 Invalid `--threads` values are refused before work, including empty selections, already-current pictures and `--dry-run` previews.
 
@@ -25,7 +25,7 @@ Optional catalogued folders; no argument covers the catalog.
 | Option | Meaning |
 | --- | --- |
 | `--full` | Redraw existing spectrograms, including when changing the requested size. |
-| `--size VALUE` | With fetch --covers: 250, 500, 1200 (default) or original. With spectrum: half (default) or full. |
+| `--size VALUE` | With fetch --covers: 250, 500, 1200 (default) or original. With spectrum: standard (default) or full; half remains an alias. |
 | `--threads N` | Number of worker threads. A positive integer fixes the count; 0 selects an automatic count. Plain copying defaults to one worker. |
 | `--dry-run` | Preview the work without making downloads or creating outputs. It can still validate tools and inputs. |
 

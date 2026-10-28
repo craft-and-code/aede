@@ -22,7 +22,7 @@ Le volume manquant est mesuré sur le PCM original décodé **avant** mélange d
 
 Une piste interrompue/sautée/en erreur n’est pas enregistrée comme mesure complète. La capture album exige toutes ses pistes dans l’ordre, sans interruption. Sans tags/cache album valides, le niveau actuel reste inchangé plutôt que s’adapter piste par piste. Un fichier modifié invalide la capture. Silence, programme insuffisant ou agencement source non pris en charge peuvent empêcher une mesure LUFS exploitable : l’inconnu reste explicite, sans inventer les positions des canaux.
 
-La méthode actuelle du cache dérivé est version 5 ; les versions antérieures sont rejetées car certaines limites de décodage/crêtes finales et l’identité à la seconde pouvaient réutiliser des valeurs incorrectes ou périmées. Les analyses FlacCompagnon importées restent distinctes et ne sont pas effacées par cette invalidation. Un résultat importé périmé demeure une information, sans devenir silencieusement une décision de gain actuelle.
+La méthode actuelle du cache dérivé est version 5 ; les versions antérieures sont rejetées car certaines limites de décodage/crêtes finales et l’identité à la seconde pouvaient réutiliser des valeurs incorrectes ou périmées. La provenance du décodeur invalide séparément les mesures dérivées après une correction des codecs partagés. Les analyses FlacCompagnon importées restent distinctes et ne sont pas effacées par cette invalidation. Les anciens résultats des décodeurs concernés et les anciennes projections sans identité de codec demeurent des informations, mais exigent une nouvelle analyse avant de fournir une décision de gain.
 
 ## Limites des mesures
 

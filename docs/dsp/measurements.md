@@ -22,7 +22,7 @@ Missing loudness is observed from original decoded PCM **before** downmix, rate 
 
 An interrupted/skipped/failed track cannot be saved as a complete track measurement. Album capture needs every track of the complete uninterrupted programme in order. Without valid album tags/cache, the current album keeps an unchanged level rather than adopting each track's loudness independently. A file changed during playback invalidates capture. Silence, insufficient measurable programme or an unsupported source layout can yield no usable LUFS; unknown is kept explicit rather than computed from an unlabelled channel guess.
 
-The current derived loudness-cache method is version 5; older derived caches are discarded because earlier boundary/true-peak handling and whole-second source identity could reuse incorrect or stale values. Imported FlacCompagnon analysis remains distinct and is not erased by that cache invalidation. A stale imported result remains evidence but is not silently used as a fresh gain decision.
+The current derived loudness-cache method is version 5; older derived caches are discarded because earlier boundary/true-peak handling and whole-second source identity could reuse incorrect or stale values. Decoder provenance expires derived measurements separately after shared codec corrections. Imported FlacCompagnon analysis remains distinct and is not erased by that cache invalidation. Affected old decoder results, and legacy projections without codec identity, remain evidence but require a fresh analysis before supplying a gain decision.
 
 ## Measurement limits
 

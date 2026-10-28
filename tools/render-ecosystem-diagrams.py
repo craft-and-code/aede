@@ -11,6 +11,7 @@ NODES = {
     "FCli": ("flaccompagnon-cli", "Command-line analysis", "Analyse en ligne de commande"),
     "FServices": ("flaccompagnon-services", "Tags / conversion / organization", "Tags / conversion / organisation"),
     "FCore": ("flaccompagnon-core", "Analysis / integrity / reports", "Analyse / intégrité / rapports"),
+    "FSpectrogram": ("flaccompagnon-spectrogram", "Spectral engine / lossless PNG", "Spectrogrammes / PNG sans perte"),
     "AApp": ("aede-desktop", "Server desktop console", "Console desktop du serveur"),
     "AConsole": ("aede-desktop-core", "Configuration / process lifecycle", "Configuration / cycle de vie"),
     "ACli": ("aede-cli", "Commands / server process", "Commandes / processus serveur"),
@@ -27,8 +28,8 @@ NODES = {
     "PTransfer": ("phemios-transfer", "Portable-device transfers", "Transferts vers les périphériques"),
 }
 EDGES = {
-    "flaccompagnon": [("FApp", "FServices"), ("FApp", "FCore"), ("FCli", "FCore"), ("FServices", "FCore"), ("FApp", "AAudio", "output"), ("FCore", "AAudio", "decode")],
-    "aede": [("AApp", "AConsole"), ("ACli", "AServer"), ("ACli", "ACore"), ("ACli", "ADevices"), ("ACli", "ADsp"), ("ACli", "AAudio", "queue"), ("ACli", "FCore"), ("AServer", "ACore"), ("AServer", "ADevices"), ("AServer", "AMoods"), ("AServer", "ADsp"), ("ADevices", "ACore"), ("ACore", "AAccounts"), ("ACore", "AMoods"), ("ACore", "ADsp"), ("ACore", "AAudio", "decode + dsp"), ("ACore", "FCore"), ("AAudio", "ADsp")],
+    "flaccompagnon": [("FApp", "FServices"), ("FApp", "FCore"), ("FCli", "FCore"), ("FServices", "FCore"), ("FCore", "FSpectrogram"), ("FApp", "AAudio", "output"), ("FCore", "AAudio", "decode")],
+    "aede": [("AApp", "AConsole"), ("ACli", "AServer"), ("ACli", "ACore"), ("ACli", "ADevices"), ("ACli", "ADsp"), ("ACli", "AAudio", "queue"), ("ACli", "FCore"), ("AServer", "ACore"), ("AServer", "ADevices"), ("AServer", "AMoods"), ("AServer", "ADsp"), ("ADevices", "ACore"), ("ACore", "AAccounts"), ("ACore", "AMoods"), ("ACore", "ADsp"), ("ACore", "AAudio", "decode + dsp"), ("ACore", "FCore"), ("FCore", "FSpectrogram"), ("AAudio", "ADsp")],
     "phemios": [("PApp", "PCore"), ("PApp", "PCd"), ("PApp", "PTransfer"), ("PCore", "PCd"), ("PCore", "AAudio", "queue"), ("AAudio", "ADsp")],
 }
 STYLE = '''!pragma layout smetana
@@ -58,7 +59,7 @@ hide stereotype
 
 def node(alias, language):
     name, english, french = NODES[alias]
-    color = " #3B4930" if alias in ("FCore", "AAudio", "ADsp") else ""
+    color = " #3B4930" if alias in ("FCore", "FSpectrogram", "AAudio", "ADsp") else ""
     return f'component "{name}\\n{french if language == "fr" else english}" as {alias}{color}'
 
 
@@ -69,14 +70,14 @@ def diagram(kind, language):
     if kind == "overview":
         for alias, label in [("Flac", "FlacCompagnon\\nApp + flaccompagnon-cli"), ("Aede", "Aède\\nApp + aede-cli + API"), ("Phemios", "Phémios\\nApp")]:
             lines.append(f'component "{label}" as {alias}')
-        lines += [node(alias, language) for alias in ("FCore", "AAudio", "ADsp")]
-        lines += ["Flac -[hidden]right-> Aede", "Aede -[hidden]right-> Phemios", 'Flac -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Aede -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Flac -[#D8F36A]-> AAudio : ' + ("lecture minimale" if fr else "minimal playback"), 'Aede -[#D8F36A]-> AAudio : ' + ("décodage / PCM" if fr else "decoding / PCM"), 'Phemios -[#D8F36A]-> AAudio : ' + ("files PCM" if fr else "PCM queues"), "AAudio --> ADsp", 'Phemios -[#71CDE1,dashed]left-> Aede : HTTPS / WSS']
+        lines += [node(alias, language) for alias in ("FCore", "FSpectrogram", "AAudio", "ADsp")]
+        lines += ["Flac -[hidden]right-> Aede", "Aede -[hidden]right-> Phemios", 'Flac -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Aede -[#D8F36A]-> FCore : ' + ("analyse" if fr else "analysis"), 'Flac -[#D8F36A]-> AAudio : ' + ("lecture minimale" if fr else "minimal playback"), 'Aede -[#D8F36A]-> AAudio : ' + ("décodage / PCM" if fr else "decoding / PCM"), 'Phemios -[#D8F36A]-> AAudio : ' + ("files PCM" if fr else "PCM queues"), "FCore --> FSpectrogram", "AAudio --> ADsp", 'Phemios -[#71CDE1,dashed]left-> Aede : HTTPS / WSS']
     else:
         groups = {
-            "flaccompagnon": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore"]), ("Aède · socle partagé" if fr else "Aède · shared foundation", ["AAudio", "ADsp"])],
-            "aede": [("Console desktop" if fr else "Desktop console", ["AApp", "AConsole"]), ("Moteur Aède" if fr else "Aède engine", ["ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("FlacCompagnon", ["FCore"])],
+            "flaccompagnon": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore", "FSpectrogram"]), ("Aède · socle partagé" if fr else "Aède · shared foundation", ["AAudio", "ADsp"])],
+            "aede": [("Console desktop" if fr else "Desktop console", ["AApp", "AConsole"]), ("Moteur Aède" if fr else "Aède engine", ["ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("FlacCompagnon", ["FCore", "FSpectrogram"])],
             "phemios": [("Phémios", ["PApp", "PCore", "PCd", "PTransfer"]), ("Aède · socle partagé" if fr else "Aède · shared foundation", ["AAudio", "ADsp"])],
-            "complete": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore"]), ("Aède", ["AApp", "AConsole", "ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("Phémios", ["PApp", "PCore", "PCd", "PTransfer"])],
+            "complete": [("FlacCompagnon", ["FApp", "FCli", "FServices", "FCore", "FSpectrogram"]), ("Aède", ["AApp", "AConsole", "ACli", "AServer", "ADevices", "ACore", "AAccounts", "AMoods", "AAudio", "ADsp"]), ("Phémios", ["PApp", "PCore", "PCd", "PTransfer"])],
         }
         for label, aliases in groups[kind]:
             lines += [f'package "{label}" {{'] + [node(alias, language) for alias in aliases] + ["}"]
