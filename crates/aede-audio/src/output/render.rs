@@ -41,6 +41,13 @@ fn render<T: SizedSample + FromSample<f32>>(
         signals.finished.store(true, Ordering::Release);
     }
 }
+fn handle_output_error(kind: cpal::ErrorKind, signals: &Signals) {
+    // CPAL's Xrun reports a missed deadline without invalidating the stream.
+    // Retiring the producer here turns one recoverable glitch into a permanent stop.
+    if !matches!(kind, cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::Xrun) {
+        signals.failed.store(true, Ordering::Release);
+    }
+}
 pub(super) fn build(
     device: &cpal::Device,
     config: SupportedStreamConfig,
@@ -55,11 +62,7 @@ pub(super) fn build(
                 .build_output_stream(
                     config.config(),
                     move |data: &mut [$ty], _| render(data, &mut ring, &signals, &gain),
-                    move |error| {
-                        if error.kind() != cpal::ErrorKind::DeviceChanged {
-                            failed.failed.store(true, Ordering::Release);
-                        }
-                    },
+                    move |error| handle_output_error(error.kind(), &failed),
                     None,
                 )
                 .map_err(|e| e.to_string())

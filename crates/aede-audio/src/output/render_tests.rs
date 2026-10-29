@@ -207,3 +207,44 @@ fn native_integer_output_formats_keep_full_scale_and_digital_silence() {
     check!(u32, 2_147_483_648);
     check!(u64, 9_223_372_036_854_775_808);
 }
+
+#[test]
+fn buffer_xrun_does_not_stop_queued_audio_or_reset_its_clock() {
+    let (mut producer, mut consumer) = pcm_queue::<f32>(2, 2, false).unwrap();
+    producer.write_samples(&[0.25, -0.25, 0.5, -0.5]).unwrap();
+    producer.close_input();
+    let signals = Signals::default();
+    signals.paused.store(false, Ordering::Release);
+    handle_output_error(cpal::ErrorKind::Xrun, &signals);
+    assert!(!signals.failed.load(Ordering::Acquire));
+    let mut output = [9_f32; 4];
+    render(&mut output, &mut consumer, &signals, &Gain::default());
+    assert_eq!(output, [0.25, -0.25, 0.5, -0.5]);
+    assert_eq!(signals.consumed.load(Ordering::Acquire), 2);
+    assert!(signals.finished.load(Ordering::Acquire));
+}
+
+#[test]
+fn unrecoverable_device_notifications_retire_preview_without_consuming_source() {
+    for kind in [
+        cpal::ErrorKind::DeviceNotAvailable,
+        cpal::ErrorKind::HostUnavailable,
+        cpal::ErrorKind::PermissionDenied,
+        cpal::ErrorKind::StreamInvalidated,
+        cpal::ErrorKind::Other,
+    ] {
+        let (mut producer, mut consumer) = pcm_queue::<f32>(2, 1, false).unwrap();
+        producer.write_samples(&[0.5, -0.5]).unwrap();
+        producer.close_input();
+        let signals = Signals::default();
+        signals.paused.store(false, Ordering::Release);
+        handle_output_error(kind, &signals);
+        handle_output_error(cpal::ErrorKind::Xrun, &signals);
+        let mut output = [9_f32; 2];
+        render(&mut output, &mut consumer, &signals, &Gain::default());
+        assert_eq!(output, [0., 0.], "{kind:?}");
+        assert_eq!(signals.consumed.load(Ordering::Acquire), 0, "{kind:?}");
+        assert!(!signals.finished.load(Ordering::Acquire), "{kind:?}");
+        assert!(signals.failed.load(Ordering::Acquire), "{kind:?}");
+    }
+}
